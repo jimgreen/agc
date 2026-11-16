@@ -449,6 +449,12 @@ def _current_control_value(device) -> float:
     return _power_value(device, "p_ctrl", "p_cur", "p", "p_set", default=0.0)
 
 
+def _is_remote_controlled(device) -> bool:
+    """Whether automatic AGC is allowed to change this device."""
+    state = str(getattr(device, "agc_control_state", "remote") or "remote").strip().lower()
+    return state not in {"local", "本地", "l"}
+
+
 def _device_float(device, attr_names: Tuple[str, ...], default=None):
     for attr_name in attr_names:
         value = _as_float(getattr(device, attr_name, None), None)
@@ -510,6 +516,10 @@ def _set_p_ctrl(
     upper: float,
 ) -> Tuple[float, float]:
     before = _current_control_value(device)
+    if not _is_remote_controlled(device):
+        # Local devices retain the setpoint supplied by their preset curve.
+        # Keep them in resource groups so balance checks still include output.
+        return before, before
     bounded = _clamp(target, lower, upper)
     deadband = _control_deadband(model, device, kind)
     if _is_running(device) and abs(bounded - before) <= deadband:

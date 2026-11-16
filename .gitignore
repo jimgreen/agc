@@ -5,3 +5,5 @@ __pycache__/
 venv/
 .env
 *.log
+web/data/*.json
+web/data/*.tmp
