@@ -9,8 +9,10 @@ model in memory, exposes a small JSON API, and serves the browser HMI from
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import os
+import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
@@ -33,6 +35,7 @@ import agc_ctrl  # noqa: E402  (the project is intentionally stdlib-only)
 WEB_DIR = Path(__file__).resolve().parent
 PUBLIC_DIR = WEB_DIR / "public"
 DATA_DIR = WEB_DIR / "data"
+DB_PATH = Path(os.environ.get("AGC_DB", DATA_DIR / "agc.db"))
 MODEL_FILE = Path(os.environ.get("AGC_MODEL", AGC_DIR / "model_real.e"))
 PORT = int(os.environ.get("AGC_WEB_PORT", "8765"))
 
@@ -64,6 +67,205 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+class AGCDatabase:
+    """SQLite persistence used by the Web HMI and its JSON APIs."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.lock = threading.RLock()
+        self.conn = sqlite3.connect(self.path, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        schema = (WEB_DIR / "agc_schema.sql").read_text(encoding="utf-8")
+        with self.lock:
+            self.conn.executescript(schema)
+            self.conn.commit()
+
+    @staticmethod
+    def _row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:
+        try:
+            return row[key]
+        except (IndexError, KeyError):
+            return default
+
+    def fetchall(self, sql: str, params: Iterable[Any] = ()) -> List[sqlite3.Row]:
+        with self.lock:
+            return list(self.conn.execute(sql, tuple(params)).fetchall())
+
+    def fetchone(self, sql: str, params: Iterable[Any] = ()) -> Optional[sqlite3.Row]:
+        with self.lock:
+            return self.conn.execute(sql, tuple(params)).fetchone()
+
+    def execute(self, sql: str, params: Iterable[Any] = ()) -> None:
+        with self.lock:
+            self.conn.execute(sql, tuple(params))
+            self.conn.commit()
+
+    def executemany(self, sql: str, rows: Iterable[Iterable[Any]]) -> None:
+        with self.lock:
+            self.conn.executemany(sql, list(rows))
+            self.conn.commit()
+
+    def settings(self) -> Dict[str, Any]:
+        rows = self.fetchall("SELECT name, value, value_type FROM system_settings ORDER BY name")
+        output: Dict[str, Any] = {}
+        for row in rows:
+            value = row["value"]
+            if row["value_type"] == "int":
+                value = _integer(value, 0)
+            elif row["value_type"] == "float":
+                value = _number(value)
+            output[str(row["name"])] = value
+        return output
+
+    def save_settings(self, values: Dict[str, Any], descriptions: Optional[Dict[str, str]] = None, control_mode: str = "closed_loop") -> None:
+        now = _utc_now()
+        descriptions = descriptions or {}
+        rows = []
+        for name, value in values.items():
+            value_type = "int" if isinstance(value, int) and not isinstance(value, bool) else "float" if isinstance(value, float) else "text"
+            rows.append((str(name), str(value), value_type, descriptions.get(str(name), ""), now))
+        rows.append(("CONTROL_MODE", str(control_mode), "text", "Web HMI 控制模式", now))
+        self.executemany(
+            """INSERT INTO system_settings(name, value, value_type, description, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(name) DO UPDATE SET value=excluded.value, value_type=excluded.value_type,
+                 description=excluded.description, updated_at=excluded.updated_at""",
+            rows,
+        )
+
+    def save_device(self, row: Dict[str, Any]) -> None:
+        now = _utc_now()
+        self.execute(
+            """INSERT INTO devices(kind, device_id, name, control_state, run_status, p_min, p_max,
+                 control_step, control_deadband, preset_power, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(kind, device_id) DO UPDATE SET name=excluded.name,
+                 control_state=excluded.control_state, run_status=excluded.run_status,
+                 p_min=excluded.p_min, p_max=excluded.p_max, control_step=excluded.control_step,
+                 control_deadband=excluded.control_deadband, preset_power=excluded.preset_power,
+                 updated_at=excluded.updated_at""",
+            (
+                str(row.get("kind", "")), str(row.get("device_id", "")), str(row.get("name", "")),
+                str(row.get("control_state", "remote")), _integer(row.get("run_status", 0)),
+                _number(row.get("p_min", 0)), _number(row.get("p_max", 0)),
+                _number(row.get("control_step", 0)), _number(row.get("control_deadband", 0)),
+                _number(row.get("preset_power", 0)), now,
+            ),
+        )
+
+    def device_rows(self) -> List[sqlite3.Row]:
+        return self.fetchall("SELECT * FROM devices ORDER BY kind, device_id")
+
+    def save_curve(self, kind: str, device_id: Any, curve: List[float]) -> None:
+        now = _utc_now()
+        with self.lock:
+            self.conn.execute("DELETE FROM device_curves WHERE kind=? AND device_id=?", (str(kind), str(device_id)))
+            self.conn.executemany(
+                "INSERT INTO device_curves(kind, device_id, point_index, minute_of_day, power, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                [(str(kind), str(device_id), index, index * 15, _number(value), now) for index, value in enumerate(curve[:96])],
+            )
+            self.conn.commit()
+
+    def curve(self, kind: str, device_id: Any) -> List[float]:
+        rows = self.fetchall("SELECT power FROM device_curves WHERE kind=? AND device_id=? ORDER BY point_index", (str(kind), str(device_id)))
+        return [_number(row["power"]) for row in rows]
+
+    def save_cycle(self, point: Dict[str, Any]) -> None:
+        summary = point.get("summary", {})
+        weather = point.get("weather", {})
+        self.execute(
+            """INSERT OR REPLACE INTO control_cycles(cycle, recorded_at, control_mode, running,
+                 load_power, renewable_power, storage_power, diesel_power, balance_power,
+                 wind_speed, solar_irradiance, env_temperature)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                _integer(point.get("cycle", 0)), str(point.get("timestamp", _utc_now())),
+                str(point.get("controlMode", "closed_loop")), int(bool(point.get("running", False))),
+                _number(summary.get("load")), _number(summary.get("renewable")), _number(summary.get("storage")),
+                _number(summary.get("diesel")), _number(summary.get("balance")),
+                _number(weather.get("wind_speed")), _number(weather.get("solor_irrad")), _number(weather.get("env_temp")),
+            ),
+        )
+        commands = point.get("commands", [])
+        if commands:
+            self.executemany(
+                """INSERT OR REPLACE INTO device_samples(cycle, recorded_at, kind, device_id, name,
+                     control_state, run_status, realtime_power, command_power, preset_power,
+                     control_step, control_deadband)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        _integer(row.get("cycle", point.get("cycle", 0))), str(row.get("timestamp", point.get("timestamp", _utc_now()))),
+                        str(row.get("kind", "")), str(row.get("id", "")), str(row.get("name", "")),
+                        str(row.get("controlState", "remote")), _integer(row.get("runStatus", 0)),
+                        _number(row.get("realtimePower")), _number(row.get("commandPower")), _number(row.get("presetPower")),
+                        _number(row.get("controlStep")), _number(row.get("controlDeadband")),
+                    ) for row in commands
+                ],
+            )
+
+    def history(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        rows = self.fetchall("SELECT * FROM control_cycles ORDER BY cycle DESC LIMIT ?", (max(1, min(limit, 5000)),))
+        output = []
+        for row in reversed(rows):
+            output.append({
+                "timestamp": row["recorded_at"], "cycle": row["cycle"], "controlMode": row["control_mode"], "running": bool(row["running"]),
+                "summary": {"load": row["load_power"], "renewable": row["renewable_power"], "storage": row["storage_power"], "diesel": row["diesel_power"], "balance": row["balance_power"]},
+                "weather": {"wind_speed": row["wind_speed"], "solor_irrad": row["solar_irradiance"], "env_temp": row["env_temperature"]},
+            })
+        return output
+
+    def commands(self, kind: str = "", device_id: Any = "", limit: int = 5000) -> List[Dict[str, Any]]:
+        clauses, params = [], []
+        if kind:
+            clauses.append("kind=?"); params.append(str(kind))
+        if device_id != "":
+            clauses.append("device_id=?"); params.append(str(device_id))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(max(1, min(limit, 10000)))
+        rows = self.fetchall(f"SELECT * FROM device_samples{where} ORDER BY id DESC LIMIT ?", params)
+        return [
+            {"timestamp": row["recorded_at"], "cycle": row["cycle"], "kind": row["kind"], "id": row["device_id"], "name": row["name"], "controlState": row["control_state"], "runStatus": row["run_status"], "realtimePower": row["realtime_power"], "commandPower": row["command_power"], "presetPower": row["preset_power"], "controlStep": row["control_step"], "controlDeadband": row["control_deadband"]}
+            for row in reversed(rows)
+        ]
+
+    def logs(self, keyword: str = "", level: str = "", limit: int = 300) -> List[Dict[str, str]]:
+        clauses, params = [], []
+        if keyword:
+            clauses.append("message LIKE ?"); params.append(f"%{keyword}%")
+        if level:
+            clauses.append("level=?"); params.append(level.upper())
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(max(1, min(limit, 5000)))
+        rows = self.fetchall(f"SELECT logged_at, level, message FROM event_logs{where} ORDER BY id DESC LIMIT ?", params)
+        return [{"timestamp": row["logged_at"], "level": row["level"], "message": row["message"]} for row in rows]
+
+    def save_event(self, logged_at: str, level: str, message: str) -> None:
+        self.execute("INSERT INTO event_logs(logged_at, level, message) VALUES (?, ?, ?)", (logged_at, level, message))
+
+    def close(self) -> None:
+        with self.lock:
+            self.conn.close()
+
+    def stats(self) -> Dict[str, Any]:
+        names = ("system_settings", "devices", "device_curves", "control_cycles", "device_samples", "event_logs")
+        return {name: int(self.fetchone(f"SELECT COUNT(*) AS total FROM {name}")["total"]) for name in names}
+
+
+class SQLiteLogHandler(logging.Handler):
+    def __init__(self, database: AGCDatabase) -> None:
+        super().__init__(logging.INFO)
+        self.database = database
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self.database.save_event(datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec="seconds"), record.levelname, self.format(record))
+        except Exception:
+            self.handleError(record)
+
+
 class AGCState:
     """Thread-safe application state and the bridge to ``agc_ctrl``."""
 
@@ -77,6 +279,7 @@ class AGCState:
         self.gather_count = 0
         self.last_error = ""
         self.started_at = _utc_now()
+        self.db = AGCDatabase(DB_PATH)
         self.settings_path = DATA_DIR / "settings.json"
         self.device_modes_path = DATA_DIR / "device_modes.json"
         self.history_path = DATA_DIR / "history.json"
@@ -88,11 +291,15 @@ class AGCState:
             log_file=self.log_path,
             ctrl_output_file=DATA_DIR / "dev_ctrl.e",
         )
+        self.db_log_handler = SQLiteLogHandler(self.db)
+        self.db_log_handler.setFormatter(logging.Formatter("%(message)s"))
+        self.config.logger.addHandler(self.db_log_handler)
         self.do_one_ctrl, self.agc_ctrl_stg_check, self.do_renew_gen_fur_calc = (
             agc_ctrl._load_control_functions()
         )
         self.history: List[Dict[str, Any]] = self._load_history()
         self.command_history: List[Dict[str, Any]] = self._load_command_history()
+        self.cycle = max((_integer(row.get("cycle", 0)) for row in self.history), default=0)
         self._apply_saved_settings()
         self._load_device_modes()
         self.worker = threading.Thread(target=self._worker_loop, name="agc-web-loop", daemon=True)
@@ -101,45 +308,64 @@ class AGCState:
     # ---------- persistence and control loop ----------
 
     def _load_history(self) -> List[Dict[str, Any]]:
+        persisted = self.db.history(1000)
+        if persisted:
+            return persisted
         if not self.history_path.exists():
             return []
         try:
             data = json.loads(self.history_path.read_text(encoding="utf-8"))
-            return data[-1000:] if isinstance(data, list) else []
+            rows = data[-1000:] if isinstance(data, list) else []
+            for row in rows:
+                self.db.save_cycle(row)
+            return rows
         except (OSError, ValueError):
             return []
 
     def _save_history(self) -> None:
-        temp_path = self.history_path.with_suffix(".tmp")
-        temp_path.write_text(json.dumps(self.history[-1000:], ensure_ascii=False, indent=2), encoding="utf-8")
-        temp_path.replace(self.history_path)
+        # Kept as a compatibility hook for callers from older Web HMI builds.
+        # New cycles are persisted atomically through ``AGCDatabase.save_cycle``.
+        return
 
     def _load_command_history(self) -> List[Dict[str, Any]]:
+        persisted = self.db.commands(limit=5000)
+        if persisted:
+            return persisted
         if not self.command_history_path.exists():
             return []
         try:
             data = json.loads(self.command_history_path.read_text(encoding="utf-8"))
-            return data[-5000:] if isinstance(data, list) else []
+            rows = data[-5000:] if isinstance(data, list) else []
+            if rows:
+                self.db.executemany(
+                    """INSERT OR REPLACE INTO device_samples(cycle, recorded_at, kind, device_id, name,
+                         control_state, run_status, realtime_power, command_power, preset_power,
+                         control_step, control_deadband)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    [(_integer(row.get("cycle", 0)), str(row.get("timestamp", _utc_now())), str(row.get("kind", "")), str(row.get("id", "")), str(row.get("name", "")), str(row.get("controlState", "remote")), _integer(row.get("runStatus", 0)), _number(row.get("realtimePower")), _number(row.get("commandPower")), _number(row.get("presetPower")), _number(row.get("controlStep")), _number(row.get("controlDeadband"))) for row in rows],
+                )
+            return rows
         except (OSError, ValueError):
             return []
 
     def _save_command_history(self) -> None:
-        temp_path = self.command_history_path.with_suffix(".tmp")
-        temp_path.write_text(
-            json.dumps(self.command_history[-5000:], ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        temp_path.replace(self.command_history_path)
+        return
 
     def _apply_saved_settings(self) -> None:
-        if not self.settings_path.exists():
-            return
-        try:
-            data = json.loads(self.settings_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return
-        params = data.get("params", {}) if isinstance(data, dict) else {}
-        saved_mode = data.get("control_mode") if isinstance(data, dict) else None
+        persisted = self.db.settings()
+        data: Dict[str, Any] = {}
+        if not persisted and self.settings_path.exists():
+            try:
+                data = json.loads(self.settings_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = {}
+            params = data.get("params", {}) if isinstance(data, dict) else {}
+            descriptions = {str(item.name): str(getattr(item, "desc", "")) for item in getattr(self.model, "para", [])}
+            if isinstance(params, dict):
+                self.db.save_settings(params, descriptions, data.get("control_mode", "closed_loop"))
+                persisted = self.db.settings()
+        params = persisted
+        saved_mode = params.pop("CONTROL_MODE", None)
         if saved_mode in {"open_loop", "closed_loop"}:
             self.control_mode = saved_mode
         for para in getattr(self.model, "para", []):
@@ -153,52 +379,64 @@ class AGCState:
 
     def _load_device_modes(self) -> None:
         saved: Dict[str, Any] = {}
-        if self.device_modes_path.exists():
+        rows = self.db.device_rows()
+        if rows:
+            for row in rows:
+                saved[f"{row['kind']}:{row['device_id']}"] = dict(row)
+        elif self.device_modes_path.exists():
             try:
                 payload = json.loads(self.device_modes_path.read_text(encoding="utf-8"))
                 saved = payload if isinstance(payload, dict) else {}
             except (OSError, ValueError):
                 saved = {}
         for device in self._all_devices():
-            key = self._device_key(device)
-            item = saved.get(key, {}) if isinstance(saved.get(key, {}), dict) else {}
+            kind = self._device_kind(device)
+            key = f"{kind}:{getattr(device, 'id', '')}"
+            legacy_key = self._device_key(device)
+            item = saved.get(key, saved.get(legacy_key, {})) if isinstance(saved.get(key, saved.get(legacy_key, {})), dict) else {}
             state = str(item.get("control_state", "remote")).lower()
             device.agc_control_state = state if state in {"remote", "local"} else "remote"
-            for field in ("p_step", "p_dead", "p_min", "p_max", "run_stat"):
-                if field in item:
+            for field, saved_field in (("p_step", "control_step"), ("p_dead", "control_deadband"), ("p_min", "p_min"), ("p_max", "p_max"), ("run_stat", "run_status")):
+                if saved_field in item or field in item:
                     old = getattr(device, field, 0)
-                    setattr(device, field, self._cast_parameter(old, item[field]))
+                    setattr(device, field, self._cast_parameter(old, item.get(saved_field, item.get(field))))
             device.agc_control_step = _number(getattr(device, "p_step", 0.0))
             device.agc_control_deadband = _number(getattr(device, "p_dead", 0.0))
             device.agc_preset_power = _number(item.get("preset_power", getattr(device, "p_cur", 0.0)))
             curve = item.get("preset_curve")
+            if not isinstance(curve, list):
+                curve = self.db.curve(kind, getattr(device, "id", ""))
             if not isinstance(curve, list) or len(curve) not in {24, 96}:
                 curve = [device.agc_preset_power] * 96
             elif len(curve) == 24:
                 # Migrate earlier hourly presets to the new 15-minute format.
                 curve = [value for value in curve for _ in range(4)]
             device.agc_preset_curve = [_number(value, device.agc_preset_power) for value in curve]
+            self._save_one_device(device, kind)
 
     @staticmethod
     def _device_key(device: Any) -> str:
         return f"{type(device).__name__}:{getattr(device, 'id', '')}"
 
+    @staticmethod
+    def _device_kind(device: Any) -> str:
+        name = type(device).__name__
+        return {"wind_generator": "wind", "pv_generator": "pv", "estorage": "storage", "diesel_generator": "diesel", "energyconsumer": "load"}.get(name, name)
+
+    def _save_one_device(self, device: Any, kind: Optional[str] = None) -> None:
+        kind = kind or self._device_kind(device)
+        self.db.save_device({
+            "kind": kind, "device_id": getattr(device, "id", ""), "name": getattr(device, "name", ""),
+            "control_state": getattr(device, "agc_control_state", "remote"), "run_status": getattr(device, "run_stat", 0),
+            "p_min": getattr(device, "p_min", 0), "p_max": getattr(device, "p_max", 0),
+            "control_step": getattr(device, "p_step", 0), "control_deadband": getattr(device, "p_dead", 0),
+            "preset_power": getattr(device, "agc_preset_power", 0),
+        })
+        self.db.save_curve(kind, getattr(device, "id", ""), list(getattr(device, "agc_preset_curve", [])))
+
     def _save_device_modes(self) -> None:
-        payload = {}
         for device in self._all_devices():
-            payload[self._device_key(device)] = {
-                "control_state": str(getattr(device, "agc_control_state", "remote")),
-                "p_step": _json_value(getattr(device, "p_step", 0.0)),
-                "p_dead": _json_value(getattr(device, "p_dead", 0.0)),
-                "p_min": _json_value(getattr(device, "p_min", 0.0)),
-                "p_max": _json_value(getattr(device, "p_max", 0.0)),
-                "run_stat": _json_value(getattr(device, "run_stat", 0)),
-                "preset_power": _number(getattr(device, "agc_preset_power", 0.0)),
-                "preset_curve": list(getattr(device, "agc_preset_curve", [])),
-            }
-        temp_path = self.device_modes_path.with_suffix(".tmp")
-        temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        temp_path.replace(self.device_modes_path)
+            self._save_one_device(device)
 
     @staticmethod
     def _control_kind_name(kind: str) -> str:
@@ -294,12 +532,8 @@ class AGCState:
 
     def _save_settings(self) -> None:
         values = {str(item.name): _json_value(item.value) for item in getattr(self.model, "para", [])}
-        temp_path = self.settings_path.with_suffix(".tmp")
-        temp_path.write_text(
-            json.dumps({"updated_at": _utc_now(), "control_mode": self.control_mode, "params": values}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        temp_path.replace(self.settings_path)
+        descriptions = {str(item.name): str(getattr(item, "desc", "")) for item in getattr(self.model, "para", [])}
+        self.db.save_settings(values, descriptions, self.control_mode)
 
     @staticmethod
     def _cast_parameter(old_value: Any, new_value: Any) -> Any:
@@ -373,8 +607,7 @@ class AGCState:
             self.command_history = self.command_history[-5000:]
             self.history.append(point)
             self.history = self.history[-1000:]
-            self._save_history()
-            self._save_command_history()
+            self.db.save_cycle(point)
             return point
 
     def set_running(self, running: bool) -> Dict[str, Any]:
@@ -491,9 +724,8 @@ class AGCState:
                     "presetPower": row.get("presetPower", 0),
                     "controlState": row.get("controlState", "remote"),
                 }
-                for row in self.command_history
-                if f"{row.get('kind')}:{row.get('id')}" == device_key
-            ][-240:]
+                for row in self.db.commands(kind, item_id, 240)
+            ]
             return {
                 "device": self._device_parameters(kind, device),
                 "history": history,
@@ -585,28 +817,7 @@ class AGCState:
             }
 
     def logs(self, keyword: str = "", level: str = "", limit: int = 200) -> List[Dict[str, str]]:
-        if not self.log_path.exists():
-            return []
-        lines = self.log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-        keyword = keyword.lower().strip()
-        level = level.upper().strip()
-        result = []
-        for line in reversed(lines):
-            if keyword and keyword not in line.lower():
-                continue
-            if level and f" {level} " not in line:
-                continue
-            parts = line.split(" - ", 2)
-            result.append(
-                {
-                    "timestamp": parts[0] if parts else "",
-                    "level": parts[1] if len(parts) > 1 else "INFO",
-                    "message": parts[2] if len(parts) > 2 else line,
-                }
-            )
-            if len(result) >= max(1, min(limit, 1000)):
-                break
-        return result
+        return self.db.logs(keyword, level, limit)
 
     def close(self) -> None:
         self.stop_event.set()
@@ -662,7 +873,7 @@ class HMIHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/history":
             query = parse_qs(parsed.query)
             limit = max(1, min(1000, _integer(query.get("limit", [240])[0], 240)))
-            self._send_json({"items": STATE.history[-limit:]})
+            self._send_json({"items": STATE.db.history(limit)})
             return
         if parsed.path == "/api/device-detail":
             query = parse_qs(parsed.query)
@@ -673,15 +884,10 @@ class HMIHandler(BaseHTTPRequestHandler):
             kind = query.get("kind", [""])[0]
             item_id = query.get("id", [""])[0]
             limit = max(1, min(1000, _integer(query.get("limit", [240])[0], 240)))
-            rows = STATE.command_history
-            if kind:
-                rows = [row for row in rows if row.get("kind") == kind]
-            if item_id:
-                rows = [row for row in rows if str(row.get("id")) == str(item_id)]
-            self._send_json({"items": rows[-limit:]})
+            self._send_json({"items": STATE.db.commands(kind, item_id, limit)})
             return
         if parsed.path == "/api/health":
-            self._send_json({"ok": True, "time": _utc_now()})
+            self._send_json({"ok": True, "time": _utc_now(), "database": str(DB_PATH), "tables": STATE.db.stats()})
             return
         self._serve_static(parsed.path)
 

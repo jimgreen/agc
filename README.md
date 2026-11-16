@@ -42,6 +42,19 @@
 
 Web 配置和历史数据保存在 `web/data/`，不会修改原始 `model_real.e`。
 
+## AGC SQLite 数据库
+
+Web 服务和 AGC 计算后台共用 `web/data/agc.db` 作为运行数据库，建表脚本为 `web/agc_schema.sql`。计算后台启动时读取数据库中的系统配置、设备受控状态、控制参数和 96 点默认曲线；每个控制周期完成后写入系统周期、设备实时采样和 AGC 指令，供 Web 界面实时展示、日志查询和历史查询。
+
+- `system_settings`：控制周期、步长和开环/闭环模式
+- `devices`：设备受控状态、运行状态、功率上下限、步长、死区和默认功率
+- `device_curves`：每台设备 96 个 15 分钟默认曲线点
+- `control_cycles`：各控制周期的系统功率、环境量和 AGC 平衡
+- `device_samples`：各设备在每个控制时刻的实时功率与指令功率
+- `event_logs`：控制启动、模式切换、设备指令和运行日志
+
+服务首次启动时会把旧版 `web/data/settings.json`、`device_modes.json`、`history.json` 和 `command_history.json` 自动迁移到 SQLite；之后界面查询直接读取数据库。SQLite 文件及运行时数据库文件已加入 Git 忽略规则。
+
 ## 依赖
 
 仅使用 Python 标准库。

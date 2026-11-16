@@ -16,6 +16,11 @@ for path in (ROOT_DIR, AGC_DIR):
 
 from efile_read import EBook, efile_factory
 
+try:
+    from agc_db import AGCDataStore
+except ImportError:  # pragma: no cover - keeps legacy standalone deployments usable
+    AGCDataStore = None
+
 
 DEFAULT_MODEL_FILE = AGC_DIR / "model_real.e"
 DEFAULT_LOG_DIR = ROOT_DIR / "log"
@@ -71,6 +76,7 @@ class SystemConfig:
         log_file: Optional[Path] = None,
         ctrl_output_file: Optional[Path] = DEFAULT_CTRL_OUTPUT_FILE,
         fes_client: Optional[FesClient] = None,
+        data_store=None,
     ):
         self.model = model
         self.ctrl_trigger = max(1, int(ctrl_trigger))
@@ -80,6 +86,7 @@ class SystemConfig:
         self.control_count = 0
         self.gather_count = 0
         self.ctrl_output_file = None if ctrl_output_file is None else Path(ctrl_output_file)
+        self.data_store = data_store
         self.logger = self._setup_logger(log_file or _default_log_file())
 
     @staticmethod
@@ -197,6 +204,18 @@ def initialize_system(
     gather_trigger: Optional[int] = None,
 ) -> SystemConfig:
     """Initialize device links and runtime config."""
+    data_store = None
+    if AGCDataStore is not None:
+        try:
+            data_store = AGCDataStore()
+            data_store.apply_model(emodel)
+        except Exception:
+            if data_store is not None:
+                try:
+                    data_store.close()
+                except Exception:
+                    pass
+            data_store = None
     ctrl = ctrl_trigger if ctrl_trigger is not None else get_para_int(emodel, "CTRL_TRIGGER", DEFAULT_CTRL_TRIGGER)
     gather = gather_trigger if gather_trigger is not None else get_para_int(emodel, "GATHER_TRIGGER", DEFAULT_GATHER_TRIGGER)
     config = SystemConfig(
@@ -205,7 +224,10 @@ def initialize_system(
         gather_trigger=gather,
         log_file=log_file,
         ctrl_output_file=ctrl_output_file,
+        data_store=data_store,
     )
+    if data_store is not None:
+        config.control_count = data_store.latest_cycle()
     emodel.config = config
     emodel.ctrl_trigger = config.ctrl_trigger
     emodel.gather_trigger = config.gather_trigger
@@ -1581,6 +1603,7 @@ def agc_control_step(
         export_control_results(config.model, config.ctrl_output_file)
         config.logger.info("控制结果已输出: %s", config.ctrl_output_file)
     config.control_count += 1
+    _record_database_cycle(config)
 
 
 def agc_control_once(config: SystemConfig, do_one_ctrl: Callable, agc_ctrl_stg_check: Callable) -> None:
@@ -1592,6 +1615,18 @@ def agc_control_once(config: SystemConfig, do_one_ctrl: Callable, agc_ctrl_stg_c
         export_control_results(config.model, config.ctrl_output_file)
         config.logger.info("控制结果已输出: %s", config.ctrl_output_file)
     config.control_count += 1
+    _record_database_cycle(config)
+
+
+def _record_database_cycle(config: SystemConfig) -> None:
+    """Persist one completed calculation cycle when SQLite is available."""
+    store = getattr(config, "data_store", None)
+    if store is None:
+        return
+    try:
+        store.record_cycle(config.model, config)
+    except Exception:
+        config.logger.exception("AGC SQLite 周期写入失败")
 
 
 def agc_control_loop(config: SystemConfig, max_control_cycles: Optional[int] = None) -> None:
@@ -1630,6 +1665,7 @@ def agc_control_loop(config: SystemConfig, max_control_cycles: Optional[int] = N
                     export_control_results(config.model, config.ctrl_output_file)
                     config.logger.info("控制结果已输出: %s", config.ctrl_output_file)
                 config.control_count += 1
+                _record_database_cycle(config)
                 next_control += config.ctrl_trigger
                 config.logger.info("-" * 60)
                 if max_control_cycles is not None and config.control_count >= max_control_cycles:

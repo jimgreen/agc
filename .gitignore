@@ -7,3 +7,6 @@ venv/
 *.log
 web/data/*.json
 web/data/*.tmp
+web/data/*.db
+web/data/*.db-wal
+web/data/*.db-shm
