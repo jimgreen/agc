@@ -552,7 +552,11 @@ def _set_p_ctrl(
         return before, before
     bounded = _clamp(target, lower, upper)
     deadband = _control_deadband(model, device, kind)
-    if _is_running(device) and abs(bounded - before) <= deadband:
+    # Include a tiny numerical tolerance so a command exactly on the
+    # configured deadband (for example 1.0 represented as 1.0000000000000009)
+    # is still held.  This prevents floating-point noise from creating a
+    # needless setpoint transition at the edge of the safety deadband.
+    if _is_running(device) and abs(bounded - before) <= deadband + 1e-9:
         after = before
     else:
         after = _clamp(_limit_control_step(model, device, bounded, kind), lower, upper)
@@ -1470,8 +1474,10 @@ def do_wind_solar_priority_ctrl(logger, model) -> None:
     ``p_fur`` is intentionally absent from this decision path.  Each cycle
     first computes the renewable acceptance space from measured load/output,
     diesel minimum output, and SOC-limited storage charging room.  Renewable
-    units then receive one small trial step.  Storage and diesel only cover the
-    residual, while surplus is absorbed by storage before renewable curtailment.
+    units then receive one small trial step.  SCADA is assumed to enter in
+    measured balance, so balancing sources are not moved on the basis of an
+    unconfirmed renewable increase; their physical response is followed from
+    subsequent telemetry.
     """
 
     groups = _agc_resource_groups(model)
@@ -1485,20 +1491,16 @@ def do_wind_solar_priority_ctrl(logger, model) -> None:
         acceptance["storage_charge_space"],
     )
 
+    # A renewable setpoint increase is a trial request rather than confirmed
+    # generation.  Until the next telemetry sample proves that the output
+    # actually rose, it must never be used as a reason to reduce a balancing
+    # source.  SCADA enters this controller with measured balance, so diesel,
+    # grid-forming storage, fuel-cell and hydrogen commands are deliberately
+    # left untouched in this cycle.  Their physical response is observed from
+    # the next telemetry sample and handled by the plant's balancing controls.
     _probe_dispatch_renewables(logger, model, acceptance["acceptance_space"])
-    mismatch = _controlled_power_mismatch(model)
-    if mismatch > DEFAULT_BALANCE_DEADBAND:
-        logger.info("新能源试探后仍有缺额 %.3f，按储能->燃料电池->柴发小步补偿", mismatch)
-        mismatch = _probe_storage_discharge(logger, model, mismatch)
-        mismatch = _probe_fuel_cell_support(logger, model, mismatch)
-        mismatch = _probe_diesel(logger, model, mismatch)
-    elif mismatch < -DEFAULT_BALANCE_DEADBAND:
-        surplus = -mismatch
-        logger.info("新能源试探后存在富余 %.3f，按降柴->储能->制氢->弃电消纳", surplus)
-        surplus = _probe_reduce_diesel(logger, model, surplus)
-        surplus = _probe_storage_charge(logger, model, surplus)
-        surplus = _probe_hydrogen_absorb(logger, model, surplus)
-        surplus = _curtail_renewable(logger, model, surplus)
+    model.agc_balance_source_mode = "passive_telemetry_followup"
+    logger.info("SCADA 实测平衡：新能源上涨仅发出试探指令，柴发/构网储能等平衡电源本周期被动承担，不下发反向降功率指令")
 
     model.agc_balance_mismatch = _controlled_power_mismatch(model)
     model.agc_control_mode = "measured_probe_renewable_priority"
