@@ -30,12 +30,13 @@ if str(AGC_DIR) not in sys.path:
     sys.path.insert(0, str(AGC_DIR))
 
 import agc_ctrl  # noqa: E402  (the project is intentionally stdlib-only)
+from agc_db import DEFAULT_DB_PATH  # noqa: E402
 
 
 WEB_DIR = Path(__file__).resolve().parent
 PUBLIC_DIR = WEB_DIR / "public"
 DATA_DIR = WEB_DIR / "data"
-DB_PATH = Path(os.environ.get("AGC_DB", DATA_DIR / "agc.db"))
+DB_PATH = Path(os.environ.get("AGC_DB", DEFAULT_DB_PATH))
 MODEL_FILE = Path(os.environ.get("AGC_MODEL", AGC_DIR / "model_real.e"))
 PORT = int(os.environ.get("AGC_WEB_PORT", "8765"))
 

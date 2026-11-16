@@ -2,13 +2,14 @@
 
 The Web HMI owns the same schema, while this module keeps the calculation
 process independent from the HTTP server.  Both processes can therefore read
-and write ``web/data/agc.db`` without importing one another.
+and write the configured shared SQLite database without importing one another.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -17,7 +18,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
 AGC_DIR = Path(__file__).resolve().parent
-DEFAULT_DB_PATH = AGC_DIR / "web" / "data" / "agc.db"
+DEFAULT_DB_PATH = Path(os.environ.get("AGC_DB", r"D:\codex\sqldb\realtime\agc\agc.db"))
 SCHEMA_PATH = AGC_DIR / "web" / "agc_schema.sql"
 
 
