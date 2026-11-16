@@ -17,9 +17,10 @@ for path in (ROOT_DIR, AGC_DIR):
 from efile_read import EBook, efile_factory
 
 try:
-    from agc_db import AGCDataStore
+    from agc_db import AGCDataStore, SQLiteLogHandler
 except ImportError:  # pragma: no cover - keeps legacy standalone deployments usable
     AGCDataStore = None
+    SQLiteLogHandler = None
 
 
 DEFAULT_MODEL_FILE = AGC_DIR / "model_real.e"
@@ -209,6 +210,8 @@ def initialize_system(
         try:
             data_store = AGCDataStore()
             data_store.apply_model(emodel)
+            data_store.apply_latest_runtime(emodel)
+            data_store.apply_latest_environment(emodel)
         except Exception:
             if data_store is not None:
                 try:
@@ -226,6 +229,11 @@ def initialize_system(
         ctrl_output_file=ctrl_output_file,
         data_store=data_store,
     )
+    if data_store is not None and SQLiteLogHandler is not None:
+        db_log_handler = SQLiteLogHandler(data_store)
+        db_log_handler.setFormatter(logging.Formatter("%(message)s"))
+        config.logger.addHandler(db_log_handler)
+        config.db_log_handler = db_log_handler
     if data_store is not None:
         config.control_count = data_store.latest_cycle()
     emodel.config = config

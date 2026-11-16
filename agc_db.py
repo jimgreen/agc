@@ -8,7 +8,9 @@ and write ``web/data/agc.db`` without importing one another.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -51,7 +53,8 @@ class AGCDataStore:
     def __init__(self, path: Path = DEFAULT_DB_PATH) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.path, timeout=30)
+        self.lock = threading.RLock()
+        self.conn = sqlite3.connect(self.path, timeout=30, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.execute("PRAGMA busy_timeout = 30000")
@@ -74,6 +77,20 @@ class AGCDataStore:
     def latest_cycle(self) -> int:
         row = self._fetchone("SELECT COALESCE(MAX(cycle), 0) AS cycle FROM control_cycles")
         return _integer(row["cycle"] if row else 0)
+
+    def latest_cycle_row(self) -> Optional[sqlite3.Row]:
+        """Return the newest persisted control cycle for cross-process sync."""
+        return self._fetchone("SELECT * FROM control_cycles ORDER BY cycle DESC LIMIT 1")
+
+    def latest_samples(self) -> List[sqlite3.Row]:
+        """Return one newest device sample per device."""
+        return self._fetchall(
+            """SELECT s.* FROM device_samples s
+               JOIN (SELECT kind, device_id, MAX(cycle) AS max_cycle
+                     FROM device_samples GROUP BY kind, device_id) latest
+                 ON latest.kind=s.kind AND latest.device_id=s.device_id AND latest.max_cycle=s.cycle
+               ORDER BY s.kind, s.device_id"""
+        )
 
     def _fetchall(self, sql: str, params: Iterable[Any] = ()) -> List[sqlite3.Row]:
         return list(self.conn.execute(sql, tuple(params)).fetchall())
@@ -188,8 +205,9 @@ class AGCDataStore:
         """Apply latest DB telemetry/commands to the in-memory calculation model."""
         rows = self._fetchall(
             """SELECT s.* FROM device_samples s
-               JOIN (SELECT kind, device_id, MAX(id) AS max_id FROM device_samples GROUP BY kind, device_id) latest
-               ON latest.max_id=s.id"""
+               JOIN (SELECT kind, device_id, MAX(cycle) AS max_cycle FROM device_samples GROUP BY kind, device_id) latest
+               ON latest.kind=s.kind AND latest.device_id=s.device_id AND latest.max_cycle=s.cycle
+               """
         )
         by_key = {(str(row["kind"]), str(row["device_id"])): row for row in rows}
         for kind, device in self._iter_devices(model):
@@ -217,7 +235,10 @@ class AGCDataStore:
                 yc.value = value
 
     def record_cycle(self, model: Any, config: Any) -> None:
-        cycle = _integer(getattr(config, "control_count", 0))
+        # A Web worker and a standalone calculation process may write at the
+        # same time.  Keep the SQLite cycle key monotonic so neither process
+        # silently replaces the other process' history point.
+        cycle = max(_integer(getattr(config, "control_count", 0)), self.latest_cycle() + 1)
         recorded_at = _now()
         devices = list(self._iter_devices(model))
         groups = {"wind": [], "pv": [], "storage": [], "diesel": [], "load": []}
@@ -231,12 +252,14 @@ class AGCDataStore:
         wind_speed = _number(getattr(getattr(model, "wind_speed", None), "value", 0))
         irradiance = _number(getattr(getattr(model, "solor_irrad", None), "value", 0))
         env_temp = _number(getattr(getattr(model, "env_temp", None), "value", 0))
+        raw_mode = str(getattr(model, "agc_control_mode", "closed_loop"))
+        control_mode = "open_loop" if raw_mode.startswith("open_loop") else "closed_loop"
         self.conn.execute(
             """INSERT OR REPLACE INTO control_cycles(cycle, recorded_at, control_mode, running,
                  load_power, renewable_power, storage_power, diesel_power, balance_power,
                  wind_speed, solar_irradiance, env_temperature)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (cycle, recorded_at, str(getattr(model, "agc_control_mode", "closed_loop")), int(bool(getattr(config, "is_running", True))), load, renewable, storage, diesel, renewable + storage + diesel - load, wind_speed, irradiance, env_temp),
+            (cycle, recorded_at, control_mode, int(bool(getattr(config, "is_running", True))), load, renewable, storage, diesel, renewable + storage + diesel - load, wind_speed, irradiance, env_temp),
         )
         self.conn.executemany(
             """INSERT OR REPLACE INTO device_samples(cycle, recorded_at, kind, device_id, name,
@@ -249,3 +272,26 @@ class AGCDataStore:
             ],
         )
         self.conn.commit()
+
+
+class SQLiteLogHandler(logging.Handler):
+    """Forward AGC logger records into the shared event log table."""
+
+    def __init__(self, store: AGCDataStore) -> None:
+        super().__init__(logging.INFO)
+        self.store = store
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            with self.store.lock:
+                self.store.conn.execute(
+                    "INSERT INTO event_logs(logged_at, level, message) VALUES (?, ?, ?)",
+                    (
+                        datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec="seconds"),
+                        record.levelname,
+                        self.format(record),
+                    ),
+                )
+                self.store.conn.commit()
+        except Exception:
+            self.handleError(record)

@@ -9,7 +9,7 @@ model in memory, exposes a small JSON API, and serves the browser HMI from
 from __future__ import annotations
 
 import json
-import logging
+import math
 import mimetypes
 import os
 import sqlite3
@@ -42,7 +42,8 @@ PORT = int(os.environ.get("AGC_WEB_PORT", "8765"))
 
 def _number(value: Any, default: float = 0.0) -> float:
     try:
-        return float(value)
+        number = float(value)
+        return number if math.isfinite(number) else default
     except (TypeError, ValueError):
         return default
 
@@ -217,6 +218,18 @@ class AGCDatabase:
             })
         return output
 
+    def latest_cycle_row(self) -> Optional[sqlite3.Row]:
+        return self.fetchone("SELECT * FROM control_cycles ORDER BY cycle DESC LIMIT 1")
+
+    def latest_device_samples(self) -> List[sqlite3.Row]:
+        return self.fetchall(
+            """SELECT s.* FROM device_samples s
+               JOIN (SELECT kind, device_id, MAX(cycle) AS max_cycle
+                     FROM device_samples GROUP BY kind, device_id) latest
+                 ON latest.kind=s.kind AND latest.device_id=s.device_id AND latest.max_cycle=s.cycle
+               ORDER BY s.kind, s.device_id"""
+        )
+
     def commands(self, kind: str = "", device_id: Any = "", limit: int = 5000) -> List[Dict[str, Any]]:
         clauses, params = [], []
         if kind:
@@ -225,7 +238,7 @@ class AGCDatabase:
             clauses.append("device_id=?"); params.append(str(device_id))
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         params.append(max(1, min(limit, 10000)))
-        rows = self.fetchall(f"SELECT * FROM device_samples{where} ORDER BY id DESC LIMIT ?", params)
+        rows = self.fetchall(f"SELECT * FROM device_samples{where} ORDER BY cycle DESC, id DESC LIMIT ?", params)
         return [
             {"timestamp": row["recorded_at"], "cycle": row["cycle"], "kind": row["kind"], "id": row["device_id"], "name": row["name"], "controlState": row["control_state"], "runStatus": row["run_status"], "realtimePower": row["realtime_power"], "commandPower": row["command_power"], "presetPower": row["preset_power"], "controlStep": row["control_step"], "controlDeadband": row["control_deadband"]}
             for row in reversed(rows)
@@ -254,18 +267,6 @@ class AGCDatabase:
         return {name: int(self.fetchone(f"SELECT COUNT(*) AS total FROM {name}")["total"]) for name in names}
 
 
-class SQLiteLogHandler(logging.Handler):
-    def __init__(self, database: AGCDatabase) -> None:
-        super().__init__(logging.INFO)
-        self.database = database
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            self.database.save_event(datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec="seconds"), record.levelname, self.format(record))
-        except Exception:
-            self.handleError(record)
-
-
 class AGCState:
     """Thread-safe application state and the bridge to ``agc_ctrl``."""
 
@@ -291,9 +292,6 @@ class AGCState:
             log_file=self.log_path,
             ctrl_output_file=DATA_DIR / "dev_ctrl.e",
         )
-        self.db_log_handler = SQLiteLogHandler(self.db)
-        self.db_log_handler.setFormatter(logging.Formatter("%(message)s"))
-        self.config.logger.addHandler(self.db_log_handler)
         self.do_one_ctrl, self.agc_ctrl_stg_check, self.do_renew_gen_fur_calc = (
             agc_ctrl._load_control_functions()
         )
@@ -501,6 +499,43 @@ class AGCState:
             "presetCurve": list(getattr(item, "agc_preset_curve", [])),
         }
 
+    def _sync_from_database(self) -> Optional[sqlite3.Row]:
+        """Refresh Web state from cycles written by another AGC process.
+
+        The Web HMI and ``agc_ctrl.py`` can run as separate processes.  The
+        calculation process therefore remains the source of telemetry and
+        commands in SQLite; every state read mirrors the newest persisted
+        cycle back into the Web model before rendering JSON.
+        """
+        latest = self.db.latest_cycle_row()
+        if latest is None:
+            return None
+        persisted = self.db.history(1000)
+        if persisted:
+            self.history = persisted
+            self.cycle = max(self.cycle, max(_integer(row.get("cycle", 0)) for row in persisted))
+        mode = str(latest["control_mode"] or "")
+        if mode in {"open_loop", "closed_loop"}:
+            self.control_mode = mode
+        for row in self.db.latest_device_samples():
+            device = self._find_device(row["kind"], row["device_id"])
+            if device is None:
+                continue
+            device.p_cur = _number(row["realtime_power"], _number(getattr(device, "p_cur", 0)))
+            device.p_ctrl = _number(row["command_power"], _number(getattr(device, "p_ctrl", device.p_cur)))
+            device.run_stat = _integer(row["run_status"], _integer(getattr(device, "run_stat", 0)))
+            state = str(row["control_state"] or "remote")
+            if state in {"remote", "local"}:
+                device.agc_control_state = state
+        env_map = {str(item.name): item for item in getattr(self.model, "env_para", []) or []}
+        yc_map = {str(item.id): item for item in getattr(self.model, "yc", []) or []}
+        for name, column in (("wind_speed", "wind_speed"), ("solor_irrad", "solar_irradiance"), ("env_temp", "env_temperature")):
+            env = env_map.get(name)
+            yc = yc_map.get(str(getattr(env, "yc_id", ""))) if env else None
+            if yc is not None:
+                yc.value = _number(latest[column], _number(yc.value))
+        return latest
+
     def _apply_local_curves(self) -> None:
         now = datetime.now()
         point = now.hour * 4 + now.minute // 15
@@ -635,6 +670,9 @@ class AGCState:
     def update_simulation(self, values: Dict[str, Any]) -> Dict[str, Any]:
         """Update demo telemetry without changing the source E-file."""
         with self.lock:
+            for name in ("wind_speed", "solor_irrad", "env_temp", "load_power"):
+                if name in values and not math.isfinite(_number(values[name], float("nan"))):
+                    raise ValueError(f"仿真遥测参数无效：{name}")
             env_map = {str(item.name): item for item in getattr(self.model, "env_para", [])}
             yc_map = {str(item.id): item for item in getattr(self.model, "yc", [])}
             for name in ("wind_speed", "solor_irrad", "env_temp"):
@@ -682,7 +720,14 @@ class AGCState:
             elif field == "preset_curve":
                 if not isinstance(value, list) or len(value) != 96:
                     raise ValueError("默认功率曲线必须包含 96 个 15 分钟点")
-                target.agc_preset_curve = [_number(item) for item in value]
+                curve = [_number(item, float("nan")) for item in value]
+                if any(not math.isfinite(item) for item in curve):
+                    raise ValueError("默认功率曲线必须全部是有限数字")
+                lower = _number(getattr(target, "p_min", 0.0))
+                upper = _number(getattr(target, "p_max", 0.0))
+                if upper > lower and any(item < lower or item > upper for item in curve):
+                    raise ValueError(f"默认功率曲线必须位于 {lower:g} 至 {upper:g} MW 范围内")
+                target.agc_preset_curve = curve
                 now = datetime.now()
                 target.agc_preset_power = target.agc_preset_curve[now.hour * 4 + now.minute // 15]
             elif field == "preset_power":
@@ -695,11 +740,19 @@ class AGCState:
                 }.get(field, field)
                 old = getattr(target, actual_field, 0)
                 if field in {"control_step", "control_deadband", "p_min", "p_max"}:
-                    converted = _number(value, _number(old))
+                    converted = _number(value, float("nan"))
+                    if not math.isfinite(converted):
+                        raise ValueError(f"设备参数无效：{field}")
+                    if field in {"control_step", "control_deadband"} and converted < 0:
+                        raise ValueError(f"设备参数不能为负值：{field}")
                 elif field == "run_stat":
                     converted = _integer(value, _integer(old))
                 else:
                     converted = self._cast_parameter(old, value)
+                if field == "p_min" and converted > _number(getattr(target, "p_max", converted)):
+                    raise ValueError("功率下限不能高于功率上限")
+                if field == "p_max" and converted < _number(getattr(target, "p_min", converted)):
+                    raise ValueError("功率上限不能低于功率下限")
                 setattr(target, actual_field, converted)
                 if field == "control_step":
                     target.agc_control_step = _number(value)
@@ -723,6 +776,9 @@ class AGCState:
                     "commandPower": row.get("commandPower", 0),
                     "presetPower": row.get("presetPower", 0),
                     "controlState": row.get("controlState", "remote"),
+                    "runStatus": row.get("runStatus", 0),
+                    "controlStep": row.get("controlStep", 0),
+                    "controlDeadband": row.get("controlDeadband", 0),
                 }
                 for row in self.db.commands(kind, item_id, 240)
             ]
@@ -749,6 +805,7 @@ class AGCState:
             "power": round(_number(effective_power), 3),
             "maxPower": round(_number(getattr(item, "p_max", 0)), 3),
             "soc": None if soc is None else round(soc, 4),
+            "minPower": round(_number(getattr(item, "p_min", 0)), 3),
             "step": round(_number(getattr(item, "p_step", 0)), 3),
             "controlState": state,
             "presetPower": round(_number(getattr(item, "agc_preset_power", 0.0)), 3),
@@ -768,6 +825,7 @@ class AGCState:
         return result
 
     def _snapshot(self, include_history: bool = True) -> Dict[str, Any]:
+        latest = self._sync_from_database()
         devices = self.devices()
         renewable = sum(item["power"] for item in devices if item["kind"] in {"wind", "pv"})
         storage = sum(item["power"] for item in devices if item["kind"] == "storage")
@@ -796,6 +854,13 @@ class AGCState:
             },
             "weather": weather,
             "devices": devices,
+            "backend": {
+                "source": "sqlite",
+                "database": str(DB_PATH),
+                "lastCycle": _integer(latest["cycle"], self.cycle) if latest else self.cycle,
+                "lastCycleAt": str(latest["recorded_at"]) if latest else "",
+                "running": bool(latest["running"]) if latest else self.running,
+            },
         }
         if include_history:
             data["history"] = self.history[-240:]
@@ -918,7 +983,8 @@ class HMIHandler(BaseHTTPRequestHandler):
                 elif action == "stop":
                     result = STATE.set_running(False)
                 elif action == "step":
-                    result = STATE.run_cycle()
+                    STATE.run_cycle()
+                    result = STATE._snapshot()
                 else:
                     raise ValueError("控制动作必须是 start、stop 或 step")
                 self._send_json(result)

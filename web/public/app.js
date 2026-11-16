@@ -1,8 +1,9 @@
 (() => {
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-  const state = { current: null, filter: "all", curveDevice: null, curveValues: [], detailKey: "", detailData: null, monitorTab: "summary", devicePage: 1, commandPage: 1, commandRows: [], logPage: 1, logRows: [], historyPage: 1, historyRows: [] };
+  const state = { current: null, filter: "all", curveDevice: null, curveValues: [], curvePage: 0, detailKey: "", detailData: null, detailTab: "overview", monitorTab: "summary", devicePage: 1, commandPage: 1, commandRows: [], logPage: 1, logRows: [], historyPage: 1, historyRows: [] };
   const PAGE_SIZE = { devices: 8, commands: 12, logs: 12, history: 8 };
+  const CURVE_PAGE_SIZE = 24;
   const kindNames = { wind: "风机", pv: "光伏", storage: "储能", diesel: "柴发", load: "负荷" };
   const typeClass = { wind: "wind", pv: "pv", storage: "storage", diesel: "diesel", load: "load" };
 
@@ -47,6 +48,10 @@
     $("#controlMode").value = data.controlMode || "closed_loop";
     $("#strategyStatus").textContent = data.running ? (data.controlMode === "open_loop" ? "开环预设" : "闭环自动") : "待机";
     $("#healthMessage").textContent = data.lastError ? `最近错误：${data.lastError}` : (data.running ? "控制周期正常执行" : "控制服务等待操作");
+    const backend = data.backend || {};
+    $("#backendStatus").textContent = backend.source === "sqlite" ? "已同步" : "未连接";
+    $("#backendStatus").className = backend.source === "sqlite" ? "" : "warning";
+    $("#backendCycle").textContent = backend.lastCycle ?? "--";
     $("#monitorTime").textContent = data.timestamp || "--";
     renderResources(data.devices || []);
     renderDevices(data.devices || []);
@@ -278,16 +283,37 @@
 
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character])); }
 
+  function renderCurveEditor() {
+    const device = state.curveDevice;
+    if (!device) return;
+    const pageCount = Math.ceil(state.curveValues.length / CURVE_PAGE_SIZE);
+    state.curvePage = Math.max(0, Math.min(state.curvePage, pageCount - 1));
+    const start = state.curvePage * CURVE_PAGE_SIZE;
+    const visible = state.curveValues.slice(start, start + CURVE_PAGE_SIZE);
+    $("#curveInputs").innerHTML = visible.map((value, offset) => {
+      const index = start + offset;
+      const hour = String(Math.floor(index / 4)).padStart(2, "0");
+      const minute = String((index % 4) * 15).padStart(2, "0");
+      const minPower = Number.isFinite(Number(device.minPower)) ? Number(device.minPower) : 0;
+      return `<label><span>${hour}:${minute}</span><input data-curve-index="${index}" type="number" step="0.1" min="${minPower}" ${device.pMax ? `max="${device.pMax}"` : ""} value="${value}" /></label>`;
+    }).join("");
+    $("#curvePageNote").textContent = `第 ${state.curvePage + 1} / ${pageCount} 组 · ${start + 1}-${Math.min(start + CURVE_PAGE_SIZE, state.curveValues.length)} 点`;
+    $("#curvePrevBtn").disabled = state.curvePage === 0;
+    $("#curveNextBtn").disabled = state.curvePage >= pageCount - 1;
+  }
+
   function openCurve(key) {
     const [kind, id] = key.split(":"); const device = (state.current?.devices || []).find(item => item.kind === kind && String(item.id) === id); if (!device) return;
-    state.curveDevice = device; state.curveValues = Array.from({ length: 96 }, (_, index) => Number(device.presetCurve?.[index] ?? device.presetPower ?? 0));
+    state.curveDevice = device; state.curveValues = Array.from({ length: 96 }, (_, index) => Number(device.presetCurve?.[index] ?? device.presetPower ?? 0)); state.curvePage = 0;
     $("#curveTitle").textContent = `${device.name} · 96点默认功率曲线`; $("#curveRangeNote").textContent = `功率范围：0 - ${formatNumber(device.maxPower)} MW`;
-    $("#curveInputs").innerHTML = state.curveValues.map((value, index) => { const hour = String(Math.floor(index / 4)).padStart(2, "0"); const minute = String((index % 4) * 15).padStart(2, "0"); return `<label><span>${hour}:${minute}</span><input data-curve-index="${index}" type="number" step="0.1" min="0" ${device.maxPower ? `max="${device.maxPower}"` : ""} value="${value}" /></label>`; }).join("");
+    renderCurveEditor();
     $("#curveModal").hidden = false;
   }
 
   async function saveCurve() {
-    if (!state.curveDevice) return; const values = $$("[data-curve-index]").map(input => Number(input.value) || 0); const device = state.curveDevice;
+    if (!state.curveDevice) return;
+    $$("[data-curve-index]").forEach(input => { state.curveValues[Number(input.dataset.curveIndex)] = Number(input.value) || 0; });
+    const values = state.curveValues; const device = state.curveDevice;
     try { renderState(await api("/api/device-command", { method: "POST", body: JSON.stringify({ kind: device.kind, id: device.id, field: "preset_curve", value: values }) })); $("#curveSaveNote").textContent = "已保存"; toast("96 点默认功率曲线已保存"); window.setTimeout(() => { $("#curveModal").hidden = true; $("#curveSaveNote").textContent = ""; }, 500); } catch (error) { toast(error.message, "error"); }
   }
 
@@ -302,8 +328,10 @@
     $("#queryLogsBtn").addEventListener("click", loadLogs); $("#refreshLogsBtn").addEventListener("click", loadLogs); $("#refreshHistoryBtn").addEventListener("click", loadHistory); $("#historyLimit").addEventListener("change", loadHistory); $("#refreshCommandsBtn").addEventListener("click", loadCommands);
     $$(".monitor-tab").forEach(button => button.addEventListener("click", () => { state.monitorTab = button.dataset.monitorTab; $$(".monitor-tab").forEach(item => item.classList.toggle("active", item === button)); $$(".monitor-pane").forEach(item => item.classList.toggle("active", item.id === `monitor-pane-${state.monitorTab}`)); if (state.monitorTab === "commands") loadCommands(); if (state.monitorTab === "detail") refreshDeviceDetail(); window.setTimeout(() => { if (state.monitorTab === "summary") drawChart($("#monitorChart"), state.current?.history || [], ["load", "renewable", "storage", "diesel"]); if (state.monitorTab === "detail" && state.detailData) drawDeviceChart($("#deviceChart"), state.detailData.history || []); }, 30); }));
     $("#deviceParameterForm").addEventListener("submit", saveDeviceParameters);
+    $$(".detail-tab").forEach(button => button.addEventListener("click", () => { state.detailTab = button.dataset.detailTab; $$(".detail-tab").forEach(item => item.classList.toggle("active", item === button)); $$(".detail-pane").forEach(item => item.classList.toggle("active", item.id === `detail-pane-${state.detailTab}`)); if (state.detailTab === "overview" && state.detailData) window.setTimeout(() => drawDeviceChart($("#deviceChart"), state.detailData.history || []), 30); }));
     $("#detailCurveBtn").addEventListener("click", () => { if (state.detailKey) openCurve(state.detailKey); });
     $("#closeCurveBtn").addEventListener("click", () => { $("#curveModal").hidden = true; }); $("#curveModal").addEventListener("click", event => { if (event.target.id === "curveModal") event.currentTarget.hidden = true; }); $("#saveCurveBtn").addEventListener("click", saveCurve); $("#fillCurveBtn").addEventListener("click", () => { const value = Number(state.curveDevice?.presetPower || 0); $$("[data-curve-index]").forEach(input => { input.value = value; }); });
+    $("#curvePrevBtn").addEventListener("click", () => { $$("[data-curve-index]").forEach(input => { state.curveValues[Number(input.dataset.curveIndex)] = Number(input.value) || 0; }); state.curvePage -= 1; renderCurveEditor(); }); $("#curveNextBtn").addEventListener("click", () => { $$("[data-curve-index]").forEach(input => { state.curveValues[Number(input.dataset.curveIndex)] = Number(input.value) || 0; }); state.curvePage += 1; renderCurveEditor(); });
     window.addEventListener("resize", () => { if (state.current) { drawChart($("#overviewChart"), state.current.history || [], ["load", "renewable", "balance"]); drawChart($("#monitorChart"), state.current.history || [], ["load", "renewable", "storage", "diesel"]); } if (state.detailData) drawDeviceChart($("#deviceChart"), state.detailData.history || []); });
   }
 
