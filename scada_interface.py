@@ -108,7 +108,14 @@ class ScadaHttpClient:
             headers["Content-Type"] = "application/json"
         request = Request(url, data=data, headers=headers, method=method)
         with urlopen(request, timeout=self.timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+            raw = response.read()
+            if not raw:
+                return None
+            text = raw.decode("utf-8")
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                return text
 
     @staticmethod
     def _rows(payload: Any) -> list[dict]:
@@ -125,7 +132,7 @@ class ScadaHttpClient:
         payload = self._request("GET", f"{self.base_url}/api/points/{kind}?{query}")
         rows = self._rows(payload)
         if not rows:
-            return False, "", None
+            return normalize_read_result(payload)
         row = rows[0]
         return True, str(row.get("name", row.get("description", ""))), row.get("value")
 
