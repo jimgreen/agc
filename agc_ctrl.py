@@ -1,5 +1,8 @@
 import argparse
 import logging
+import importlib
+import inspect
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -64,6 +67,11 @@ class FesClient:
     get_yx_value: Callable
     schema: object = None
     context: object = None
+    send_yk_value: Optional[Callable] = None
+    send_yt_value: Optional[Callable] = None
+    source: str = "fallback"
+    command_source: str = "unconfigured"
+    command_available: bool = False
 
 
 class SystemConfig:
@@ -88,6 +96,12 @@ class SystemConfig:
         self.gather_count = 0
         self.ctrl_output_file = None if ctrl_output_file is None else Path(ctrl_output_file)
         self.data_store = data_store
+        # Web sets this before each cycle; the CLI controller is closed-loop
+        # by default.  The adapter refuses to send automatic commands in open
+        # loop while still allowing telemetry collection.
+        self.control_mode = "closed_loop"
+        self.command_results = []
+        self.scada_data_results = []
         self.logger = self._setup_logger(log_file or _default_log_file())
 
     @staticmethod
@@ -113,9 +127,58 @@ class SystemConfig:
         logger.addHandler(console_handler)
         return logger
 
-    def send_yt_cmd(self, yt, value: float) -> None:
-        yt.ctrl_value = float(value)
-        self.logger.info("下发遥调指令 %s rtu=%s pnt=%s value=%s", yt.name, yt.rtu, yt.pnt, value)
+    def _send_scada_command(self, kind: str, rtu, pnt, value) -> bool:
+        if self.control_mode != "closed_loop":
+            self.logger.info("开环模式跳过 SCADA%s指令 rtu=%s pnt=%s value=%s", kind.upper(), rtu, pnt, value)
+            return False
+        sender = self.fes_client.send_yk_value if kind == "yk" else self.fes_client.send_yt_value
+        if sender is None:
+            self.logger.warning("SCADA%s接口未配置，未下发 rtu=%s pnt=%s value=%s", kind.upper(), rtu, pnt, value)
+            self.command_results.append({"kind": kind, "rtu": rtu, "pnt": pnt, "value": value, "ok": False, "reason": "unconfigured"})
+            return False
+        try:
+            result = _invoke_scada_callable(sender, self.fes_client.schema, self.fes_client.context, rtu, pnt, value)
+            try:
+                from scada_interface import result_ok
+                ok = result_ok(result)
+            except ImportError:
+                ok = bool(result[0]) if isinstance(result, tuple) else bool(result)
+            if not ok:
+                raise RuntimeError("SCADA 接口返回失败")
+            self.command_results.append({"kind": kind, "rtu": rtu, "pnt": pnt, "value": value, "ok": True})
+            self.logger.info("SCADA%s指令已下发 rtu=%s pnt=%s value=%s source=%s", kind.upper(), rtu, pnt, value, self.fes_client.command_source)
+            return True
+        except Exception as exc:
+            self.command_results.append({"kind": kind, "rtu": rtu, "pnt": pnt, "value": value, "ok": False, "reason": str(exc)})
+            self.logger.error("SCADA%s指令下发失败 rtu=%s pnt=%s value=%s: %s", kind.upper(), rtu, pnt, value, exc)
+            return False
+
+    def send_yt_cmd(self, yt, value: float) -> bool:
+        value = float(value)
+        ok = self._send_scada_command("yt", getattr(yt, "rtu", 0), getattr(yt, "pnt", 0), value)
+        if ok:
+            yt.ctrl_value = value
+        return ok
+
+    def send_yk_cmd(self, yk_or_device, value: int) -> bool:
+        value = int(bool(value))
+        ok = self._send_scada_command("yk", getattr(yk_or_device, "rtu", 0), getattr(yk_or_device, "pnt", 0), value)
+        if ok:
+            setattr(yk_or_device, "ctrl_value", value)
+        return ok
+
+    def send_device_p_ctrl(self, device, value: float, kind: str = "") -> bool:
+        """Send a device active-power command when a YT mapping is present."""
+        point = _find_device_control_point(self.model, device)
+        if point is None:
+            return True
+        return self.send_yt_cmd(point, value)
+
+    def send_device_run_state(self, device, value: int) -> bool:
+        point = _find_device_run_point(self.model, device)
+        if point is None:
+            return True
+        return self.send_yk_cmd(point, value)
 
 
 def _default_log_file() -> Path:
@@ -124,20 +187,109 @@ def _default_log_file() -> Path:
 
 
 def _load_fes_client() -> FesClient:
+    fallback_yc = lambda schema, context, rtu, pnt: (False, "", None)
+    fallback_yx = lambda schema, context, rtu, pnt: (False, "", None)
+    get_yc = fallback_yc
+    get_yx = fallback_yx
+    send_yk = None
+    send_yt = None
+    source = "fallback"
+    command_source = "unconfigured"
+    http_client = None
     try:
-        from fes_interface import get_yc_value, get_yx_value
+        from scada_interface import command_endpoint_from_env, load_http_client, resolve_callable
+        http_client = load_http_client()
+        endpoint = command_endpoint_from_env()
+        if endpoint is not None and endpoint.exists():
+            command_client = __import__("scada_interface", fromlist=["ScadaCommandClient"]).ScadaCommandClient(endpoint, float(os.environ.get("AGC_SCADA_TIMEOUT", "5")))
+            send_yk = lambda schema, context, rtu, pnt, value: command_client.send("yk", rtu, pnt, value)
+            send_yt = lambda schema, context, rtu, pnt, value: command_client.send("yt", rtu, pnt, value)
+            command_source = f"tcp:{endpoint}"
+        if http_client is not None:
+            get_yc = lambda schema, context, rtu, pnt: http_client.read("yc", rtu, pnt)
+            get_yx = lambda schema, context, rtu, pnt: http_client.read("yx", rtu, pnt)
+            if send_yk is None:
+                send_yk = lambda schema, context, rtu, pnt, value: http_client.send("yk", rtu, pnt, value)
+                send_yt = lambda schema, context, rtu, pnt, value: http_client.send("yt", rtu, pnt, value)
+            source = "http"
+            if command_source == "unconfigured":
+                command_source = "http"
+    except Exception:
+        # Optional bridge imports must never prevent simulation startup.
+        pass
+
+    module_name = os.environ.get("AGC_FES_MODULE", "fes_interface").strip()
+    try:
+        module = importlib.import_module(module_name)
+        try:
+            from scada_interface import resolve_callable
+            get_yc = resolve_callable(module, ("get_yc_value", "get_yc", "read_yc_value")) or get_yc
+            get_yx = resolve_callable(module, ("get_yx_value", "get_yx", "read_yx_value")) or get_yx
+            send_yk = resolve_callable(module, ("send_yk_value", "set_yk_value", "send_yk", "send_yk_cmd", "remote_control")) or send_yk
+            send_yt = resolve_callable(module, ("send_yt_value", "set_yt_value", "send_yt", "send_yt_cmd", "remote_adjust")) or send_yt
+        except Exception:
+            pass
+        source = f"module:{module_name}"
+        if send_yk is not None or send_yt is not None:
+            command_source = f"module:{module_name}"
     except ImportError:
-        return FesClient(
-            get_yc_value=lambda schema, context, rtu, pnt: (False, "", None),
-            get_yx_value=lambda schema, context, rtu, pnt: (False, "", None),
-        )
+        pass
 
     try:
         from sys_para import CONTEXT, SCHEMA
     except ImportError:
         SCHEMA = None
         CONTEXT = None
-    return FesClient(get_yc_value=get_yc_value, get_yx_value=get_yx_value, schema=SCHEMA, context=CONTEXT)
+    return FesClient(
+        get_yc_value=get_yc,
+        get_yx_value=get_yx,
+        schema=SCHEMA,
+        context=CONTEXT,
+        send_yk_value=send_yk,
+        send_yt_value=send_yt,
+        source=source,
+        command_source=command_source,
+        command_available=send_yk is not None or send_yt is not None,
+    )
+
+
+def _invoke_scada_callable(function: Callable, schema, context, rtu, pnt, value_marker=None):
+    """Call legacy 4/5-argument FES functions and compact 2/3-argument APIs."""
+    candidates = (
+        (schema, context, rtu, pnt, value_marker),
+        (rtu, pnt, value_marker),
+        (schema, context, rtu, pnt),
+        (rtu, pnt),
+    ) if value_marker is not None else (
+        (schema, context, rtu, pnt),
+        (rtu, pnt),
+    )
+    try:
+        signature = inspect.signature(function)
+    except (TypeError, ValueError):
+        signature = None
+    if signature is not None:
+        for args in candidates:
+            try:
+                signature.bind(*args)
+            except TypeError:
+                continue
+            return function(*args)
+    return function(*candidates[0])
+
+
+def _normalize_scada_read_result(value):
+    """Normalize FES/HTTP read results without assuming one vendor shape."""
+    try:
+        from scada_interface import normalize_read_result
+        return normalize_read_result(value)
+    except ImportError:
+        if isinstance(value, (tuple, list)):
+            if len(value) >= 3:
+                return bool(value[0]), str(value[1] or ""), value[2]
+            if len(value) == 2 and isinstance(value[0], bool):
+                return value[0], "", value[1]
+        return (False, "", None) if value is None else (True, "", value)
 
 
 def _load_control_functions() -> Tuple[Callable, Callable, Callable]:
@@ -479,6 +631,53 @@ def _current_control_value(device) -> float:
     return _power_value(device, "p_ctrl", "p_cur", "p", "p_set", default=0.0)
 
 
+def _find_device_control_point(model, device):
+    """Resolve an optional device -> YT mapping from model metadata."""
+    explicit = None
+    for attr in ("p_yt_id", "yt_id", "control_yt_id", "power_yt_id"):
+        value = getattr(device, attr, None)
+        if value not in (None, ""):
+            explicit = value
+            break
+    if explicit is not None:
+        for point in getattr(model, "yt", []) or []:
+            if str(getattr(point, "id", "")) == str(explicit):
+                return point
+    rtu = getattr(device, "p_yt_rtu", getattr(device, "yt_rtu", None))
+    pnt = getattr(device, "p_yt_pnt", getattr(device, "yt_pnt", None))
+    if rtu not in (None, "") and pnt not in (None, ""):
+        point = type("DeviceYTPoint", (), {})()
+        point.id = f"device:{getattr(device, 'id', '')}"
+        point.name = f"{getattr(device, 'name', '')}有功设定"
+        point.rtu, point.pnt = rtu, pnt
+        point.control_role = "DEVICE_POWER"
+        return point
+    return None
+
+
+def _find_device_run_point(model, device):
+    """Resolve an optional device -> YK start/stop mapping."""
+    explicit = None
+    for attr in ("run_yk_id", "status_yk_id", "yk_id", "control_yk_id"):
+        value = getattr(device, attr, None)
+        if value not in (None, ""):
+            explicit = value
+            break
+    if explicit is not None:
+        for point in getattr(model, "yk", []) or []:
+            if str(getattr(point, "id", "")) == str(explicit):
+                return point
+    rtu = getattr(device, "run_yk_rtu", getattr(device, "yk_rtu", None))
+    pnt = getattr(device, "run_yk_pnt", getattr(device, "yk_pnt", None))
+    if rtu not in (None, "") and pnt not in (None, ""):
+        point = type("DeviceYKPoint", (), {})()
+        point.id = f"device:{getattr(device, 'id', '')}"
+        point.name = f"{getattr(device, 'name', '')}启停"
+        point.rtu, point.pnt = rtu, pnt
+        return point
+    return None
+
+
 def _is_remote_controlled(device) -> bool:
     """Whether automatic AGC is allowed to change this device."""
     state = str(getattr(device, "agc_control_state", "remote") or "remote").strip().lower()
@@ -562,6 +761,15 @@ def _set_p_ctrl(
         after = _clamp(_limit_control_step(model, device, bounded, kind), lower, upper)
     device.p_ctrl = after
     _apply_model_power_setpoint(device, after)
+    config = getattr(model, "config", None)
+    if config is not None and hasattr(config, "send_device_p_ctrl"):
+        if not config.send_device_p_ctrl(device, after, kind):
+            # A failed SCADA command must not be represented as an accepted
+            # AGC setpoint.  Restore the prior local command and let the next
+            # cycle retry after the communication fault is resolved.
+            device.p_ctrl = before
+            _apply_model_power_setpoint(device, before)
+            return before, before
     return before, after
 
 
@@ -654,6 +862,15 @@ def _all_load_devices(model) -> List:
     for table_name in ("ACLoad", "DCLoad"):
         loads.extend(getattr(model, table_name, []) or [])
     return _unique_devices(loads)
+
+
+def _all_control_devices(model) -> Iterable[Tuple[str, object]]:
+    groups = _agc_resource_groups(model)
+    for kind in ("renewable", "storage", "diesel"):
+        for device in groups[kind]:
+            yield kind, device
+    for device in _all_load_devices(model):
+        yield "load", device
 
 
 def _load_target(model) -> float:
@@ -1263,7 +1480,8 @@ def _send_hydrogen_absorb(logger, model, surplus: float) -> float:
     )
     if yt is None:
         return surplus
-    model.config.send_yt_cmd(yt, surplus)
+    if not model.config.send_yt_cmd(yt, surplus):
+        return surplus
     logger.info("风光富余转制氢 %s value=%.3f", yt.name, surplus)
     return 0.0
 
@@ -1295,7 +1513,8 @@ def _probe_hydrogen_absorb(logger, model, surplus: float) -> float:
     absorbed = max(0.0, target - current)
     if absorbed <= 0.0:
         return surplus
-    model.config.send_yt_cmd(yt, target)
+    if not model.config.send_yt_cmd(yt, target):
+        return surplus
     logger.info("风光富余转制氢小步吸收 %s ctrl=%.3f -> %.3f residual=%.3f", yt.name, current, target, surplus - absorbed)
     return max(0.0, surplus - absorbed)
 
@@ -1309,7 +1528,8 @@ def _send_fuel_cell_support(logger, model, deficit: float) -> float:
     )
     if yt is None:
         return deficit
-    model.config.send_yt_cmd(yt, deficit)
+    if not model.config.send_yt_cmd(yt, deficit):
+        return deficit
     logger.info("缺额转燃料电池支撑 %s value=%.3f", yt.name, deficit)
     return 0.0
 
@@ -1344,7 +1564,8 @@ def _probe_fuel_cell_support(logger, model, deficit: float) -> float:
     delivered = max(0.0, target - current)
     if delivered <= 0.0:
         return deficit
-    model.config.send_yt_cmd(yt, target)
+    if not model.config.send_yt_cmd(yt, target):
+        return deficit
     logger.info("缺额转燃料电池小步支撑 %s ctrl=%.3f -> %.3f residual=%.3f", yt.name, current, target, deficit - delivered)
     return max(0.0, deficit - delivered)
 
@@ -1517,22 +1738,57 @@ def agc_ctrl_stg_check_default(logger, model) -> None:
 
 def _update_yc(config: SystemConfig) -> None:
     client = config.fes_client
+    config.scada_data_results = []
     for yc in getattr(config.model, "yc", []):
-        result, _name, value = client.get_yc_value(client.schema, client.context, yc.rtu, yc.pnt)
+        try:
+            result, _name, value = _normalize_scada_read_result(
+                _invoke_scada_callable(client.get_yc_value, client.schema, client.context, yc.rtu, yc.pnt)
+            )
+        except Exception as exc:
+            result, value = False, None
+            config.logger.error("SCADA遥测接口异常 %s rtu=%s pnt=%s: %s", getattr(yc, "name", ""), yc.rtu, yc.pnt, exc)
         if result:
             yc.value = value
+            config.scada_data_results.append({"kind": "yc", "id": getattr(yc, "id", ""), "ok": True})
         else:
             config.logger.info("无法更新遥测数据 %s rtu=%s pnt=%s，使用本地值 %s", yc.name, yc.rtu, yc.pnt, yc.value)
+            config.scada_data_results.append({"kind": "yc", "id": getattr(yc, "id", ""), "ok": False})
 
 
 def _update_yx(config: SystemConfig) -> None:
     client = config.fes_client
     for yx in getattr(config.model, "yx", []):
-        result, _name, value = client.get_yx_value(client.schema, client.context, yx.rtu, yx.pnt)
+        try:
+            result, _name, value = _normalize_scada_read_result(
+                _invoke_scada_callable(client.get_yx_value, client.schema, client.context, yx.rtu, yx.pnt)
+            )
+        except Exception as exc:
+            result, value = False, None
+            config.logger.error("SCADA遥信接口异常 %s rtu=%s pnt=%s: %s", getattr(yx, "name", ""), yx.rtu, yx.pnt, exc)
         if result:
             yx.value = value
-        else:
-            config.logger.info("无法更新遥信数据 %s rtu=%s pnt=%s", yx.name, yx.rtu, yx.pnt)
+            config.scada_data_results.append({"kind": "yx", "id": getattr(yx, "id", ""), "ok": True})
+            continue
+        config.scada_data_results.append({"kind": "yx", "id": getattr(yx, "id", ""), "ok": False})
+        config.logger.info("无法更新遥信数据 %s rtu=%s pnt=%s，使用本地值 %s", yx.name, yx.rtu, yx.pnt, getattr(yx, "value", None))
+
+
+def _apply_yx_device_states(config: SystemConfig) -> None:
+    """Apply optional YX run/status mappings to device run_stat fields."""
+    yx_by_id = _build_id_map(getattr(config.model, "yx", []))
+    for _kind, device in _all_control_devices(config.model):
+        yx_id = None
+        for name in ("run_yx_id", "status_yx_id", "yx_id"):
+            if getattr(device, name, None) not in (None, ""):
+                yx_id = getattr(device, name)
+                break
+        yx = yx_by_id.get(str(yx_id)) if yx_id is not None else None
+        if yx is None or getattr(yx, "value", None) is None:
+            continue
+        try:
+            device.run_stat = 1 if bool(int(float(yx.value))) else 0
+        except (TypeError, ValueError):
+            config.logger.warning("遥信状态值无效 %s value=%s", getattr(yx, "name", ""), getattr(yx, "value", None))
 
 
 def _log_power_group(logger: logging.Logger, title: str, devices: Iterable, attr_name: str = "p_cur") -> None:
@@ -1550,6 +1806,7 @@ def data_gather(config: SystemConfig) -> None:
     """Gather telemetry and refresh model runtime fields."""
     _update_yc(config)
     _update_yx(config)
+    _apply_yx_device_states(config)
     model = config.model
     groups = _agc_resource_groups(model)
     _log_power_group(config.logger, "柴发/常规机组", groups["diesel"])

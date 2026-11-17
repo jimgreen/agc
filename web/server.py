@@ -293,6 +293,7 @@ class AGCState:
             log_file=self.log_path,
             ctrl_output_file=DATA_DIR / "dev_ctrl.e",
         )
+        self.config.control_mode = self.control_mode
         self.do_one_ctrl, self.agc_ctrl_stg_check, self.do_renew_gen_fur_calc = (
             agc_ctrl._load_control_functions()
         )
@@ -367,6 +368,7 @@ class AGCState:
         saved_mode = params.pop("CONTROL_MODE", None)
         if saved_mode in {"open_loop", "closed_loop"}:
             self.control_mode = saved_mode
+        self.config.control_mode = self.control_mode
         for para in getattr(self.model, "para", []):
             if para.name in params:
                 para.value = self._cast_parameter(para.value, params[para.name])
@@ -550,10 +552,18 @@ class AGCState:
             if upper < lower:
                 upper = max(target, lower)
             target = max(lower, min(upper, target))
+            before = _number(getattr(device, "p_ctrl", getattr(device, "p_cur", 0.0)))
+            before_set = _number(getattr(device, "p_set", before)) if hasattr(device, "p_set") else None
             device.p_ctrl = target
             if hasattr(device, "p_set"):
                 device.p_set = target
             device.agc_preset_power = target
+            if self.control_mode == "closed_loop" and hasattr(self.config, "send_device_p_ctrl"):
+                if not self.config.send_device_p_ctrl(device, target, self._device_kind(device)):
+                    device.p_ctrl = before
+                    if hasattr(device, "p_set"):
+                        device.p_set = before_set
+                    self.config.logger.warning("本地曲线 SCADA 遥调未确认 %s point=%s", getattr(device, "name", ""), point)
             self.config.logger.info("本地曲线控制 %s point=%s p_ctrl=%.3f", getattr(device, "name", ""), point, target)
 
     def set_control_mode(self, mode: str) -> Dict[str, Any]:
@@ -562,6 +572,7 @@ class AGCState:
             raise ValueError("控制模式必须是 open_loop 或 closed_loop")
         with self.lock:
             self.control_mode = mode
+            self.config.control_mode = mode
             self._save_settings()
             self.config.logger.info("Web 控制模式切换为：%s", "闭环" if mode == "closed_loop" else "开环")
             return self._snapshot()
@@ -615,6 +626,7 @@ class AGCState:
 
     def run_cycle(self) -> Dict[str, Any]:
         with self.lock:
+            self.config.control_mode = self.control_mode
             # Gather the full plant first.  Local devices are then pinned to
             # their preset curve while the closed-loop strategy may adjust only
             # remote devices (agc_ctrl._set_p_ctrl enforces this guard).
@@ -759,6 +771,10 @@ class AGCState:
                     target.agc_control_step = _number(value)
                 elif field == "control_deadband":
                     target.agc_control_deadband = _number(value)
+                if field == "run_stat" and hasattr(self.config, "send_device_run_state"):
+                    if not self.config.send_device_run_state(target, converted):
+                        setattr(target, actual_field, old)
+                        raise ValueError("SCADA遥控下发失败，设备运行状态未修改")
             self._save_device_modes()
             self.config.logger.info("设备指令 %s/%s %s=%s", kind, item_id, field, value)
             return self._snapshot()
@@ -838,6 +854,10 @@ class AGCState:
             "solor_irrad": round(_number(getattr(getattr(self.model, "solor_irrad", None), "value", 0)), 3),
             "env_temp": round(_number(getattr(getattr(self.model, "env_temp", None), "value", 0)), 3),
         }
+        scada_results = list(getattr(self.config, "scada_data_results", []) or [])
+        command_results = list(getattr(self.config, "command_results", []) or [])
+        yc_results = [item for item in scada_results if item.get("kind") == "yc"]
+        yx_results = [item for item in scada_results if item.get("kind") == "yx"]
         data: Dict[str, Any] = {
             "timestamp": _utc_now(),
             "running": self.running,
@@ -855,6 +875,16 @@ class AGCState:
             },
             "weather": weather,
             "devices": devices,
+            "scada": {
+                "source": str(getattr(self.config.fes_client, "source", "fallback")),
+                "commandSource": str(getattr(self.config.fes_client, "command_source", "unconfigured")),
+                "ycOk": sum(1 for item in yc_results if item.get("ok")),
+                "ycTotal": len(yc_results),
+                "yxOk": sum(1 for item in yx_results if item.get("ok")),
+                "yxTotal": len(yx_results),
+                "lastCommandOk": sum(1 for item in command_results[-100:] if item.get("ok")),
+                "lastCommandTotal": len(command_results[-100:]),
+            },
             "backend": {
                 "source": "sqlite",
                 "database": str(DB_PATH),
@@ -953,7 +983,8 @@ class HMIHandler(BaseHTTPRequestHandler):
             self._send_json({"items": STATE.db.commands(kind, item_id, limit)})
             return
         if parsed.path == "/api/health":
-            self._send_json({"ok": True, "time": _utc_now(), "database": str(DB_PATH), "tables": STATE.db.stats()})
+            snapshot = STATE._snapshot(include_history=False)
+            self._send_json({"ok": True, "time": _utc_now(), "database": str(DB_PATH), "tables": STATE.db.stats(), "scada": snapshot.get("scada", {})})
             return
         self._serve_static(parsed.path)
 

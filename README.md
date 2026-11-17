@@ -58,3 +58,30 @@ Web 服务和 AGC 计算后台共用 `D:\\codex\\sqldb\\realtime\\agc\\agc.db` �
 ## 依赖
 
 仅使用 Python 标准库。
+
+## SCADA 四遥联动
+
+计算周期先通过 SCADA 遥测（YC）和遥信（YX）刷新模型；YX 可通过设备的
+`run_yx_id`/`status_yx_id`/`yx_id` 映射同步设备运行状态。闭环模式下，自动决策和
+本地默认曲线才会通过遥调（YT）下发有功指令；设备运行状态的界面操作通过遥控（YK）
+下发。开环模式仍采集 YC/YX，但不会发送自动 YK/YT 指令。指令接口返回失败或超时
+时，内存中的控制值回滚，失败原因写入日志和 `command_results`，下一周期可重试。
+
+现场可以任选一种适配方式：
+
+- Python FES 模块：设置 `AGC_FES_MODULE`（默认 `fes_interface`），提供
+  `get_yc_value`、`get_yx_value`、`send_yk_value`、`send_yt_value`；兼容 4/5 参数
+ 旧接口以及 2/3 参数简化接口。
+- HTTP：设置 `AGC_SCADA_API_URL`，读取使用
+  `/api/points/yc|yx?rtu_id=&pnt_no=&limit=1`，写入默认使用
+  `/api/points/{kind}/{rtu}/{pnt}`。若现场命令路由不同，可用
+  `AGC_SCADA_COMMAND_URL` 覆盖，其中支持 `{kind}`、`{rtu}`、`{pnt}` 占位符；
+  `AGC_SCADA_TOKEN` 和 `AGC_SCADA_TIMEOUT` 分别配置认证和超时。
+- `scdfe_c` 指令服务：设置 `AGC_SCADA_COMMAND_ENDPOINT` 指向认证端点 JSON；若
+  设置 `AGC_SCADA_DB`，程序也会自动查找同名 `.scdfe_command.json` 端点文件。
+
+设备到现场控制点的映射写在模型设备行的元数据中：有功遥调支持
+`p_yt_id`/`yt_id`/`control_yt_id`/`power_yt_id`，或 `p_yt_rtu`+`p_yt_pnt`；启停
+遥控支持 `run_yk_id`/`status_yk_id`/`yk_id`/`control_yk_id`，或
+`run_yk_rtu`+`run_yk_pnt`。没有映射的设备仍可运行仿真和界面逻辑，但不会伪造现场
+指令成功；接入真实设备前必须按现场点表补齐映射并验证权限。

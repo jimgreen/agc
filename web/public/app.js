@@ -52,6 +52,12 @@
     $("#backendStatus").textContent = backend.source === "sqlite" ? "已同步" : "未连接";
     $("#backendStatus").className = backend.source === "sqlite" ? "" : "warning";
     $("#backendCycle").textContent = backend.lastCycle ?? "--";
+    const scada = data.scada || {};
+    const sourceText = scada.source === "http" ? "SCADA HTTP" : (scada.source || "").startsWith("module:") ? "FES 模块" : "本地仿真";
+    const totalPoints = Number(scada.ycTotal || 0) + Number(scada.yxTotal || 0);
+    const okPoints = Number(scada.ycOk || 0) + Number(scada.yxOk || 0);
+    $("#telemetryStatus").textContent = totalPoints ? `${sourceText} ${okPoints}/${totalPoints}` : sourceText;
+    $("#telemetryStatus").className = scada.source === "fallback" ? "warning" : "";
     $("#monitorTime").textContent = data.timestamp || "--";
     renderResources(data.devices || []);
     renderDevices(data.devices || []);
