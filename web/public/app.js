@@ -1,7 +1,7 @@
 (() => {
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-  const state = { current: null, filter: "all", deviceSearch: "", selectedDevices: new Set(), curveDevice: null, curveValues: [], curvePage: 0, detailKey: "", detailData: null, detailTab: "overview", monitorTab: "summary", devicePage: 1, commandPage: 1, commandRows: [], logPage: 1, logRows: [], historyPage: 1, historyRows: [], refreshBusy: false, view: "overview", detailPage: 1, drafts: {}, detailBusy: false };
+  const state = { current: null, filter: "all", deviceSearch: "", selectedDevices: new Set(), curveDevice: null, curveValues: [], curvePage: 0, detailKey: "", detailData: null, detailTab: "overview", monitorTab: "summary", devicePage: 1, commandPage: 1, commandRows: [], logPage: 1, logRows: [], historyPage: 1, historyRows: [], refreshBusy: false, analysisData: null, analysisPage: 1, historyQuery: {}, historyStack: [], historyBefore: 0, historyResult: null, curveTab: "edit", view: "overview", detailPage: 1, drafts: {}, detailBusy: false };
   const PAGE_SIZE = { devices: 8, commands: 12, logs: 12, history: 8 };
   const CURVE_PAGE_SIZE = 24;
   const kindNames = { wind: "风机", pv: "光伏", storage: "储能", diesel: "柴发", load: "负荷" };
@@ -283,6 +283,7 @@
       $("#connectionText").textContent = "服务已连接";
       if (state.view === "monitor" && state.monitorTab === "detail") await refreshDeviceDetail();
       if (state.view === "monitor" && state.monitorTab === "commands") await loadCommands();
+      if (state.view === "monitor" && state.monitorTab === "analysis") await loadAnalysis();
     } catch (error) { $("#connectionText").textContent = "服务未连接"; }
     finally { state.refreshBusy = false; }
   }
@@ -299,7 +300,7 @@
     $$(".view").forEach(view => view.classList.toggle("active", view.id === `view-${name}`));
     const titles = { overview: "系统总览", monitor: "实时监视", config: "参数配置", logs: "日志查询", history: "历史查询" };
     $("#viewTitle").textContent = titles[name] || titles.overview;
-    if (name === "config") loadConfig(); if (name === "logs") loadLogs(); if (name === "history") loadHistory(); if (name === "monitor") { if (state.monitorTab === "commands") loadCommands(); if (state.monitorTab === "detail") refreshDeviceDetail(); }
+    if (name === "config") loadConfig(); if (name === "logs") loadLogs(); if (name === "history") loadHistory(); if (name === "monitor") { if (state.monitorTab === "analysis") loadAnalysis(); if (state.monitorTab === "commands") loadCommands(); if (state.monitorTab === "detail") refreshDeviceDetail(); }
     window.setTimeout(() => $$("canvas").forEach(canvas => { if (canvas.id === "historyChart") return; if (canvas.id === "overviewChart" || canvas.id === "monitorChart") drawChart(canvas, state.current?.history || [], canvas.id === "monitorChart" ? ["load", "renewable", "storage", "diesel"] : ["load", "renewable", "balance"]); }), 30);
   }
 
@@ -322,7 +323,57 @@
     renderPager("#logPager", state.logPage, pageCount, page => { state.logPage = page; renderLogs(); });
   }
 
-  async function loadHistory() { try { const limit = $("#historyLimit").value; const data = await api(`/api/history?limit=${limit}`); const items = data.items || []; state.historyRows = [...items].reverse(); state.historyPage = 1; $("#historyCount").textContent = `${items.length} 个采样点`; drawChart($("#historyChart"), items, ["load", "renewable", "balance"]); renderHistoryTable(); } catch (error) { toast(error.message, "error"); } }
+  async function loadHistory(direction = "reset") {
+    const previous = state.historyResult;
+    let before = 0, anchor, stack = [], query;
+    try {
+      if (direction === "older" && previous?.hasMore) { before = previous.nextBefore; anchor = previous.anchor; stack = [...state.historyStack, state.historyBefore]; query = state.historyQuery; }
+      else if (direction === "newer" && state.historyStack.length) { stack = [...state.historyStack]; before = stack.pop(); anchor = previous.anchor; query = state.historyQuery; }
+      else { query = {}; for (const [key,id] of [["start","historyStart"],["end","historyEnd"]]) { const value = $("#" + id).value; if (value) query[key] = new Date(value).toISOString(); } }
+      const params = new URLSearchParams({...query, limit: $("#historyLimit").value, before});
+      if (anchor !== undefined) params.set("anchor", anchor);
+      const result = await api(`/api/history-query?${params}`);
+      state.historyQuery = query; state.historyBefore = before; state.historyStack = stack; state.historyResult = result;
+      state.historyRows = [...result.items].reverse(); state.historyPage = 1;
+      $("#historyCount").textContent = `本批 ${result.items.length} 点 / 范围内 ${result.statistics.count} 点`;
+      $("#olderHistoryBtn").disabled = !result.hasMore; $("#newerHistoryBtn").disabled = !stack.length;
+      const stats = result.statistics;
+      $("#historyStatistics").innerHTML = [["范围内周期",stats.count,"个"],["平均负荷",stats.avgLoad,"MW"],["平均新能源",stats.avgRenewable,"MW"],["负荷峰值",stats.peakLoad,"MW"],["最大实测偏差",stats.maxAbsBalance,"MW"]].map(([label,value,unit]) => `<div><span>${label}</span><b>${value == null ? "—" : formatNumber(value, unit === "个" ? 0 : 2)} <small>${unit}</small></b></div>`).join("");
+      drawChart($("#historyChart"), result.items, ["load", "renewable", "balance"]); renderHistoryTable();
+    } catch (error) { toast(error.message, "error"); }
+  }
+
+  function downloadJson(filename, payload) {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"}));
+    const link = document.createElement("a"); link.href = url; link.download = filename; link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function exportHistory() {
+    if (!state.historyResult) return;
+    try {
+      const params = new URLSearchParams({...state.historyQuery, anchor:state.historyResult.anchor, limit:10000});
+      const result = await api(`/api/history-query?${params}`);
+      downloadJson(`agc-history-${result.anchor}.json`, {format:"agc-history/1", unit:"MW", exportedAt:new Date().toISOString(), truncated:result.hasMore, ...result});
+      toast(result.hasMore ? "已导出最近 10000 点；文件已标注截断，可缩小时间范围" : `已导出 ${result.items.length} 个周期`);
+    } catch (error) { toast(error.message,"error"); }
+  }
+
+  async function loadAnalysis() {
+    try { state.analysisData = await api("/api/analysis"); renderAnalysis(); } catch (error) { toast(error.message,"error"); }
+  }
+
+  function renderAnalysis() {
+    const data = state.analysisData; if (!data) return;
+    const a = data.acceptance;
+    $("#analysisMetrics").innerHTML = [["实测负荷",a.load],["实测新能源",a.renewable_actual],["储能吸收余量",a.storage_charge_space],["新增接纳空间",a.acceptance_space]].map(([label,value]) => `<div><span>${label}</span><b>${formatNumber(value,2)} <small>MW</small></b></div>`).join("");
+    $("#analysisStatus").textContent = `周期 ${data.cycle} · ${data.sampleAt ? new Date(data.sampleAt).toLocaleString("zh-CN",{hour12:false}) : "暂无周期采样"} · ${data.running ? "运行" : "暂停"} / ${data.controlMode === "closed_loop" ? "闭环" : "开环"} · 数据源 ${data.source === "fallback" ? "本地仿真" : data.source}`;
+    const rows = data.devices.filter(row => $("#analysisFilter").value === "all" || row.reason === $("#analysisFilter").value);
+    const size = pageCapacity("analysisTable",8), pages = Math.max(1, Math.ceil(rows.length / size));
+    state.analysisPage = Math.min(state.analysisPage,pages);
+    $("#analysisTable").innerHTML = rows.slice((state.analysisPage-1)*size,state.analysisPage*size).map(row => `<tr><td title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</td><td>${formatNumber(row.measured,2)}</td><td>${formatNumber(row.command,2)}</td><td>${formatNumber(row.gap,2)}</td><td>${row.kind === "renewable" ? formatNumber(row.headroom,2) : "—"}</td><td>${formatNumber(row.step)} / ${formatNumber(row.deadband)}</td><td>${escapeHtml(row.reason)}</td><td>${row.mapped ? "已配置" : "未配置"}</td></tr>`).join("") || '<tr><td colspan="8" class="empty-cell">没有符合条件的资源</td></tr>';
+    renderPager("#analysisPager",state.analysisPage,pages,page => { state.analysisPage=page;renderAnalysis(); });
+  }
 
   function renderHistoryTable() {
     PAGE_SIZE.history = pageCapacity("historyTable", PAGE_SIZE.history);
@@ -381,7 +432,45 @@
     state.curveDevice = detail; state.curveValues = Array.from({ length: 96 }, (_, index) => Number(detail.presetCurve?.[index] ?? detail.presetPower ?? 0)); state.curvePage = 0; state.savedCurve = [...state.curveValues];
     $("#curveTitle").textContent = `${device.name} · 96点默认功率曲线`; $("#curveRangeNote").textContent = `功率范围：${formatNumber(detail.pMin)} ~ ${formatNumber(detail.pMax)} MW`;
     renderCurveEditor();
-    $("#curveModal").hidden = false;
+    $("#curveModal").hidden = false; setCurveTab("edit"); $("#curveImportNote").textContent = "";
+  }
+
+  function captureCurve() {
+    $$("[data-curve-index]").forEach(input => { state.curveValues[Number(input.dataset.curveIndex)] = input.value.trim() === "" ? NaN : Number(input.value); });
+  }
+
+  function validateCurve(values) {
+    const device = state.curveDevice;
+    if (!Array.isArray(values) || values.length !== 96 || values.some(v => typeof v !== "number" || !Number.isFinite(v) || v < device.pMin || v > device.pMax)) throw new Error(`必须为 96 个 ${device.pMin} ~ ${device.pMax} MW 内的有限数字`);
+  }
+
+  function setCurveTab(name) {
+    captureCurve(); state.curveTab = name;
+    $$("[data-curve-tab]").forEach(button => button.classList.toggle("active",button.dataset.curveTab === name));
+    $$(".curve-pane").forEach(pane => pane.classList.toggle("active",pane.id === `curve-pane-${name}`));
+    if (name === "preview") {
+      try {
+        validateCurve(state.curveValues);
+        const values=state.curveValues;
+        const metrics=[["最小功率",Math.min(...values),"MW"],["最大功率",Math.max(...values),"MW"],["正向电量",values.reduce((sum,v)=>sum+Math.max(0,v)*0.25,0),"MWh"],["负向电量",values.reduce((sum,v)=>sum+Math.max(0,-v)*0.25,0),"MWh"]];
+        $("#curveStatistics").innerHTML=metrics.map(([label,value,unit])=>`<div><span>${label}</span><b>${formatNumber(value,2)} <small>${unit}</small></b></div>`).join("");
+        drawChart($("#curvePreview"), values.map((v,i)=>({timestamp:`2000-01-01T${String(Math.floor(i/4)).padStart(2,"0")}:${String(i%4*15).padStart(2,"0")}:00`,summary:{renewable:v}})),["renewable"]);
+      } catch(error) { $("#curveStatistics").textContent=error.message; const canvas=$("#curvePreview"); canvas.getContext("2d").clearRect(0,0,canvas.width,canvas.height); }
+    }
+  }
+
+  async function importCurve(event) {
+    const file=event.target.files[0]; if(!file) return;
+    try {
+      if(file.size>100000) throw new Error("曲线 JSON 文件不能超过 100 KB");
+      const payload=JSON.parse(await file.text());
+      if(payload.format!=="agc-curve/1" || payload.unit!=="MW" || payload.intervalMinutes!==15) throw new Error("文件格式须为 agc-curve/1，单位 MW，间隔 15 分钟");
+      validateCurve(payload.values);
+      state.curveValues=[...payload.values]; renderCurveEditor();
+      $("#curveImportNote").textContent=`已读取 ${file.name}，待保存；目标设备 ${state.curveDevice.name}`;
+      toast("96 点曲线已导入编辑区，请预览并保存");
+    } catch(error) { $("#curveImportNote").textContent=error.message; toast(error.message,"error"); }
+    finally { event.target.value=""; }
   }
 
   async function saveCurve() {
@@ -403,8 +492,17 @@
     $("#applyBulkState").addEventListener("click", applyBulkState);
     $("#saveConfigBtn").addEventListener("click", async event => { event.preventDefault(); const values = Object.fromEntries([...$("#parameterForm").querySelectorAll("input")].map(input => [input.name, Number(input.value)])); try { await api("/api/config", { method: "POST", body: JSON.stringify({ parameters: values }) }); $("#saveNote").textContent = "已保存"; toast("控制参数已保存"); window.setTimeout(() => $("#saveNote").textContent = "", 2000); } catch (error) { toast(error.message, "error"); } });
     $("#simulationForm").addEventListener("submit", async event => { event.preventDefault(); const values = Object.fromEntries([...event.currentTarget.querySelectorAll("input")].map(input => [input.name, Number(input.value)])); try { renderState(await api("/api/simulation", { method: "POST", body: JSON.stringify(values) })); toast("仿真遥测已应用"); } catch (error) { toast(error.message, "error"); } });
+    $("#analysisFilter").addEventListener("change",()=>{ state.analysisPage=1;renderAnalysis(); });
+    $("#queryHistoryBtn").addEventListener("click",()=>loadHistory());
+    $("#clearHistoryBtn").addEventListener("click",()=>{ $("#historyStart").value="";$("#historyEnd").value="";loadHistory(); });
+    $("#olderHistoryBtn").addEventListener("click",()=>loadHistory("older"));
+    $("#newerHistoryBtn").addEventListener("click",()=>loadHistory("newer"));
+    $("#exportHistoryBtn").addEventListener("click",exportHistory);
+    $$("[data-curve-tab]").forEach(button=>button.addEventListener("click",()=>setCurveTab(button.dataset.curveTab)));
+    $("#importCurveFile").addEventListener("change",importCurve);
+    $("#exportCurveBtn").addEventListener("click",()=>{ try { captureCurve(); validateCurve(state.curveValues); downloadJson(`agc-curve-${state.curveDevice.kind}-${state.curveDevice.id}.json`, {format:"agc-curve/1",unit:"MW",intervalMinutes:15,device:{kind:state.curveDevice.kind,id:state.curveDevice.id,name:state.curveDevice.name},values:state.curveValues}); } catch(error) { toast(error.message,"error"); } });
     $("#queryLogsBtn").addEventListener("click", loadLogs); $("#refreshLogsBtn").addEventListener("click", loadLogs); $("#refreshHistoryBtn").addEventListener("click", loadHistory); $("#historyLimit").addEventListener("change", loadHistory); $("#refreshCommandsBtn").addEventListener("click", loadCommands);
-    $$(".monitor-tab").forEach(button => button.addEventListener("click", () => { state.monitorTab = button.dataset.monitorTab; $$(".monitor-tab").forEach(item => item.classList.toggle("active", item === button)); $$(".monitor-pane").forEach(item => item.classList.toggle("active", item.id === `monitor-pane-${state.monitorTab}`)); if (state.monitorTab === "devices") renderDevices(state.current?.devices || []); if (state.monitorTab === "commands") loadCommands(); if (state.monitorTab === "detail") refreshDeviceDetail(); window.setTimeout(() => { if (state.monitorTab === "summary") drawChart($("#monitorChart"), state.current?.history || [], ["load", "renewable", "storage", "diesel"]); if (state.monitorTab === "detail" && state.detailData) drawDeviceChart($("#deviceChart"), state.detailData.history || []); }, 30); }));
+    $$(".monitor-tab").forEach(button => button.addEventListener("click", () => { state.monitorTab = button.dataset.monitorTab; $$(".monitor-tab").forEach(item => item.classList.toggle("active", item === button)); $$(".monitor-pane").forEach(item => item.classList.toggle("active", item.id === `monitor-pane-${state.monitorTab}`)); if (state.monitorTab === "devices") renderDevices(state.current?.devices || []); if (state.monitorTab === "analysis") loadAnalysis(); if (state.monitorTab === "commands") loadCommands(); if (state.monitorTab === "detail") refreshDeviceDetail(); window.setTimeout(() => { if (state.monitorTab === "summary") drawChart($("#monitorChart"), state.current?.history || [], ["load", "renewable", "storage", "diesel"]); if (state.monitorTab === "detail" && state.detailData) drawDeviceChart($("#deviceChart"), state.detailData.history || []); }, 30); }));
     $("#deviceParameterForm").addEventListener("submit", saveDeviceParameters);
     $("#deviceParameterForm").addEventListener("input", event => {
       const input = event.target; if (!input.name) return;
@@ -422,7 +520,7 @@
       if (state.view === "history") { renderHistoryTable(); drawChart($("#historyChart"), [...state.historyRows].reverse(), ["load", "renewable", "balance"]); }
       if (state.view === "overview") drawChart($("#overviewChart"), state.current?.history || [], ["load", "renewable", "balance"]);
     }));
-    $$(".detail-tab").forEach(button => button.addEventListener("click", () => { state.detailTab = button.dataset.detailTab; $$(".detail-tab").forEach(item => item.classList.toggle("active", item === button)); $$(".detail-pane").forEach(item => item.classList.toggle("active", item.id === `detail-pane-${state.detailTab}`)); if (state.detailData) window.setTimeout(() => renderDeviceDetail(state.detailData), 30); }));
+    $$("[data-detail-tab]").forEach(button => button.addEventListener("click", () => { state.detailTab = button.dataset.detailTab; $$("[data-detail-tab]").forEach(item => item.classList.toggle("active", item === button)); $$(".detail-pane").forEach(item => item.classList.toggle("active", item.id === `detail-pane-${state.detailTab}`)); if (state.detailData) window.setTimeout(() => renderDeviceDetail(state.detailData), 30); }));
     $("#detailCurveBtn").addEventListener("click", () => { if (state.detailKey) openCurve(state.detailKey); });
     $("#closeCurveBtn").addEventListener("click", () => { $("#curveModal").hidden = true; }); $("#curveModal").addEventListener("click", event => { if (event.target.id === "curveModal") event.currentTarget.hidden = true; }); $("#saveCurveBtn").addEventListener("click", saveCurve); $("#fillCurveBtn").addEventListener("click", () => { const value = Number(state.curveDevice?.presetPower || 0); state.curveValues.fill(value); renderCurveEditor(); });
     $("#restoreCurveBtn").addEventListener("click", () => { state.curveValues = [...state.savedCurve]; renderCurveEditor(); });
@@ -435,7 +533,7 @@
       renderCurveEditor();
     });
     $("#curvePrevBtn").addEventListener("click", () => { $$("[data-curve-index]").forEach(input => { state.curveValues[Number(input.dataset.curveIndex)] = input.value.trim() === "" ? NaN : Number(input.value); }); state.curvePage -= 1; renderCurveEditor(); }); $("#curveNextBtn").addEventListener("click", () => { $$("[data-curve-index]").forEach(input => { state.curveValues[Number(input.dataset.curveIndex)] = input.value.trim() === "" ? NaN : Number(input.value); }); state.curvePage += 1; renderCurveEditor(); });
-    window.addEventListener("resize", () => { renderDevices(state.current?.devices || []); renderCommands(); renderHistoryTable(); renderLogs(); if (state.detailData) renderDeviceDetail(state.detailData); if (state.current) { drawChart($("#overviewChart"), state.current.history || [], ["load", "renewable", "balance"]); drawChart($("#monitorChart"), state.current.history || [], ["load", "renewable", "storage", "diesel"]); } if (state.detailData) drawDeviceChart($("#deviceChart"), state.detailData.history || []); });
+    window.addEventListener("resize", () => { renderAnalysis(); if (!$("#curveModal").hidden && state.curveTab === "preview") setCurveTab("preview"); renderDevices(state.current?.devices || []); renderCommands(); renderHistoryTable(); renderLogs(); if (state.detailData) renderDeviceDetail(state.detailData); if (state.current) { drawChart($("#overviewChart"), state.current.history || [], ["load", "renewable", "balance"]); drawChart($("#monitorChart"), state.current.history || [], ["load", "renewable", "storage", "diesel"]); } if (state.detailData) drawDeviceChart($("#deviceChart"), state.detailData.history || []); });
   }
 
   bind(); refreshState(); window.setInterval(refreshState, 2000);

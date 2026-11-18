@@ -256,6 +256,51 @@ class AGCDatabase:
     def latest_cycle_row(self) -> Optional[sqlite3.Row]:
         return self.fetchone("SELECT * FROM control_cycles ORDER BY cycle DESC LIMIT 1")
 
+    def query_history(self, start="", end="", before=0, anchor=None, limit=240):
+        """Stable cycle cursor plus UTC-aware time range; end is exclusive."""
+        def parse_time(value):
+            if not value:
+                return None
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    raise ValueError()
+                return parsed.astimezone(timezone.utc)
+            except (ValueError, TypeError):
+                raise ValueError("查询时间须为包含时区的 ISO 时间") from None
+        start_time, end_time = parse_time(start), parse_time(end)
+        if start_time and end_time and start_time >= end_time:
+            raise ValueError("结束时间必须晚于开始时间")
+        limit = max(1, min(int(limit), 10000))
+        with self.lock:
+            if anchor is None:
+                latest = self.latest_cycle_row()
+                anchor = int(latest["cycle"]) if latest else 0
+            clauses, params = ["cycle<=?"], [int(anchor)]
+            for value, operator in ((start_time, ">="), (end_time, "<")):
+                if value:
+                    clauses.append(f"julianday(recorded_at){operator}julianday(?)")
+                    params.append(value.isoformat())
+            where = " AND ".join(clauses)
+            stats = dict(self.fetchone(f"""SELECT COUNT(*) AS count, AVG(load_power) AS avgLoad,
+                AVG(renewable_power) AS avgRenewable, MAX(load_power) AS peakLoad,
+                MAX(ABS(balance_power)) AS maxAbsBalance FROM control_cycles WHERE {where}""", params))
+            if before:
+                clauses.append("cycle<?")
+                params.append(int(before))
+            rows = self.fetchall(f"SELECT * FROM control_cycles WHERE {' AND '.join(clauses)} ORDER BY cycle DESC LIMIT ?", [*params, limit + 1])
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        items = [{"timestamp": row["recorded_at"], "cycle": row["cycle"],
+                  "controlMode": row["control_mode"], "running": bool(row["running"]),
+                  "summary": {name: row[column] for name, column in (
+                      ("load", "load_power"), ("renewable", "renewable_power"),
+                      ("storage", "storage_power"), ("diesel", "diesel_power"), ("balance", "balance_power"))}}
+                 for row in reversed(rows)]
+        return {"items": items, "statistics": stats, "anchor": int(anchor),
+                "hasMore": has_more, "nextBefore": rows[-1]["cycle"] if has_more else None,
+                "range": {"start": start, "end": end}, "limit": limit}
+
     def latest_device_samples(self) -> List[sqlite3.Row]:
         return self.fetchall(
             """SELECT s.* FROM devices d JOIN device_samples s
@@ -1009,6 +1054,44 @@ class AGCState:
                 "simulation": self._snapshot(include_history=False, include_curves=False)["weather"],
             }
 
+    def analysis_payload(self):
+        """Explain current measurements and limits without executing control."""
+        with self.lock:
+            latest = self._sync_from_database()
+            acceptance = agc_ctrl.calculate_renewable_acceptance_space(self.model, remember=False)
+            rows = []
+            for kind, device in agc_ctrl._all_control_devices(self.model):
+                measured = agc_ctrl._power_value(device, "p_cur", "p", default=0)
+                command = agc_ctrl._current_control_value(device)
+                lower, upper = self._power_bounds(device)
+                step = agc_ctrl._control_step(self.model, device, "renew" if kind == "renewable" else kind)
+                dead = agc_ctrl._control_deadband(self.model, device, kind)
+                headroom = max(0, upper - max(measured, command, lower)) if kind == "renewable" else 0
+                if not agc_ctrl._is_running(device):
+                    reason = "停运"
+                elif not agc_ctrl._is_remote_controlled(device):
+                    reason = "本地曲线"
+                elif kind != "renewable":
+                    reason = "被动平衡" if kind in {"diesel", "storage"} else "负荷监视"
+                elif headroom <= 0:
+                    reason = "已达功率上限"
+                elif agc_ctrl._probe_step(self.model, device, "renew") <= dead:
+                    reason = "步长未越过死区"
+                elif acceptance["acceptance_space"] <= 0:
+                    reason = "无新增接纳空间"
+                else:
+                    reason = "具备试探条件"
+                point = agc_ctrl._find_device_control_point(self.model, device)
+                rows.append({"kind": kind, "id": str(getattr(device, "id", "")),
+                    "name": str(getattr(device, "name", "")), "measured": measured, "command": command,
+                    "gap": command - measured, "headroom": headroom, "step": step, "deadband": dead,
+                    "reason": reason, "mapped": point is not None})
+            return {"cycle": self.cycle, "sampleAt": latest["recorded_at"] if latest else None,
+                "evaluatedAt": _utc_now(), "controlMode": self.control_mode, "running": self.running,
+                "source": self.config.fes_client.source, "commandSource": self.config.fes_client.command_source,
+                "acceptance": acceptance, "devices": rows,
+                "note": "按当前测量与配置评估；不下发指令。新能源上涨仅为试探，不能据此降低柴发或构网储能功率。"}
+
     def logs(self, keyword: str = "", level: str = "", limit: int = 200) -> List[Dict[str, str]]:
         return self.db.logs(keyword, level, limit)
 
@@ -1088,6 +1171,17 @@ class HMIHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             limit = max(1, min(1000, _integer(query.get("limit", [240])[0], 240)))
             self._send_json({"items": STATE.db.history(limit)})
+            return
+        if parsed.path == "/api/history-query":
+            query = parse_qs(parsed.query)
+            self._send_json(STATE.db.query_history(
+                start=query.get("start", [""])[0], end=query.get("end", [""])[0],
+                before=_integer(query.get("before", [0])[0]),
+                anchor=_integer(query["anchor"][0]) if "anchor" in query else None,
+                limit=_integer(query.get("limit", [240])[0], 240)))
+            return
+        if parsed.path == "/api/analysis":
+            self._send_json(STATE.analysis_payload())
             return
         if parsed.path == "/api/device-detail":
             query = parse_qs(parsed.query)

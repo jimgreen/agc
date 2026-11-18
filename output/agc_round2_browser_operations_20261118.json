@@ -1,0 +1,57 @@
+[
+  {
+    "name": "analysis metrics visible",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "analysis rows visible",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "analysis filter applied",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "analysis read-only contract",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "history statistics visible",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "history paging enabled",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "older history page loaded",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "history export button active",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "curve preview metrics visible",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "curve transfer controls visible",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "no browser errors recorded",
+    "pass": true,
+    "detail": "[]"
+  }
+]

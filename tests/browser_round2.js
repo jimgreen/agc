@@ -1,0 +1,47 @@
+async (page) => {
+  const result = [];
+  const check = (name, pass, detail='') => { result.push({name,pass,detail}); if (!pass) throw new Error(`${name}: ${detail}`); };
+  await page.goto('http://127.0.0.1:18766/');
+  await page.setViewportSize({width:1440,height:900});
+  await page.getByRole('button',{name:'◉ 实时监视',exact:true}).click();
+  await page.getByRole('button',{name:'运行分析',exact:true}).click();
+  await page.waitForTimeout(300);
+  check('analysis metrics visible', await page.locator('#analysisMetrics > div').count()===4);
+  check('analysis rows visible', await page.locator('#analysisTable tr').count()>0);
+  await page.locator('#analysisFilter').selectOption('本地曲线');
+  const analysisText = await page.locator('#analysisTable').innerText();
+  check('analysis filter applied', analysisText.includes('本地曲线') || analysisText.includes('没有符合'));
+  const analysis = await page.request.get('http://127.0.0.1:18766/api/analysis').then(r=>r.json());
+  check('analysis read-only contract', analysis.note.includes('不能据此降低') && analysis.devices.length===28);
+  await page.getByRole('button',{name:'↗ 历史查询',exact:true}).click();
+  await page.waitForTimeout(300);
+  const localDate = d => { const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+  const now = new Date();
+  const start = new Date(now.getTime()-86400000), end = new Date(now.getTime()+86400000);
+  await page.locator('#historyLimit').selectOption('60');
+  await page.locator('#historyStart').fill(localDate(start));
+  await page.locator('#historyEnd').fill(localDate(end));
+  await page.getByRole('button',{name:'查询范围',exact:true}).click();
+  await page.waitForTimeout(300);
+  check('history statistics visible', await page.locator('#historyStatistics > div').count()===5 && (await page.locator('#historyCount').innerText()).includes('范围内'));
+  check('history paging enabled', await page.locator('#olderHistoryBtn').isEnabled());
+  await page.getByRole('button',{name:'更早一批',exact:true}).click(); await page.waitForTimeout(150);
+  const olderText = await page.locator('#historyCount').innerText();
+  check('older history page loaded', olderText.includes('本批'));
+  await page.getByRole('button',{name:'较新一批',exact:true}).click();
+  await page.getByRole('button',{name:'导出 JSON',exact:true}).click();
+  check('history export button active', true);
+  await page.getByRole('button',{name:'◉ 实时监视',exact:true}).click();
+  await page.getByRole('button',{name:'设备详情',exact:true}).click();
+  await page.getByRole('button',{name:'控制参数',exact:true}).click();
+  await page.getByRole('button',{name:'编辑 96 点曲线',exact:true}).click();
+  await page.getByRole('button',{name:'全天预览',exact:true}).click();
+  check('curve preview metrics visible', await page.locator('#curveStatistics > div').count()===4);
+  await page.getByRole('button',{name:'导入导出',exact:true}).click();
+  check('curve transfer controls visible', await page.locator('#importCurveFile').count()===1 && await page.getByRole('button',{name:'导出当前编辑曲线',exact:true}).count()===1);
+  await page.getByRole('button',{name:'关闭',exact:true}).click();
+  const consoleErrors = await page.evaluate(() => window.__agcErrors || []);
+  check('no browser errors recorded', consoleErrors.length===0, JSON.stringify(consoleErrors));
+  return result;
+}
+

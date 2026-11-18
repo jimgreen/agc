@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS device_samples (
 );
 
 CREATE INDEX IF NOT EXISTS idx_control_cycles_recorded_at ON control_cycles(recorded_at);
+CREATE INDEX IF NOT EXISTS idx_control_cycles_time_cycle ON control_cycles(julianday(recorded_at), cycle DESC);
 CREATE INDEX IF NOT EXISTS idx_device_samples_lookup ON device_samples(kind, device_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_device_samples_cycle ON device_samples(cycle);
 CREATE INDEX IF NOT EXISTS idx_device_samples_device_cycle ON device_samples(kind, device_id, cycle DESC);

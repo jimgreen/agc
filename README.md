@@ -110,3 +110,22 @@ python tools/agc_optimization_benchmark.py
 回归测试使用临时 SQLite 和 fake SCADA；压力测试出现安全/策略失败或异常时返回非零状态码。性能对比采用基线 `8db7b2d`、9 轮交替执行、300 个相同场景决策等价检查，原始耗时保存在 JSON 中。微基准不能代表真实网络延迟或现场控制周期耗时。
 
 浏览器验证只对隔离服务运行：先启动 `python tests/serve_fixture.py`（18766 端口，临时数据库），再用 Playwright CLI 加载 `tests/browser_layout.js` 和 `tests/browser_operations.js`。不要对现场服务运行写入测试。所有模型级结果不能替代真实 SCADA、设备联锁与保护配合验收。
+
+
+## 操作与展示增强（2026-11-18 第二轮）
+
+- “实时监视”新增“运行分析”标签：展示实测负荷、新能源、储能吸收余量和新能源新增接纳空间，并逐台说明停运、本地曲线、被动平衡、功率上限、死区或可试探原因。该页面只读，不下发指令；新能源上涨仍是未确认试探，不能据此降低柴发或构网储能功率。
+- “历史查询”支持开始时间（含）、结束时间（不含）、按周期游标分页、较新/更早一批、范围统计和 JSON 导出。查询锚定首次最新周期，后台新增周期不会改变正在翻阅的历史窗口。
+- 96 点曲线编辑器增加“全天预览”和“导入导出”标签。预览显示最小/最大功率和正负向电量；导出格式为 `agc-curve/1`，导入后只进入编辑区，经过范围校验并点击保存才写入数据库。
+- `/api/analysis` 为只读运行解释接口；`/api/history-query` 支持 `start`、`end`、`anchor`、`before`、`limit`，返回统计、游标和是否还有更早数据。
+- 默认控制路径复用已读取的步长值，跳过本地新能源设备的自动试探；1000 个相同模型场景的决策输出与基线 `c8f32ce` 完全一致，11 轮配对中位耗时下降约 8.68%。
+
+第二轮验证命令：
+
+```powershell
+python -m unittest discover -s tests -v
+python tools/agc_round2_benchmark.py
+python tools/agc_stress_test.py --cases 100000 --output output/agc_round2_stress_20261118.html
+```
+
+浏览器验证仍使用隔离的 `tests/serve_fixture.py`（18766 端口），覆盖运行分析筛选、历史范围与游标分页、历史导出、曲线预览和导入导出入口；不对生产数据库进行写入测试。

@@ -804,7 +804,10 @@ def _set_p_ctrl(
     if _is_running(device) and abs(bounded - before) <= deadband + 1e-9:
         after = before
     else:
-        after = _clamp(_limit_control_step(model, device, bounded, kind), lower, upper)
+        # Reuse the command read above; avoid decoding it again for each probe.
+        step = _control_step(model, device, kind)
+        limited = bounded if step < 0.0 else _clamp(bounded, before - step, before + step)
+        after = _clamp(limited, lower, upper)
     device.p_ctrl = after
     _apply_model_power_setpoint(device, after)
     config = getattr(model, "config", None)
@@ -934,8 +937,8 @@ def _load_target(model) -> float:
     return max(0.0, load)
 
 
-def _controlled_power_mismatch(model) -> float:
-    load = _load_target(model)
+def _controlled_power_mismatch(model, load_target=None) -> float:
+    load = _load_target(model) if load_target is None else load_target
     generation = (
         _renewable_output(model)
         + _running_diesel_output(model)
@@ -1073,7 +1076,7 @@ def _can_discharge_storage(model, estore) -> bool:
 
 def _storage_energy_capacity(estore) -> Optional[float]:
     for attr_name in ("energy_capacity", "capacity_mwh", "e_max", "soc_capacity"):
-        value = _device_float(estore, (attr_name,), None)
+        value = _as_float(getattr(estore, attr_name, None), None)
         if value is not None and value > 0.0:
             return value
     return None
@@ -1162,7 +1165,7 @@ def _storage_discharge_space(model) -> float:
     )
 
 
-def calculate_renewable_acceptance_space(model) -> Dict[str, float]:
+def calculate_renewable_acceptance_space(model, *, remember=True) -> Dict[str, float]:
     """Calculate real-time renewable acceptance without using ``p_fur``.
 
     The space includes measured load headroom, diesel output reducible above
@@ -1194,8 +1197,9 @@ def calculate_renewable_acceptance_space(model) -> Dict[str, float]:
         "storage_incremental_acceptance_space": storage_charge,
         "acceptance_space": acceptance,
     }
-    model.agc_renewable_acceptance = details
-    model.agc_renewable_acceptance_space = acceptance
+    if remember:
+        model.agc_renewable_acceptance = details
+        model.agc_renewable_acceptance_space = acceptance
     return details
 
 
@@ -1623,6 +1627,8 @@ def _probe_dispatch_renewables(logger, model, acceptance_space: float) -> float:
     for gen in _agc_resource_groups(model)["renewable"]:
         if remaining <= DEFAULT_BALANCE_DEADBAND:
             break
+        if not _is_remote_controlled(gen):
+            continue
         if not _is_running(gen):
             upper = max(0.0, _as_float(getattr(gen, "p_max", 0.0)))
             _set_p_ctrl(model, gen, 0.0, "renew", 0.0, upper)
@@ -1767,7 +1773,7 @@ def do_wind_solar_priority_ctrl(logger, model) -> None:
     model.agc_balance_source_mode = "passive_telemetry_followup"
     logger.info("SCADA 实测平衡：新能源上涨仅发出试探指令，柴发/构网储能等平衡电源本周期被动承担，不下发反向降功率指令")
 
-    model.agc_balance_mismatch = _controlled_power_mismatch(model)
+    model.agc_balance_mismatch = _controlled_power_mismatch(model, acceptance["load"])
     model.agc_control_mode = "measured_probe_renewable_priority"
     logger.info("AGC 新能源优先试探结束: mismatch=%.3f", model.agc_balance_mismatch)
 

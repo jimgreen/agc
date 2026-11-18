@@ -250,3 +250,29 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
 }
 
 .device-parameter-form { padding:12px 0; gap:10px 24px; }
+
+.analysis-metrics, .history-statistics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:12px; flex:0 0 auto; }
+.analysis-metrics > div, .history-statistics > div { border:1px solid var(--line); background:white; border-radius:8px; padding:10px 12px; min-width:0; }
+.analysis-metrics span, .history-statistics span { display:block; font-size:11px; color:var(--muted); }
+.analysis-metrics b, .history-statistics b { display:block; font-size:20px; margin-top:5px; }
+.analysis-metrics small, .history-statistics small { font-size:10px; font-weight:normal; }
+#historyStatistics { grid-template-columns:repeat(5,minmax(0,1fr)); }
+#historyStatistics b { font-size:16px; }
+.analysis-panel { display:flex; flex-direction:column; flex:1; min-height:0; }
+.analysis-note { font-size:11px; color:var(--muted); margin-top:8px; }
+.analysis-panel .helper-text { margin:5px 0 0; font-size:11px; }
+.analysis-panel th:first-child { width:15%; } .analysis-panel th:nth-child(7) { width:18%; }
+#analysisFilter { padding:7px; border:1px solid var(--line); border-radius:5px; }
+.history-query { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin-bottom:10px; flex:0 0 auto; }
+.history-query label { font-size:10px; color:var(--muted); }
+.history-query input { display:block; padding:6px; border:1px solid var(--line); border-radius:5px; color:var(--ink); font-size:11px; }
+.curve-tabs { display:flex; margin-bottom:12px; border-bottom:1px solid var(--line); }
+.curve-pane { display:none; min-height:0; }
+.curve-pane.active { display:block; }
+.curve-pane .history-statistics b { font-size:16px; }
+#curvePreview { height:230px; min-height:0; }
+#curve-pane-transfer { min-height:250px; }
+.transfer-actions { display:flex; align-items:center; gap:12px; margin:20px 0; }
+.transfer-actions input { display:block; width:240px; margin-top:8px; }
+#curveImportNote { overflow-wrap:anywhere; font-size:12px; color:var(--primary); }
+@media(max-height:800px) { .analysis-metrics b { font-size:17px; } .history-statistics > div { padding:6px 10px; } .curve-grid label { padding:5px 7px; } }
