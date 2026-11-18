@@ -5,6 +5,8 @@ import inspect
 import os
 import sys
 import time
+from collections import deque
+from functools import lru_cache
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -100,10 +102,10 @@ class SystemConfig:
         # by default.  The adapter refuses to send automatic commands in open
         # loop while still allowing telemetry collection.
         self.control_mode = "closed_loop"
-        self.command_results = []
+        self.command_results = deque(maxlen=1000)
         self.scada_data_results = []
-        # Successful command cache prevents repeated identical YK/YT writes
-        # when a control cycle or a local curve is evaluated more than once.
+        # Only identical YT submissions within one telemetry cycle are skipped.
+        # Acceptance by SCADA does not prove execution by the physical device.
         self._last_scada_commands = {}
         self._scada_issue_logged_at = {}
         self.logger = self._setup_logger(log_file or _default_log_file())
@@ -133,10 +135,12 @@ class SystemConfig:
 
     def _send_scada_command(self, kind: str, rtu, pnt, value) -> bool:
         if self.control_mode != "closed_loop":
+            self._last_scada_commands.clear()
             self.logger.info("开环模式跳过 SCADA%s指令 rtu=%s pnt=%s value=%s", kind.upper(), rtu, pnt, value)
             return False
         sender = self.fes_client.send_yk_value if kind == "yk" else self.fes_client.send_yt_value
         if sender is None:
+            self._last_scada_commands.clear()
             self.logger.warning("SCADA%s接口未配置，未下发 rtu=%s pnt=%s value=%s", kind.upper(), rtu, pnt, value)
             self.command_results.append({"kind": kind, "rtu": rtu, "pnt": pnt, "value": value, "ok": False, "reason": "unconfigured"})
             return False
@@ -146,7 +150,7 @@ class SystemConfig:
             unchanged = previous is not None and abs(float(previous) - float(value)) <= 1e-9
         except (TypeError, ValueError):
             unchanged = previous == value
-        if unchanged:
+        if kind == "yt" and unchanged:
             self.command_results.append({"kind": kind, "rtu": rtu, "pnt": pnt, "value": value, "ok": True, "skipped": "unchanged"})
             return True
         try:
@@ -159,10 +163,12 @@ class SystemConfig:
             if not ok:
                 raise RuntimeError("SCADA 接口返回失败")
             self.command_results.append({"kind": kind, "rtu": rtu, "pnt": pnt, "value": value, "ok": True})
-            self._last_scada_commands[key] = value
+            if kind == "yt":
+                self._last_scada_commands[key] = value
             self.logger.info("SCADA%s指令已下发 rtu=%s pnt=%s value=%s source=%s", kind.upper(), rtu, pnt, value, self.fes_client.command_source)
             return True
         except Exception as exc:
+            self._last_scada_commands.pop(key, None)
             self.command_results.append({"kind": kind, "rtu": rtu, "pnt": pnt, "value": value, "ok": False, "reason": str(exc)})
             self.logger.error("SCADA%s指令下发失败 rtu=%s pnt=%s value=%s: %s", kind.upper(), rtu, pnt, value, exc)
             return False
@@ -196,13 +202,17 @@ class SystemConfig:
 
     def log_scada_issue(self, level: int, kind: str, name: str, rtu, pnt, message: str) -> None:
         """Rate-limit repeated point errors while retaining current-cycle status."""
-        key = (str(kind), str(rtu), str(pnt), str(message))
+        key = (str(kind), str(rtu), str(pnt))
         now = time.monotonic()
         interval = 5.0 if level >= logging.ERROR else 30.0
-        if now - self._scada_issue_logged_at.get(key, 0.0) < interval:
+        if key in self._scada_issue_logged_at and now - self._scada_issue_logged_at[key] < interval:
             return
         self._scada_issue_logged_at[key] = now
         self.logger.log(level, "%s %s rtu=%s pnt=%s: %s", kind, name, rtu, pnt, message)
+
+    def clear_scada_issue(self, kinds, rtu, pnt):
+        for kind in kinds:
+            self._scada_issue_logged_at.pop((kind, str(rtu), str(pnt)), None)
 
 
 def _default_log_file() -> Path:
@@ -277,6 +287,24 @@ def _load_fes_client() -> FesClient:
     )
 
 
+def _scada_argument_index(function, writing):
+    lengths = (5, 3, 4, 2) if writing else (4, 2)
+    try:
+        signature = inspect.signature(function)
+    except (TypeError, ValueError):
+        return 0
+    for index, length in enumerate(lengths):
+        try:
+            signature.bind(*([None] * length))
+            return index
+        except TypeError:
+            continue
+    return 0
+
+
+_cached_scada_argument_index = lru_cache(maxsize=128)(_scada_argument_index)
+
+
 def _invoke_scada_callable(function: Callable, schema, context, rtu, pnt, value_marker=None):
     """Call legacy 4/5-argument FES functions and compact 2/3-argument APIs."""
     candidates = (
@@ -289,17 +317,10 @@ def _invoke_scada_callable(function: Callable, schema, context, rtu, pnt, value_
         (rtu, pnt),
     )
     try:
-        signature = inspect.signature(function)
-    except (TypeError, ValueError):
-        signature = None
-    if signature is not None:
-        for args in candidates:
-            try:
-                signature.bind(*args)
-            except TypeError:
-                continue
-            return function(*args)
-    return function(*candidates[0])
+        index = _cached_scada_argument_index(function, value_marker is not None)
+    except TypeError:  # callable objects can be unhashable
+        index = _scada_argument_index(function, value_marker is not None)
+    return function(*candidates[index])
 
 
 def _normalize_scada_read_result(value):
@@ -379,12 +400,13 @@ def initialize_system(
     ctrl_output_file: Optional[Path] = DEFAULT_CTRL_OUTPUT_FILE,
     ctrl_trigger: Optional[int] = None,
     gather_trigger: Optional[int] = None,
+    db_path: Optional[Path] = None,
 ) -> SystemConfig:
     """Initialize device links and runtime config."""
     data_store = None
     if AGCDataStore is not None:
         try:
-            data_store = AGCDataStore()
+            data_store = AGCDataStore(db_path) if db_path is not None else AGCDataStore()
             data_store.apply_model(emodel)
             data_store.apply_latest_runtime(emodel)
             data_store.apply_latest_environment(emodel)
@@ -1725,12 +1747,10 @@ def do_wind_solar_priority_ctrl(logger, model) -> None:
     subsequent telemetry.
     """
 
-    groups = _agc_resource_groups(model)
-    load_target = _load_target(model)
     acceptance = calculate_renewable_acceptance_space(model)
     logger.info(
         "AGC 新能源优先试探开始: load=%.3f renewable_measured=%.3f acceptance=%.3f storage_charge=%.3f",
-        load_target,
+        acceptance["load"],
         acceptance["renewable_actual"],
         acceptance["acceptance_space"],
         acceptance["storage_charge_space"],
@@ -1772,6 +1792,7 @@ def _update_yc(config: SystemConfig) -> None:
             result, value = False, None
             config.log_scada_issue(logging.ERROR, "SCADA遥测接口异常", getattr(yc, "name", ""), yc.rtu, yc.pnt, str(exc))
         if result:
+            config.clear_scada_issue(("SCADA遥测接口异常", "无法更新遥测数据"), yc.rtu, yc.pnt)
             yc.value = value
             config.scada_data_results.append({"kind": "yc", "id": getattr(yc, "id", ""), "ok": True})
         else:
@@ -1790,6 +1811,7 @@ def _update_yx(config: SystemConfig) -> None:
             result, value = False, None
             config.log_scada_issue(logging.ERROR, "SCADA遥信接口异常", getattr(yx, "name", ""), yx.rtu, yx.pnt, str(exc))
         if result:
+            config.clear_scada_issue(("SCADA遥信接口异常", "无法更新遥信数据"), yx.rtu, yx.pnt)
             yx.value = value
             config.scada_data_results.append({"kind": "yx", "id": getattr(yx, "id", ""), "ok": True})
             continue
@@ -1828,6 +1850,7 @@ def _log_power_group(logger: logging.Logger, title: str, devices: Iterable, attr
 
 def data_gather(config: SystemConfig) -> None:
     """Gather telemetry and refresh model runtime fields."""
+    config._last_scada_commands.clear()
     _update_yc(config)
     _update_yx(config)
     _apply_yx_device_states(config)

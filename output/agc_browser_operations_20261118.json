@@ -1,0 +1,58 @@
+[
+  {
+    "name": "ramp endpoints",
+    "pass": true
+  },
+  {
+    "name": "page preserves draft",
+    "pass": true
+  },
+  {
+    "name": "96 point persistence",
+    "pass": true
+  },
+  {
+    "name": "refresh preserves unsaved edit",
+    "pass": true
+  },
+  {
+    "name": "parameter saved without flattening curve",
+    "pass": true
+  },
+  {
+    "name": "undo reloads saved value",
+    "pass": true
+  },
+  {
+    "name": "fill affects next group",
+    "pass": true
+  },
+  {
+    "name": "restore full saved curve",
+    "pass": true
+  },
+  {
+    "name": "command pagination advances",
+    "pass": true
+  },
+  {
+    "name": "device search",
+    "pass": true
+  },
+  {
+    "name": "bulk state persists",
+    "pass": true
+  },
+  {
+    "name": "initial lightweight history",
+    "pass": true
+  },
+  {
+    "name": "unchanged lightweight history omitted",
+    "pass": true
+  },
+  {
+    "name": "canvas height remains stable",
+    "pass": true
+  }
+]

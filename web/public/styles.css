@@ -156,3 +156,97 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
 .view#view-logs .log-scroll { height: calc(100% - 119px); }
 .view#view-history .history-chart-panel + .table-panel .table-scroll { height: calc(100% - 94px); }
  .health-list b.warning { color: var(--red); }
+
+/* Function tabs reserve explicit space for controls and pagers. */
+.main-content { display:flex; flex-direction:column; padding:18px 26px 12px; max-width:none; }
+.topbar { flex:0 0 auto; margin-bottom:16px; min-height:52px; }
+.view { height:auto; flex:1; min-height:0; }
+.view.active { display:flex; flex-direction:column; }
+.footer { flex:0 0 auto; margin-top:8px; padding-top:5px; }
+.page-intro { flex:0 0 auto; margin:0 0 12px; }
+.page-intro h2 { font-size:21px; }
+.monitor-tabs, .section-tabs { flex:0 0 auto; margin:0 0 12px; }
+.monitor-pane, .section-pane { height:auto; flex:1; min-height:0; }
+.section-pane { display:none; }
+.section-pane.active { display:block; }
+.monitor-pane.active { display:flex; flex-direction:column; }
+#overview-status .hero-row { height:58%; }
+#overview-status .kpi-grid { height:calc(42% - 15px); margin:15px 0 0; }
+#overview-trend .content-grid { height:100%; }
+.device-list-panel, .command-list-panel, .device-detail-panel, #view-logs .table-panel, #history-data .table-panel { display:flex; flex-direction:column; flex:1; height:auto; min-height:0; margin:0; }
+.panel-heading, .bulk-toolbar, .table-pager, .query-bar { flex:0 0 auto; }
+.bulk-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px; font-size:11px; }
+.bulk-toolbar input[type=search] { min-width:120px; width:180px; padding:7px; border:1px solid var(--line); border-radius:5px; }
+.bulk-toolbar select { padding:7px; border:1px solid var(--line); border-radius:5px; }
+.table-scroll, .device-list-panel .table-scroll, .command-list-panel .table-scroll, #view-logs .log-scroll, #history-data .table-scroll { flex:1; height:auto; min-height:0; max-height:none; }
+.table-scroll th { height:38px; padding:8px 6px; }
+.table-scroll td, .device-list-panel .table-scroll td { height:44px; padding:6px; }
+.table-scroll th, .table-scroll td { font-size:11px; }
+.device-list-panel table th:nth-child(1) { width:5%; }
+.device-list-panel table th:nth-child(2) { width:17%; }
+.device-list-panel table th:nth-child(3) { width:6%; }
+.device-list-panel table th:nth-child(4) { width:8%; }
+.device-list-panel table th:nth-child(5) { width:9%; }
+.device-list-panel table th:nth-child(6) { width:8%; }
+.device-list-panel table th:nth-child(7) { width:7%; }
+.device-list-panel table th:nth-child(8) { width:15%; }
+.device-list-panel table th:nth-child(9) { width:25%; }
+.device-control { width:100%; min-width:0; padding:6px 2px; }
+.curve-actions { display:flex; align-items:center; gap:5px; }
+.curve-actions span { min-width:28px; }
+#deviceDetailBody { display:flex; flex:1; flex-direction:column; min-height:0; }
+#deviceDetailBody[hidden] { display:none; }
+.detail-summary { margin-top:12px; flex:0 0 auto; }
+.detail-tabs { display:flex; margin-top:10px; flex:0 0 auto; border-bottom:1px solid var(--line); }
+.detail-pane.active { display:flex; flex-direction:column; flex:1; min-height:0; }
+.detail-layout { display:block; flex:1; min-height:0; margin-top:12px; }
+.detail-chart-wrap { height:100%; display:flex; flex-direction:column; }
+.detail-chart { flex:1; min-height:0; height:100%; max-height:340px; }
+.device-parameter-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 24px; border:0; padding:18px 0; }
+.device-parameter-form h4, .device-parameter-form .form-actions { grid-column:1 / -1; margin:0; }
+.device-parameter-form label { margin:0; grid-template-columns:1fr 160px; }
+.device-parameter-form label span, .device-parameter-form input, .device-parameter-form select { font-size:12px; }
+#deviceEditNote { color:#ab6700; font-size:11px; }
+#detail-pane-commands .panel-subheading { margin-top:8px; padding-top:8px; }
+.detail-command-scroll { flex:1; min-height:0; max-height:none; }
+#view-history .history-chart-panel, #view-history .table-panel { height:100%; min-height:0; }
+.history-chart-panel { display:flex; flex-direction:column; }
+#view-history .history-chart-panel .trend-chart { flex:1; min-height:0; height:auto; }
+.curve-tools { display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:11px; margin:10px 0; }
+.curve-tools input { width:85px; padding:5px; border:1px solid var(--line); border-radius:4px; }
+.curve-grid { max-height:none; }
+@media (max-width:1200px) {
+  .sidebar { width:180px; flex-basis:180px; padding:20px 10px; }
+  .main-content { width:calc(100% - 180px); padding:14px 18px; }
+  .top-actions { gap:7px; } .connection { display:none; }
+  .device-symbol { display:none; } .small-btn { padding:6px 4px; font-size:10px; }
+}
+@media (max-width:820px) {
+  .sidebar { width:100%; height:104px; padding:10px 12px 5px; }
+  .main-content { width:100%; height:calc(100vh - 104px); padding:12px; }
+  .topbar { min-height:75px; margin-bottom:10px; }
+  .top-actions { margin-top:6px; }
+  .page-intro .section-label, .page-intro p, .page-intro .refresh-badge { display:none; }
+  .page-intro { display:flex; align-items:center; }
+  .page-intro > *:last-child { margin-top:0; }
+  .detail-summary { grid-template-columns:repeat(5,minmax(0,1fr)); }
+  .detail-picker { max-width:60%; } .detail-picker select { max-width:100%; }
+  .device-parameter-form { gap:8px; padding:10px 0; }
+  .device-parameter-form label { grid-template-columns:1fr 85px; }
+}
+
+#overview-trend .chart-panel { display:flex; flex-direction:column; min-height:0; }
+#overviewChart { flex:1; min-height:0; height:100%; }
+#view-config .section-pane > .panel { height:100%; }
+#parameterForm, #simulationForm { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 28px; }
+#parameterForm label, #simulationForm label { margin:0; min-width:0; }
+@media (min-width:821px) {
+  .hero-row { grid-template-columns:minmax(0,1.3fr) minmax(280px,.9fr); }
+  .two-col { grid-template-columns:minmax(0,1.35fr) minmax(280px,.9fr); }
+  .detail-summary { grid-template-columns:1.2fr repeat(4,minmax(0,1fr)); }
+  .hero-card { min-height:0; } .hero-buttons { margin-top:18px; }
+  .pulse-ring { display:none; }
+  .monitor-top .chart-panel, .monitor-top .status-panel { height:100%; }
+}
+
+.device-parameter-form { padding:12px 0; gap:10px 24px; }

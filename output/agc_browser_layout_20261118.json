@@ -1,0 +1,506 @@
+[
+  {
+    "label": "overview-status",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "overview-trend",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "实时总览",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "设备列表",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "实时曲线",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "控制参数",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "控制时刻指令",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "控制指令",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "config",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "simulation",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "logs",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "history-trend",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "history-data",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "curve-modal",
+    "viewport": [
+      1366,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1366,
+      768
+    ]
+  },
+  {
+    "label": "overview-status",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "overview-trend",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "实时总览",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "设备列表",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "实时曲线",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "控制参数",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "控制时刻指令",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "控制指令",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "config",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "simulation",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "logs",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "history-trend",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "history-data",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "curve-modal",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "overflow": [],
+    "document": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "label": "overview-status",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "overview-trend",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "实时总览",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "设备列表",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "实时曲线",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "控制参数",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "控制时刻指令",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "控制指令",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "config",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "simulation",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "logs",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "history-trend",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "history-data",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  },
+  {
+    "label": "curve-modal",
+    "viewport": [
+      1024,
+      768
+    ],
+    "overflow": [],
+    "document": [
+      1024,
+      768
+    ]
+  }
+]

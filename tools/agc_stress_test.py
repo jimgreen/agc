@@ -786,7 +786,7 @@ def main() -> int:
     print(f"系统安全: {sum(r.system_safe for r in results)}/{total}")
     print(f"新能源优先: {sum(r.renewable_priority for r in results)}/{total}")
     print(f"控制器异常: {sum(bool(r.exception) for r in results)}")
-    return 0
+    return int(any(r.exception or not (r.device_safe and r.system_safe and r.renewable_priority) for r in results))
 
 
 if __name__ == "__main__":

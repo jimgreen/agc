@@ -1,0 +1,37 @@
+test_command_audit_memory_is_bounded (test_optimization.ScadaTests.test_command_audit_memory_is_bounded) ... ok
+test_failed_change_invalidates_previous_success (test_optimization.ScadaTests.test_failed_change_invalidates_previous_success) ... SCADAYT指令下发失败 rtu=1 pnt=1 value=4: SCADA 接口返回失败
+ok
+test_internal_typeerror_is_not_retried (test_optimization.ScadaTests.test_internal_typeerror_is_not_retried) ... ok
+test_log_limit_and_recovery (test_optimization.ScadaTests.test_log_limit_and_recovery) ... ok
+test_open_loop_blocks_and_invalidates_cache (test_optimization.ScadaTests.test_open_loop_blocks_and_invalidates_cache) ... ok
+test_read_signatures_and_write_signatures (test_optimization.ScadaTests.test_read_signatures_and_write_signatures) ... ok
+test_unhashable_callable (test_optimization.ScadaTests.test_unhashable_callable) ... ok
+test_yk_never_suppresses_explicit_action (test_optimization.ScadaTests.test_yk_never_suppresses_explicit_action) ... ok
+test_yt_dedupe_only_current_gather_cycle (test_optimization.ScadaTests.test_yt_dedupe_only_current_gather_cycle) ... ok
+test_curve_and_device_rollback_on_db_failure (test_optimization.StateTests.test_curve_and_device_rollback_on_db_failure) ... ok
+test_curve_requires_96_finite_in_range_points (test_optimization.StateTests.test_curve_requires_96_finite_in_range_points) ... ok
+test_cycle_and_samples_rollback_together (test_optimization.StateTests.test_cycle_and_samples_rollback_together) ... ok
+test_cycle_history_contains_summary_only (test_optimization.StateTests.test_cycle_history_contains_summary_only) ... ok
+test_failed_remote_control_preserves_state (test_optimization.StateTests.test_failed_remote_control_preserves_state) ... ok
+test_http_state_and_invalid_device_return_json (test_optimization.StateTests.test_http_state_and_invalid_device_return_json) ... ok
+test_import_has_no_runtime_state (test_optimization.StateTests.test_import_has_no_runtime_state) ... ok
+test_invalid_fields_do_not_partially_save (test_optimization.StateTests.test_invalid_fields_do_not_partially_save) ... ok
+test_lite_history_initial_and_new_cycle (test_optimization.StateTests.test_lite_history_initial_and_new_cycle) ... ok
+test_local_curve_respects_step_and_deadband (test_optimization.StateTests.test_local_curve_respects_step_and_deadband) ... ok
+test_local_realtime_is_not_command (test_optimization.StateTests.test_local_realtime_is_not_command) ... ok
+test_local_stopped_device_is_zero (test_optimization.StateTests.test_local_stopped_device_is_zero) ... ok
+test_local_storage_cannot_charge_at_soc_max (test_optimization.StateTests.test_local_storage_cannot_charge_at_soc_max) ... ok
+test_mode_and_local_config_survive_old_cycle (test_optimization.StateTests.test_mode_and_local_config_survive_old_cycle) ... ok
+test_new_cycle_does_not_replace_computed_values (test_optimization.StateTests.test_new_cycle_does_not_replace_computed_values) ... ok
+test_parameter_save_preserves_curve_and_no_run_command (test_optimization.StateTests.test_parameter_save_preserves_curve_and_no_run_command) ... ok
+test_rejects_nonfinite_and_invalid_values (test_optimization.StateTests.test_rejects_nonfinite_and_invalid_values) ... ok
+test_same_port_cannot_bind_twice (test_optimization.StateTests.test_same_port_cannot_bind_twice) ... ok
+test_shared_database_cycle_writers_do_not_overwrite (test_optimization.StateTests.test_shared_database_cycle_writers_do_not_overwrite) ... ok
+test_single_device_save_does_not_rewrite_curves (test_optimization.StateTests.test_single_device_save_does_not_rewrite_curves) ... ok
+test_storage_negative_curve_and_bounds (test_optimization.StateTests.test_storage_negative_curve_and_bounds) ... ok
+test_unchanged_snapshot_skips_history_scan (test_optimization.StateTests.test_unchanged_snapshot_skips_history_scan) ... ok
+
+----------------------------------------------------------------------
+Ran 31 tests in 22.051s
+
+OK

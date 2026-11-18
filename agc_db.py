@@ -236,43 +236,50 @@ class AGCDataStore:
                 yc.value = value
 
     def record_cycle(self, model: Any, config: Any) -> None:
-        # A Web worker and a standalone calculation process may write at the
-        # same time.  Keep the SQLite cycle key monotonic so neither process
-        # silently replaces the other process' history point.
-        cycle = max(_integer(getattr(config, "control_count", 0)), self.latest_cycle() + 1)
-        recorded_at = _now()
-        devices = list(self._iter_devices(model))
-        groups = {"wind": [], "pv": [], "storage": [], "diesel": [], "load": []}
-        for kind, device in devices:
-            groups[kind].append(device)
-        power = lambda device: _number(getattr(device, "p_cur", getattr(device, "p", 0)))
-        renewable = sum(power(d) for d in groups["wind"] + groups["pv"])
-        storage = sum(power(d) for d in groups["storage"])
-        diesel = sum(power(d) for d in groups["diesel"])
-        load = sum(power(d) for d in groups["load"])
-        wind_speed = _number(getattr(getattr(model, "wind_speed", None), "value", 0))
-        irradiance = _number(getattr(getattr(model, "solor_irrad", None), "value", 0))
-        env_temp = _number(getattr(getattr(model, "env_temp", None), "value", 0))
-        raw_mode = str(getattr(model, "agc_control_mode", "closed_loop"))
-        control_mode = "open_loop" if raw_mode.startswith("open_loop") else "closed_loop"
-        self.conn.execute(
-            """INSERT OR REPLACE INTO control_cycles(cycle, recorded_at, control_mode, running,
-                 load_power, renewable_power, storage_power, diesel_power, balance_power,
-                 wind_speed, solar_irradiance, env_temperature)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (cycle, recorded_at, control_mode, int(bool(getattr(config, "is_running", True))), load, renewable, storage, diesel, renewable + storage + diesel - load, wind_speed, irradiance, env_temp),
-        )
-        self.conn.executemany(
-            """INSERT OR REPLACE INTO device_samples(cycle, recorded_at, kind, device_id, name,
-                 control_state, run_status, realtime_power, command_power, preset_power,
-                 control_step, control_deadband)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            [
-                (cycle, recorded_at, kind, str(getattr(device, "id", "")), str(getattr(device, "name", "")), str(getattr(device, "agc_control_state", "remote")), _integer(getattr(device, "run_stat", 0)), power(device), _number(getattr(device, "p_ctrl", power(device))), _number(getattr(device, "agc_preset_power", 0)), _number(getattr(device, "p_step", 0)), _number(getattr(device, "p_dead", 0)))
-                for kind, device in devices
-            ],
-        )
-        self.conn.commit()
+        with self.lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                # A Web worker and a standalone calculation process may write at the
+                # same time.  Keep the SQLite cycle key monotonic so neither process
+                # silently replaces the other process' history point.
+                cycle = max(_integer(getattr(config, "control_count", 0)), self.latest_cycle() + 1)
+                recorded_at = _now()
+                devices = list(self._iter_devices(model))
+                groups = {"wind": [], "pv": [], "storage": [], "diesel": [], "load": []}
+                for kind, device in devices:
+                    groups[kind].append(device)
+                power = lambda device: _number(getattr(device, "p_cur", getattr(device, "p", 0)))
+                renewable = sum(power(d) for d in groups["wind"] + groups["pv"])
+                storage = sum(power(d) for d in groups["storage"])
+                diesel = sum(power(d) for d in groups["diesel"])
+                load = sum(power(d) for d in groups["load"])
+                wind_speed = _number(getattr(getattr(model, "wind_speed", None), "value", 0))
+                irradiance = _number(getattr(getattr(model, "solor_irrad", None), "value", 0))
+                env_temp = _number(getattr(getattr(model, "env_temp", None), "value", 0))
+                raw_mode = str(getattr(model, "agc_control_mode", "closed_loop"))
+                control_mode = "open_loop" if raw_mode.startswith("open_loop") else "closed_loop"
+                self.conn.execute(
+                    """INSERT INTO control_cycles(cycle, recorded_at, control_mode, running,
+                         load_power, renewable_power, storage_power, diesel_power, balance_power,
+                         wind_speed, solar_irradiance, env_temperature)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (cycle, recorded_at, control_mode, int(bool(getattr(config, "is_running", True))), load, renewable, storage, diesel, renewable + storage + diesel - load, wind_speed, irradiance, env_temp),
+                )
+                self.conn.executemany(
+                    """INSERT INTO device_samples(cycle, recorded_at, kind, device_id, name,
+                         control_state, run_status, realtime_power, command_power, preset_power,
+                         control_step, control_deadband)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    [
+                        (cycle, recorded_at, kind, str(getattr(device, "id", "")), str(getattr(device, "name", "")), str(getattr(device, "agc_control_state", "remote")), _integer(getattr(device, "run_stat", 0)), power(device), _number(getattr(device, "p_ctrl", power(device))), _number(getattr(device, "agc_preset_power", 0)), _number(getattr(device, "p_step", 0)), _number(getattr(device, "p_dead", 0)))
+                        for kind, device in devices
+                    ],
+                )
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+
 
 
 class SQLiteLogHandler(logging.Handler):

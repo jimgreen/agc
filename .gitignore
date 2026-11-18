@@ -10,3 +10,6 @@ web/data/*.tmp
 web/data/*.db
 web/data/*.db-wal
 web/data/*.db-shm
+
+.playwright-cli/
+output/playwright/
