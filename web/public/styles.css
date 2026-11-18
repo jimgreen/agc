@@ -24,7 +24,7 @@ button { cursor: pointer; }
 .brand strong { display: block; color: white; font-size: 15px; letter-spacing: .2px; }
 .brand span { display: block; margin-top: 4px; font-size: 10px; color: #7888a9; letter-spacing: .4px; }
 .nav-list { display: grid; gap: 5px; }
-.nav-item { border: 0; border-radius: 9px; color: #92a2c1; background: transparent; text-align: left; display: flex; gap: 13px; align-items: center; padding: 12px 14px; transition: .2s; }
+.nav-item { border: 0; border-radius: 9px; color: #92a2c1; background: transparent; text-align: left; display: flex; gap: 13px; align-items: center; padding: 12px 14px; transition: .2s; text-decoration: none; }
 .nav-item:hover { color: #fff; background: rgba(255,255,255,.06); }
 .nav-item.active { color: white; background: linear-gradient(90deg, #294bbd, #315bd7); box-shadow: 0 8px 18px rgba(27, 62, 182, .25); }
 .nav-icon { width: 18px; text-align: center; font-size: 17px; color: #9bacec; }

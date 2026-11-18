@@ -7,7 +7,7 @@
   const CURVE_PAGE_SIZE = 24;
   const kindNames = { wind: "风机", pv: "光伏", storage: "储能", diesel: "柴发", load: "负荷" };
   const typeClass = { wind: "wind", pv: "pv", storage: "storage", diesel: "diesel", load: "load" };
-  const routes = { overview: "/", monitor: "/monitor.html", config: "/config.html", logs: "/logs.html", history: "/history.html" };
+  const routes = { overview: "/overview.html", monitor: "/monitor.html", config: "/config.html", logs: "/logs.html", history: "/history.html" };
 
   function on(selector, event, handler) { const node = $(selector); if (node) node.addEventListener(event, handler); }
   function text(selector, value) { const node = $(selector); if (node) node.textContent = value; }
@@ -321,7 +321,7 @@
   function setView(name) {
     const target = routes[name] || routes.overview;
     const currentPath = window.location.pathname || "/";
-    const targetPath = target === "/" ? "/" : target;
+    const targetPath = target;
     if (!$("#view-" + name) && (currentPath !== targetPath)) { window.location.href = target; return; }
     state.view = name;
     $$(".nav-item").forEach(button => button.classList.toggle("active", button.dataset.view === name));
