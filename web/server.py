@@ -702,7 +702,7 @@ class AGCState:
             self.config.logger.info("仿真遥测已更新: %s", ", ".join(str(k) for k in values))
             return self._snapshot()
 
-    def device_command(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def device_command(self, payload: Dict[str, Any], _return_snapshot: bool = True) -> Optional[Dict[str, Any]]:
         with self.lock:
             kind = str(payload.get("kind", ""))
             item_id = str(payload.get("id", ""))
@@ -777,7 +777,37 @@ class AGCState:
                         raise ValueError("SCADA遥控下发失败，设备运行状态未修改")
             self._save_device_modes()
             self.config.logger.info("设备指令 %s/%s %s=%s", kind, item_id, field, value)
-            return self._snapshot()
+            return self._snapshot() if _return_snapshot else None
+
+    def device_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply a bounded safe operation to multiple devices in one request."""
+        field = str(payload.get("field", "control_state"))
+        if field not in {"control_state", "preset_power"}:
+            raise ValueError("批量操作仅支持受控状态或默认功率")
+        value = payload.get("value")
+        if field == "control_state" and str(value).lower() not in {"remote", "local"}:
+            raise ValueError("受控状态必须是 remote 或 local")
+        targets = payload.get("devices", payload.get("items", []))
+        if not isinstance(targets, list) or not targets or len(targets) > 100:
+            raise ValueError("批量设备数量必须在 1 到 100 之间")
+        results = []
+        with self.lock:
+            for item in targets:
+                if isinstance(item, dict):
+                    kind, item_id = item.get("kind", ""), item.get("id", "")
+                elif isinstance(item, str) and ":" in item:
+                    kind, item_id = item.split(":", 1)
+                else:
+                    results.append({"id": str(item), "ok": False, "error": "设备标识无效"})
+                    continue
+                try:
+                    self.device_command({"kind": kind, "id": item_id, "field": field, "value": value}, _return_snapshot=False)
+                    results.append({"kind": str(kind), "id": str(item_id), "ok": True})
+                except Exception as exc:
+                    results.append({"kind": str(kind), "id": str(item_id), "ok": False, "error": str(exc)})
+            snapshot = self._snapshot()
+            snapshot["batchResults"] = results
+            return snapshot
 
     def device_detail(self, kind: str, item_id: Any) -> Dict[str, Any]:
         with self.lock:
@@ -807,14 +837,14 @@ class AGCState:
 
     # ---------- JSON views ----------
 
-    def _device(self, kind: str, item: Any) -> Dict[str, Any]:
+    def _device(self, kind: str, item: Any, include_curve: bool = True) -> Dict[str, Any]:
         soc = getattr(item, "soc_cur", None)
         if soc is not None:
             soc = _number(soc)
             soc = soc / 100 if soc > 1 else soc
         state = str(getattr(item, "agc_control_state", "remote"))
         effective_power = getattr(item, "p_ctrl", getattr(item, "p_cur", getattr(item, "p", 0))) if state == "local" else getattr(item, "p_cur", getattr(item, "p", 0))
-        return {
+        result = {
             "kind": kind,
             "id": _json_value(getattr(item, "id", "")),
             "name": str(getattr(item, "name", f"{kind}-{getattr(item, 'id', '')}")),
@@ -826,10 +856,12 @@ class AGCState:
             "step": round(_number(getattr(item, "p_step", 0)), 3),
             "controlState": state,
             "presetPower": round(_number(getattr(item, "agc_preset_power", 0.0)), 3),
-            "presetCurve": list(getattr(item, "agc_preset_curve", [])),
         }
+        if include_curve:
+            result["presetCurve"] = list(getattr(item, "agc_preset_curve", []))
+        return result
 
-    def devices(self) -> List[Dict[str, Any]]:
+    def devices(self, include_curve: bool = True) -> List[Dict[str, Any]]:
         result: List[Dict[str, Any]] = []
         for kind, name in (
             ("wind", "wind_generator"),
@@ -838,12 +870,12 @@ class AGCState:
             ("diesel", "diesel_generator"),
             ("load", "energyconsumer"),
         ):
-            result.extend(self._device(kind, item) for item in getattr(self.model, name, []))
+            result.extend(self._device(kind, item, include_curve) for item in getattr(self.model, name, []))
         return result
 
-    def _snapshot(self, include_history: bool = True) -> Dict[str, Any]:
+    def _snapshot(self, include_history: bool = True, include_curves: bool = True) -> Dict[str, Any]:
         latest = self._sync_from_database()
-        devices = self.devices()
+        devices = self.devices(include_curves)
         renewable = sum(item["power"] for item in devices if item["kind"] in {"wind", "pv"})
         storage = sum(item["power"] for item in devices if item["kind"] == "storage")
         diesel = sum(item["power"] for item in devices if item["kind"] == "diesel")
@@ -954,7 +986,9 @@ class HMIHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path == "/api/state":
-            self._send_json(STATE._snapshot())
+            query = parse_qs(parsed.query)
+            lite = query.get("lite", ["0"])[0].lower() in {"1", "true", "yes"}
+            self._send_json(STATE._snapshot(include_history=not lite, include_curves=not lite))
             return
         if parsed.path == "/api/config":
             self._send_json(STATE.config_payload())
@@ -1032,6 +1066,9 @@ class HMIHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/device-command":
                 self._send_json(STATE.device_command(payload))
+                return
+            if parsed.path == "/api/device-batch":
+                self._send_json(STATE.device_batch(payload))
                 return
             if parsed.path == "/api/device-config":
                 kind = str(payload.get("kind", ""))

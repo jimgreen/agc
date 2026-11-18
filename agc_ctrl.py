@@ -102,6 +102,9 @@ class SystemConfig:
         self.control_mode = "closed_loop"
         self.command_results = []
         self.scada_data_results = []
+        # Successful command cache prevents repeated identical YK/YT writes
+        # when a control cycle or a local curve is evaluated more than once.
+        self._last_scada_commands = {}
         self.logger = self._setup_logger(log_file or _default_log_file())
 
     @staticmethod
@@ -136,6 +139,15 @@ class SystemConfig:
             self.logger.warning("SCADA%s接口未配置，未下发 rtu=%s pnt=%s value=%s", kind.upper(), rtu, pnt, value)
             self.command_results.append({"kind": kind, "rtu": rtu, "pnt": pnt, "value": value, "ok": False, "reason": "unconfigured"})
             return False
+        key = (str(kind), str(rtu), str(pnt))
+        previous = self._last_scada_commands.get(key)
+        try:
+            unchanged = previous is not None and abs(float(previous) - float(value)) <= 1e-9
+        except (TypeError, ValueError):
+            unchanged = previous == value
+        if unchanged:
+            self.command_results.append({"kind": kind, "rtu": rtu, "pnt": pnt, "value": value, "ok": True, "skipped": "unchanged"})
+            return True
         try:
             result = _invoke_scada_callable(sender, self.fes_client.schema, self.fes_client.context, rtu, pnt, value)
             try:
@@ -146,6 +158,7 @@ class SystemConfig:
             if not ok:
                 raise RuntimeError("SCADA 接口返回失败")
             self.command_results.append({"kind": kind, "rtu": rtu, "pnt": pnt, "value": value, "ok": True})
+            self._last_scada_commands[key] = value
             self.logger.info("SCADA%s指令已下发 rtu=%s pnt=%s value=%s source=%s", kind.upper(), rtu, pnt, value, self.fes_client.command_source)
             return True
         except Exception as exc:
