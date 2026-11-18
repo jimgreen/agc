@@ -943,25 +943,45 @@ class AGCState:
 
     # ---------- JSON views ----------
 
-    def _device(self, kind: str, item: Any, include_curve: bool = True) -> Dict[str, Any]:
+    def _command_status_map(self) -> Dict[tuple, str]:
+        """Index the newest YT result once for the device list render."""
+        result: Dict[tuple, str] = {}
+        for item in reversed(list(getattr(self.config, "command_results", []) or [])):
+            if str(item.get("kind", "")) != "yt":
+                continue
+            key = (str(item.get("rtu", "")), str(item.get("pnt", "")))
+            result.setdefault(key, "ok" if item.get("ok") else "error")
+        return result
+
+    def _device(self, kind: str, item: Any, include_curve: bool = True, command_status_map: Optional[Dict[tuple, str]] = None) -> Dict[str, Any]:
         soc = getattr(item, "soc_cur", None)
         if soc is not None:
             soc = _number(soc)
             soc = soc / 100 if soc > 1 else soc
         state = str(getattr(item, "agc_control_state", "remote"))
         effective_power = getattr(item, "p_cur", getattr(item, "p", 0))
+        command_power = _number(getattr(item, "p_ctrl", effective_power), _number(effective_power))
+        point = agc_ctrl._find_device_control_point(self.model, item)
+        command_status = None
+        if point is not None:
+            key = (str(getattr(point, "rtu", "")), str(getattr(point, "pnt", "")))
+            command_status = (command_status_map or {}).get(key)
         result = {
             "kind": kind,
             "id": _json_value(getattr(item, "id", "")),
             "name": str(getattr(item, "name", f"{kind}-{getattr(item, 'id', '')}")),
             "status": _integer(getattr(item, "run_stat", 0)),
             "power": round(_number(effective_power), 3),
+            "commandPower": round(command_power, 3),
+            "commandDiff": round(command_power - _number(effective_power), 3),
             "maxPower": _number(self._power_bounds(item)[1]),
             "soc": None if soc is None else round(soc, 4),
             "minPower": self._power_bounds(item)[0],
             "step": round(_number(getattr(item, "p_step", 0)), 3),
             "controlState": state,
             "presetPower": round(_number(getattr(item, "agc_preset_power", 0.0)), 3),
+            "mapped": point is not None,
+            "commandStatus": command_status or ("unconfigured" if point is None else "pending"),
         }
         if include_curve:
             result["presetCurve"] = list(getattr(item, "agc_preset_curve", []))
@@ -969,6 +989,7 @@ class AGCState:
 
     def devices(self, include_curve: bool = True) -> List[Dict[str, Any]]:
         result: List[Dict[str, Any]] = []
+        command_status_map = self._command_status_map()
         for kind, name in (
             ("wind", "wind_generator"),
             ("pv", "pv_generator"),
@@ -976,20 +997,20 @@ class AGCState:
             ("diesel", "diesel_generator"),
             ("load", "energyconsumer"),
         ):
-            result.extend(self._device(kind, item, include_curve) for item in getattr(self.model, name, []))
+            result.extend(self._device(kind, item, include_curve, command_status_map) for item in getattr(self.model, name, []))
         return result
 
-    def _snapshot(self, include_history=True, include_curves=True, sync_database=True, history_since=None):
+    def _snapshot(self, include_history=True, include_curves=True, sync_database=True, history_since=None, include_devices=True):
         with self.lock:
-            return self._snapshot_locked(include_history, include_curves, sync_database, history_since)
+            return self._snapshot_locked(include_history, include_curves, sync_database, history_since, include_devices)
 
-    def _snapshot_locked(self, include_history, include_curves, sync_database, history_since):
+    def _snapshot_locked(self, include_history, include_curves, sync_database, history_since, include_devices=True):
         latest = self._sync_from_database() if sync_database else None
-        devices = self.devices(include_curves)
-        renewable = sum(item["power"] for item in devices if item["kind"] in {"wind", "pv"})
-        storage = sum(item["power"] for item in devices if item["kind"] == "storage")
-        diesel = sum(item["power"] for item in devices if item["kind"] == "diesel")
-        load = sum(item["power"] for item in devices if item["kind"] == "load")
+        device_view = self.devices(include_curves if include_devices else False)
+        renewable = sum(item["power"] for item in device_view if item["kind"] in {"wind", "pv"})
+        storage = sum(item["power"] for item in device_view if item["kind"] == "storage")
+        diesel = sum(item["power"] for item in device_view if item["kind"] == "diesel")
+        load = sum(item["power"] for item in device_view if item["kind"] == "load")
         balance = renewable + storage + diesel - load
         weather = {
             "wind_speed": round(_number(getattr(getattr(self.model, "wind_speed", None), "value", 0)), 3),
@@ -1016,7 +1037,6 @@ class AGCState:
                 "balance": round(balance, 3),
             },
             "weather": weather,
-            "devices": devices,
             "scada": {
                 "source": str(getattr(self.config.fes_client, "source", "fallback")),
                 "commandSource": str(getattr(self.config.fes_client, "command_source", "unconfigured")),
@@ -1035,6 +1055,8 @@ class AGCState:
                 "running": bool(latest["running"]) if latest else self.running,
             },
         }
+        if include_devices:
+            data["devices"] = device_view
         if include_history or (history_since is not None and history_since != self.cycle):
             data["history"] = self.history[-240:]
         return data
@@ -1086,10 +1108,22 @@ class AGCState:
                     "name": str(getattr(device, "name", "")), "measured": measured, "command": command,
                     "gap": command - measured, "headroom": headroom, "step": step, "deadband": dead,
                     "reason": reason, "mapped": point is not None})
+            renewable_rows = [row for row in rows if row["kind"] == "renewable"]
+            tryable = [row for row in renewable_rows if row["reason"] == "具备试探条件"]
+            limited = [row for row in renewable_rows if row["reason"] in {"已达功率上限", "无新增接纳空间", "步长未越过死区", "本地曲线", "停运"}]
+            passive = [row for row in rows if row["kind"] in {"storage", "diesel"} and row["reason"] == "被动平衡"]
+            strategy = "先对满足步长、死区和余量条件的远方新能源发出单步试探；柴发/构网储能保持当前指令，被动承担后续不平衡。"
+            summary = {
+                "renewableTryableCapacity": round(sum(row["headroom"] for row in tryable), 3),
+                "renewableLimitedCapacity": round(sum(row["headroom"] for row in limited), 3),
+                "unconfirmedProbeCapacity": round(sum(min(row["headroom"], max(0.0, row["step"])) for row in tryable), 3),
+                "passiveBalanceCapacity": round(sum(abs(row["command"]) for row in passive), 3),
+                "tryableCount": len(tryable), "limitedCount": len(limited), "passiveCount": len(passive),
+            }
             return {"cycle": self.cycle, "sampleAt": latest["recorded_at"] if latest else None,
                 "evaluatedAt": _utc_now(), "controlMode": self.control_mode, "running": self.running,
                 "source": self.config.fes_client.source, "commandSource": self.config.fes_client.command_source,
-                "acceptance": acceptance, "devices": rows,
+                "acceptance": acceptance, "summary": summary, "strategy": strategy, "devices": rows,
                 "note": "按当前测量与配置评估；不下发指令。新能源上涨仅为试探，不能据此降低柴发或构网储能功率。"}
 
     def logs(self, keyword: str = "", level: str = "", limit: int = 200) -> List[Dict[str, str]]:
@@ -1155,7 +1189,8 @@ class HMIHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             lite = query.get("lite", ["0"])[0].lower() in {"1", "true", "yes"}
             since = _integer(query.get("history_since", [-1])[0], -1) if "history_since" in query else None
-            self._send_json(STATE._snapshot(include_history=not lite, include_curves=not lite, history_since=since))
+            include_devices = query.get("devices", ["1"])[0].lower() not in {"0", "false", "no"}
+            self._send_json(STATE._snapshot(include_history=not lite, include_curves=not lite, history_since=since, include_devices=include_devices))
             return
         if parsed.path == "/api/config":
             self._send_json(STATE.config_payload())

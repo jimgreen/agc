@@ -30,11 +30,12 @@
   function renderState(data) {
     const previous = state.current;
     const previousDevices = new Map((previous?.devices || []).map(item => [`${item.kind}:${item.id}`, item]));
+    const hasDevices = Object.prototype.hasOwnProperty.call(data, "devices");
     state.current = {
       ...previous,
       ...data,
       history: data.history || previous?.history || [],
-      devices: (data.devices || []).map(item => {
+      devices: (hasDevices ? data.devices : (previous?.devices || [])).map(item => {
         const old = previousDevices.get(`${item.kind}:${item.id}`);
         return old && !item.presetCurve && old.presetCurve ? { ...old, ...item } : item;
       }),
@@ -72,9 +73,10 @@
     $("#telemetryStatus").textContent = totalPoints ? `${sourceText} ${okPoints}/${totalPoints}` : sourceText;
     $("#telemetryStatus").className = scada.source === "fallback" ? "warning" : "";
     $("#monitorTime").textContent = data.timestamp || "--";
-    renderResources(data.devices || []);
-    if (!$("#deviceTable").contains(document.activeElement)) renderDevices(data.devices || []);
-    populateDeviceSelector(data.devices || []);
+    const devices = state.current.devices || [];
+    renderResources(devices);
+    if (!$("#deviceTable").contains(document.activeElement)) renderDevices(devices);
+    populateDeviceSelector(devices);
 
     drawChart($("#overviewChart"), data.history || [], ["load", "renewable", "balance"]);
     drawChart($("#monitorChart"), data.history || [], ["load", "renewable", "storage", "diesel"]);
@@ -105,8 +107,11 @@
       const stateLabel = item.controlState === "local" ? "本地" : "远方";
       const status = Number(item.status) === 1 ? `<span class="status-pill on"><i></i>运行</span>` : `<span class="status-pill off"><i></i>停运</span>`;
       const key = `${item.kind}:${item.id}`;
-      return `<tr><td class="select-col"><input class="device-select" type="checkbox" data-device-key="${key}" ${state.selectedDevices.has(key) ? "checked" : ""} aria-label="选择 ${item.name}" /></td><td><div class="device-name"><span class="device-symbol ${typeClass[item.kind] || ""}">${item.kind === "storage" ? "▣" : item.kind === "load" ? "⌁" : "⚡"}</span><div><b>${item.name}</b><small>ID ${item.id}</small></div></div></td><td><span class="type-label">${kindNames[item.kind] || item.kind}</span></td><td>${status}</td><td><b>${formatNumber(current)}</b> MW</td><td>${formatNumber(item.maxPower)} MW</td><td>${item.soc == null ? "—" : `<div class="soc"><span>${formatNumber(item.soc * 100, 0)}%</span><i><em style="width:${Math.max(0, Math.min(100, item.soc * 100))}%"></em></i></div>`}</td><td><select class="device-control" data-kind="${item.kind}" data-id="${item.id}" data-field="control_state"><option value="remote" ${item.controlState === "remote" ? "selected" : ""}>远方 · 自动</option><option value="local" ${item.controlState === "local" ? "selected" : ""}>本地 · 曲线</option></select></td><td><div class="curve-actions"><span title="当前曲线点">${formatNumber(preset)}</span><button class="small-btn" data-curve="${item.kind}:${item.id}">96点曲线</button><button class="small-btn" data-detail="${item.kind}:${item.id}">详情</button></div></td></tr>`;
-    }).join("") || `<tr><td colspan="9" class="empty-cell">暂无设备</td></tr>`;
+      const command = Number(item.commandPower ?? current);
+      const diff = Number(item.commandDiff ?? command - current);
+      const source = item.mapped ? (item.commandStatus === "error" ? "下发失败" : item.commandStatus === "ok" ? "已映射" : "待确认") : "未配置";
+      return `<tr><td class="select-col"><input class="device-select" type="checkbox" data-device-key="${key}" ${state.selectedDevices.has(key) ? "checked" : ""} aria-label="选择 ${item.name}" /></td><td><div class="device-name"><span class="device-symbol ${typeClass[item.kind] || ""}">${item.kind === "storage" ? "▣" : item.kind === "load" ? "⌁" : "⚡"}</span><div><b>${item.name}</b><small>ID ${item.id}</small></div></div></td><td><span class="type-label">${kindNames[item.kind] || item.kind}</span></td><td>${status}</td><td><b>${formatNumber(current)}</b> MW</td><td><b>${formatNumber(command)}</b> MW</td><td class="command-diff ${Math.abs(diff) > 0.01 ? "changed" : ""}">${formatNumber(diff)} MW</td><td>${formatNumber(item.maxPower)} MW</td><td>${item.soc == null ? "—" : `<div class="soc"><span>${formatNumber(item.soc * 100, 0)}%</span><i><em style="width:${Math.max(0, Math.min(100, item.soc * 100))}%"></em></i></div>`}</td><td><select class="device-control" data-kind="${item.kind}" data-id="${item.id}" data-field="control_state"><option value="remote" ${item.controlState === "remote" ? "selected" : ""}>远方 · 自动</option><option value="local" ${item.controlState === "local" ? "selected" : ""}>本地 · 曲线</option></select></td><td><span class="command-source ${item.commandStatus === "error" ? "error" : item.mapped ? "mapped" : "unconfigured"}">${source}</span></td><td><div class="curve-actions"><span title="当前曲线点">${formatNumber(preset)}</span><button class="small-btn" data-curve="${item.kind}:${item.id}">96点曲线</button><button class="small-btn" data-detail="${item.kind}:${item.id}">详情</button></div></td></tr>`;
+    }).join("") || `<tr><td colspan="12" class="empty-cell">暂无设备</td></tr>`;
     $$(".device-select").forEach(input => input.addEventListener("change", () => { const key = input.dataset.deviceKey; input.checked ? state.selectedDevices.add(key) : state.selectedDevices.delete(key); updateSelectionUi(); }));
     $$(".device-control").forEach(select => select.addEventListener("change", () => sendDeviceCommand(select.dataset.kind, select.dataset.id, "control_state", select.value)));
     $$(".preset-input").forEach(input => input.addEventListener("change", () => sendDeviceCommand(input.dataset.kind, input.dataset.id, "preset_power", Number(input.value))));
@@ -133,7 +138,31 @@
     try {
       const value = $("#bulkState").value;
       const result = await api("/api/device-batch", { method: "POST", body: JSON.stringify({ devices, field: "control_state", value }) });
-      renderState(result); state.selectedDevices.clear(); renderDevices(state.current?.devices || []); const okCount = result.batchResults?.filter(item => item.ok).length || 0; const failCount = (result.batchResults?.length || 0) - okCount; toast(failCount ? `已更新 ${okCount} 台，${failCount} 台失败` : `已更新 ${okCount} 台设备`, failCount ? "error" : "success");
+      renderState(result); state.selectedDevices.clear(); renderDevices(state.current?.devices || []); showBatchResult(result.batchResults); const okCount = result.batchResults?.filter(item => item.ok).length || 0; const failCount = (result.batchResults?.length || 0) - okCount; toast(failCount ? `已更新 ${okCount} 台，${failCount} 台失败` : `已更新 ${okCount} 台设备`, failCount ? "error" : "success");
+    } catch (error) { toast(error.message, "error"); }
+  }
+
+  function selectedDevicePayload() {
+    return [...state.selectedDevices].map(key => { const [kind, id] = key.split(":"); return { kind, id }; });
+  }
+
+  function showBatchResult(results = []) {
+    const ok = results.filter(item => item.ok);
+    const failed = results.filter(item => !item.ok);
+    const note = $("#batchResultNote");
+    if (!note) return;
+    note.textContent = failed.length ? `批量结果：成功 ${ok.length}，失败 ${failed.length}（${failed.map(item => item.id || "未知设备").join("、")}）` : `批量结果：${ok.length} 台已完成`;
+    note.className = `batch-result-note ${failed.length ? "error" : "success"}`;
+  }
+
+  async function applyBulkPreset() {
+    const devices = selectedDevicePayload();
+    const value = Number($("#bulkPresetPower")?.value);
+    if (!devices.length) { toast("请先选择设备", "error"); return; }
+    if (!Number.isFinite(value)) { toast("请输入批量默认功率", "error"); return; }
+    try {
+      const result = await api("/api/device-batch", { method: "POST", body: JSON.stringify({ devices, field: "preset_power", value }) });
+      renderState(result); state.selectedDevices.clear(); renderDevices(state.current?.devices || []); $("#bulkPresetPower").value = ""; showBatchResult(result.batchResults); const failed = result.batchResults?.filter(item => !item.ok).length || 0; toast(failed ? `批量默认功率完成，${failed} 台失败` : `已为 ${devices.length} 台设备设置默认功率`, failed ? "error" : "success");
     } catch (error) { toast(error.message, "error"); }
   }
 
@@ -279,7 +308,8 @@
     state.refreshBusy = true;
     try {
       const since = state.current?.cycle ?? -1;
-      renderState(await api(`/api/state?lite=1&history_since=${since}`));
+      const needsDevices = !state.current || (state.view === "monitor" && ["devices", "detail"].includes(state.monitorTab));
+      renderState(await api(`/api/state?lite=1&devices=${needsDevices ? 1 : 0}&history_since=${since}`));
       $("#connectionText").textContent = "服务已连接";
       if (state.view === "monitor" && state.monitorTab === "detail") await refreshDeviceDetail();
       if (state.view === "monitor" && state.monitorTab === "commands") await loadCommands();
@@ -300,7 +330,7 @@
     $$(".view").forEach(view => view.classList.toggle("active", view.id === `view-${name}`));
     const titles = { overview: "系统总览", monitor: "实时监视", config: "参数配置", logs: "日志查询", history: "历史查询" };
     $("#viewTitle").textContent = titles[name] || titles.overview;
-    if (name === "config") loadConfig(); if (name === "logs") loadLogs(); if (name === "history") loadHistory(); if (name === "monitor") { if (state.monitorTab === "analysis") loadAnalysis(); if (state.monitorTab === "commands") loadCommands(); if (state.monitorTab === "detail") refreshDeviceDetail(); }
+    if (name === "config") loadConfig(); if (name === "logs") loadLogs(); if (name === "history") loadHistory(); if (name === "monitor") { refreshState(); if (state.monitorTab === "analysis") loadAnalysis(); if (state.monitorTab === "commands") loadCommands(); if (state.monitorTab === "detail") refreshDeviceDetail(); }
     window.setTimeout(() => $$("canvas").forEach(canvas => { if (canvas.id === "historyChart") return; if (canvas.id === "overviewChart" || canvas.id === "monitorChart") drawChart(canvas, state.current?.history || [], canvas.id === "monitorChart" ? ["load", "renewable", "storage", "diesel"] : ["load", "renewable", "balance"]); }), 30);
   }
 
@@ -366,8 +396,10 @@
   function renderAnalysis() {
     const data = state.analysisData; if (!data) return;
     const a = data.acceptance;
-    $("#analysisMetrics").innerHTML = [["实测负荷",a.load],["实测新能源",a.renewable_actual],["储能吸收余量",a.storage_charge_space],["新增接纳空间",a.acceptance_space]].map(([label,value]) => `<div><span>${label}</span><b>${formatNumber(value,2)} <small>MW</small></b></div>`).join("");
+    const summary = data.summary || {};
+    $("#analysisMetrics").innerHTML = [["实测负荷",a.load,"MW"],["实测新能源",a.renewable_actual,"MW"],["新增接纳空间",a.acceptance_space,"MW"],["可试探新能源余量",summary.renewableTryableCapacity,"MW"],["未确认试探容量",summary.unconfirmedProbeCapacity,"MW"],["被动平衡电源",summary.passiveBalanceCapacity,"MW"]].map(([label,value,unit]) => `<div><span>${label}</span><b>${formatNumber(value,2)} <small>${unit}</small></b></div>`).join("");
     $("#analysisStatus").textContent = `周期 ${data.cycle} · ${data.sampleAt ? new Date(data.sampleAt).toLocaleString("zh-CN",{hour12:false}) : "暂无周期采样"} · ${data.running ? "运行" : "暂停"} / ${data.controlMode === "closed_loop" ? "闭环" : "开环"} · 数据源 ${data.source === "fallback" ? "本地仿真" : data.source}`;
+    $("#analysisStrategy").textContent = data.strategy || data.note || "等待当前周期策略说明";
     const rows = data.devices.filter(row => $("#analysisFilter").value === "all" || row.reason === $("#analysisFilter").value);
     const size = pageCapacity("analysisTable",8), pages = Math.max(1, Math.ceil(rows.length / size));
     state.analysisPage = Math.min(state.analysisPage,pages);
@@ -489,7 +521,7 @@
     $$(".filter-chip").forEach(button => button.addEventListener("click", () => { $$(".filter-chip").forEach(item => item.classList.remove("active")); button.classList.add("active"); state.filter = button.dataset.filter; renderDevices(state.current?.devices || []); }));
     $("#selectAllDevices").addEventListener("change", event => { $$(".device-select").forEach(input => { input.checked = event.target.checked; const key = input.dataset.deviceKey; event.target.checked ? state.selectedDevices.add(key) : state.selectedDevices.delete(key); }); updateSelectionUi(); });
     $("#deviceSearch").addEventListener("input", event => { state.deviceSearch = event.target.value; state.devicePage = 1; renderDevices(state.current?.devices || []); });
-    $("#applyBulkState").addEventListener("click", applyBulkState);
+    $("#applyBulkState").addEventListener("click", applyBulkState); $("#applyBulkPreset").addEventListener("click", applyBulkPreset);
     $("#saveConfigBtn").addEventListener("click", async event => { event.preventDefault(); const values = Object.fromEntries([...$("#parameterForm").querySelectorAll("input")].map(input => [input.name, Number(input.value)])); try { await api("/api/config", { method: "POST", body: JSON.stringify({ parameters: values }) }); $("#saveNote").textContent = "已保存"; toast("控制参数已保存"); window.setTimeout(() => $("#saveNote").textContent = "", 2000); } catch (error) { toast(error.message, "error"); } });
     $("#simulationForm").addEventListener("submit", async event => { event.preventDefault(); const values = Object.fromEntries([...event.currentTarget.querySelectorAll("input")].map(input => [input.name, Number(input.value)])); try { renderState(await api("/api/simulation", { method: "POST", body: JSON.stringify(values) })); toast("仿真遥测已应用"); } catch (error) { toast(error.message, "error"); } });
     $("#analysisFilter").addEventListener("change",()=>{ state.analysisPage=1;renderAnalysis(); });
@@ -502,7 +534,7 @@
     $("#importCurveFile").addEventListener("change",importCurve);
     $("#exportCurveBtn").addEventListener("click",()=>{ try { captureCurve(); validateCurve(state.curveValues); downloadJson(`agc-curve-${state.curveDevice.kind}-${state.curveDevice.id}.json`, {format:"agc-curve/1",unit:"MW",intervalMinutes:15,device:{kind:state.curveDevice.kind,id:state.curveDevice.id,name:state.curveDevice.name},values:state.curveValues}); } catch(error) { toast(error.message,"error"); } });
     $("#queryLogsBtn").addEventListener("click", loadLogs); $("#refreshLogsBtn").addEventListener("click", loadLogs); $("#refreshHistoryBtn").addEventListener("click", loadHistory); $("#historyLimit").addEventListener("change", loadHistory); $("#refreshCommandsBtn").addEventListener("click", loadCommands);
-    $$(".monitor-tab").forEach(button => button.addEventListener("click", () => { state.monitorTab = button.dataset.monitorTab; $$(".monitor-tab").forEach(item => item.classList.toggle("active", item === button)); $$(".monitor-pane").forEach(item => item.classList.toggle("active", item.id === `monitor-pane-${state.monitorTab}`)); if (state.monitorTab === "devices") renderDevices(state.current?.devices || []); if (state.monitorTab === "analysis") loadAnalysis(); if (state.monitorTab === "commands") loadCommands(); if (state.monitorTab === "detail") refreshDeviceDetail(); window.setTimeout(() => { if (state.monitorTab === "summary") drawChart($("#monitorChart"), state.current?.history || [], ["load", "renewable", "storage", "diesel"]); if (state.monitorTab === "detail" && state.detailData) drawDeviceChart($("#deviceChart"), state.detailData.history || []); }, 30); }));
+    $$(".monitor-tab").forEach(button => button.addEventListener("click", () => { state.monitorTab = button.dataset.monitorTab; $$(".monitor-tab").forEach(item => item.classList.toggle("active", item === button)); $$(".monitor-pane").forEach(item => item.classList.toggle("active", item.id === `monitor-pane-${state.monitorTab}`)); refreshState(); if (state.monitorTab === "devices") renderDevices(state.current?.devices || []); if (state.monitorTab === "analysis") loadAnalysis(); if (state.monitorTab === "commands") loadCommands(); if (state.monitorTab === "detail") refreshDeviceDetail(); window.setTimeout(() => { if (state.monitorTab === "summary") drawChart($("#monitorChart"), state.current?.history || [], ["load", "renewable", "storage", "diesel"]); if (state.monitorTab === "detail" && state.detailData) drawDeviceChart($("#deviceChart"), state.detailData.history || []); }, 30); }));
     $("#deviceParameterForm").addEventListener("submit", saveDeviceParameters);
     $("#deviceParameterForm").addEventListener("input", event => {
       const input = event.target; if (!input.name) return;

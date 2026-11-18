@@ -1,0 +1,67 @@
+{
+  "baseline": "c8f32ce",
+  "seed": 20261118,
+  "equivalent_cases": 1000,
+  "unit": "microseconds per control call",
+  "rounds": [
+    {
+      "before": 420.48430000431836,
+      "after": 262.43170000088867,
+      "reduction_percent": 37.58822862156958
+    },
+    {
+      "after": 244.20119999558665,
+      "before": 266.24960000481224,
+      "reduction_percent": 8.281101646284949
+    },
+    {
+      "before": 309.27270000393037,
+      "after": 365.09230000228854,
+      "reduction_percent": -18.04866708172068
+    },
+    {
+      "after": 504.5159000001149,
+      "before": 354.5443000039086,
+      "reduction_percent": -42.29981979531274
+    },
+    {
+      "before": 264.97659999586176,
+      "after": 213.3218999952078,
+      "reduction_percent": 19.49406098555898
+    },
+    {
+      "after": 258.6643000031472,
+      "before": 236.48340000363532,
+      "reduction_percent": -9.379474415189781
+    },
+    {
+      "before": 236.738300001889,
+      "after": 241.7520000017248,
+      "reduction_percent": -2.1178237740981487
+    },
+    {
+      "after": 222.98679999948945,
+      "before": 236.95410000073025,
+      "reduction_percent": 5.894517124285992
+    },
+    {
+      "before": 246.19979999988573,
+      "after": 187.5170000057551,
+      "reduction_percent": 23.835437719347397
+    },
+    {
+      "after": 259.4433000049321,
+      "before": 268.2589000032749,
+      "reduction_percent": 3.2862283406944526
+    },
+    {
+      "before": 237.78070000116713,
+      "after": 237.81400000007125,
+      "reduction_percent": -0.014004500324849012
+    }
+  ],
+  "median_before": 264.97659999586176,
+  "median_after": 244.20119999558665,
+  "median_paired_reduction_percent": 3.2862283406944526,
+  "improved_rounds": 6
+}
