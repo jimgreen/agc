@@ -219,7 +219,7 @@
   function renderDeviceDetail(data) {
     const device = data.device;
     if (!device) return;
-    $("#deviceDetailEmpty").hidden = true;
+    const detailEmpty = $("#deviceDetailEmpty"); if (detailEmpty) detailEmpty.hidden = true;
     $("#deviceDetailBody").hidden = false;
     $("#detailSummary").innerHTML = `<div><span>设备</span><b>${device.name}</b></div><div><span>受控状态</span><b class="detail-state ${device.controlState}">${device.controlState === "local" ? "本地 · 默认曲线" : "远方 · 自动决策"}</b></div><div><span>实时功率</span><b>${formatNumber(data.history?.at(-1)?.realtimePower)}</b><small>MW</small></div><div><span>最新指令</span><b>${formatNumber(data.history?.at(-1)?.commandPower)}</b><small>MW</small></div><div><span>控制上下限</span><b>${formatNumber(device.pMin)} ~ ${formatNumber(device.pMax)}</b><small>MW</small></div>`;
     const form = $("#deviceParameterForm");

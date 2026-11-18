@@ -31,6 +31,6 @@
 <button class="btn btn-primary" id="runBtn">启动控制</button>
 </div>
 </header><section class="view active" id="view-logs">
-<div class="page-intro"><div><span class="section-label">EVENT LOG</span><h2>日志查询</h2><p>检索控制服务、采集周期和下发指令记录。</p></div><button class="btn btn-soft" id="refreshLogsBtn">刷新日志</button></div>
+<div class="page-intro"><div><span class="section-label">EVENT LOG</span><h2>日志查询</h2></div><button class="btn btn-soft" id="refreshLogsBtn">刷新日志</button></div>
 <article class="panel table-panel"><div class="query-bar"><label>关键词<input id="logKeyword" placeholder="如：储能、控制、失败"/></label><label>级别<select id="logLevel"><option value="">全部级别</option><option value="INFO">INFO</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option></select></label><button class="btn btn-primary" id="queryLogsBtn">查询</button></div><div class="table-scroll log-scroll"><table><thead><tr><th>时间</th><th>级别</th><th>消息</th></tr></thead><tbody id="logTable"></tbody></table></div><div class="table-pager" id="logPager"></div></article>
 </section><footer class="footer"><span>AGC Web HMI · Python 标准库服务</span><span>模型：<b id="footerModel">model_real.e</b></span></footer></main></div><div class="toast" id="toast" role="status"></div></body></html>
