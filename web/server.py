@@ -744,8 +744,15 @@ class AGCState:
                 now = datetime.now()
                 target.agc_preset_power = target.agc_preset_curve[now.hour * 4 + now.minute // 15]
             elif field == "preset_power":
-                target.agc_preset_power = _number(value, _number(getattr(target, "p_cur", 0.0)))
-                target.agc_preset_curve = [target.agc_preset_power] * 96
+                converted = _number(value, float("nan"))
+                if not math.isfinite(converted):
+                    raise ValueError("默认功率必须是有限数字")
+                lower = _number(getattr(target, "p_min", 0.0))
+                upper = _number(getattr(target, "p_max", 0.0))
+                if upper > lower and not lower <= converted <= upper:
+                    raise ValueError(f"默认功率必须位于 {lower:g} 至 {upper:g} MW 范围内")
+                target.agc_preset_power = converted
+                target.agc_preset_curve = [converted] * 96
             else:
                 actual_field = {
                     "control_step": "p_step",
@@ -760,6 +767,8 @@ class AGCState:
                         raise ValueError(f"设备参数不能为负值：{field}")
                 elif field == "run_stat":
                     converted = _integer(value, _integer(old))
+                    if converted not in {0, 1}:
+                        raise ValueError("运行状态只能是 0 或 1")
                 else:
                     converted = self._cast_parameter(old, value)
                 if field == "p_min" and converted > _number(getattr(target, "p_max", converted)):

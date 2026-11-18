@@ -105,6 +105,7 @@ class SystemConfig:
         # Successful command cache prevents repeated identical YK/YT writes
         # when a control cycle or a local curve is evaluated more than once.
         self._last_scada_commands = {}
+        self._scada_issue_logged_at = {}
         self.logger = self._setup_logger(log_file or _default_log_file())
 
     @staticmethod
@@ -192,6 +193,16 @@ class SystemConfig:
         if point is None:
             return True
         return self.send_yk_cmd(point, value)
+
+    def log_scada_issue(self, level: int, kind: str, name: str, rtu, pnt, message: str) -> None:
+        """Rate-limit repeated point errors while retaining current-cycle status."""
+        key = (str(kind), str(rtu), str(pnt), str(message))
+        now = time.monotonic()
+        interval = 5.0 if level >= logging.ERROR else 30.0
+        if now - self._scada_issue_logged_at.get(key, 0.0) < interval:
+            return
+        self._scada_issue_logged_at[key] = now
+        self.logger.log(level, "%s %s rtu=%s pnt=%s: %s", kind, name, rtu, pnt, message)
 
 
 def _default_log_file() -> Path:
@@ -1759,12 +1770,12 @@ def _update_yc(config: SystemConfig) -> None:
             )
         except Exception as exc:
             result, value = False, None
-            config.logger.error("SCADA遥测接口异常 %s rtu=%s pnt=%s: %s", getattr(yc, "name", ""), yc.rtu, yc.pnt, exc)
+            config.log_scada_issue(logging.ERROR, "SCADA遥测接口异常", getattr(yc, "name", ""), yc.rtu, yc.pnt, str(exc))
         if result:
             yc.value = value
             config.scada_data_results.append({"kind": "yc", "id": getattr(yc, "id", ""), "ok": True})
         else:
-            config.logger.info("无法更新遥测数据 %s rtu=%s pnt=%s，使用本地值 %s", yc.name, yc.rtu, yc.pnt, yc.value)
+            config.log_scada_issue(logging.INFO, "无法更新遥测数据", yc.name, yc.rtu, yc.pnt, f"使用本地值 {yc.value}")
             config.scada_data_results.append({"kind": "yc", "id": getattr(yc, "id", ""), "ok": False})
 
 
@@ -1777,13 +1788,13 @@ def _update_yx(config: SystemConfig) -> None:
             )
         except Exception as exc:
             result, value = False, None
-            config.logger.error("SCADA遥信接口异常 %s rtu=%s pnt=%s: %s", getattr(yx, "name", ""), yx.rtu, yx.pnt, exc)
+            config.log_scada_issue(logging.ERROR, "SCADA遥信接口异常", getattr(yx, "name", ""), yx.rtu, yx.pnt, str(exc))
         if result:
             yx.value = value
             config.scada_data_results.append({"kind": "yx", "id": getattr(yx, "id", ""), "ok": True})
             continue
         config.scada_data_results.append({"kind": "yx", "id": getattr(yx, "id", ""), "ok": False})
-        config.logger.info("无法更新遥信数据 %s rtu=%s pnt=%s，使用本地值 %s", yx.name, yx.rtu, yx.pnt, getattr(yx, "value", None))
+        config.log_scada_issue(logging.INFO, "无法更新遥信数据", yx.name, yx.rtu, yx.pnt, f"使用本地值 {getattr(yx, 'value', None)}")
 
 
 def _apply_yx_device_states(config: SystemConfig) -> None:

@@ -1,7 +1,7 @@
 (() => {
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-  const state = { current: null, filter: "all", selectedDevices: new Set(), curveDevice: null, curveValues: [], curvePage: 0, detailKey: "", detailData: null, detailTab: "overview", monitorTab: "summary", devicePage: 1, commandPage: 1, commandRows: [], logPage: 1, logRows: [], historyPage: 1, historyRows: [], refreshBusy: false };
+  const state = { current: null, filter: "all", deviceSearch: "", selectedDevices: new Set(), curveDevice: null, curveValues: [], curvePage: 0, detailKey: "", detailData: null, detailTab: "overview", monitorTab: "summary", devicePage: 1, commandPage: 1, commandRows: [], logPage: 1, logRows: [], historyPage: 1, historyRows: [], refreshBusy: false };
   const PAGE_SIZE = { devices: 8, commands: 12, logs: 12, history: 8 };
   const CURVE_PAGE_SIZE = 24;
   const kindNames = { wind: "风机", pv: "光伏", storage: "储能", diesel: "柴发", load: "负荷" };
@@ -90,7 +90,8 @@
   }
 
   function renderDevices(devices) {
-    const filtered = state.filter === "all" ? devices : devices.filter(item => item.kind === state.filter);
+    const search = state.deviceSearch.trim().toLowerCase();
+    const filtered = devices.filter(item => (state.filter === "all" || item.kind === state.filter) && (!search || `${item.name} ${item.id}`.toLowerCase().includes(search)));
     const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE.devices));
     state.devicePage = Math.min(state.devicePage, pageCount);
     const start = (state.devicePage - 1) * PAGE_SIZE.devices;
@@ -369,6 +370,7 @@
     $("#controlMode").addEventListener("change", async event => { try { renderState(await api("/api/mode", { method: "POST", body: JSON.stringify({ mode: event.target.value }) })); toast(event.target.value === "closed_loop" ? "已切换为闭环自动模式" : "已切换为开环预设模式"); } catch (error) { toast(error.message, "error"); } });
     $$(".filter-chip").forEach(button => button.addEventListener("click", () => { $$(".filter-chip").forEach(item => item.classList.remove("active")); button.classList.add("active"); state.filter = button.dataset.filter; renderDevices(state.current?.devices || []); }));
     $("#selectAllDevices").addEventListener("change", event => { $$(".device-select").forEach(input => { input.checked = event.target.checked; const key = input.dataset.deviceKey; event.target.checked ? state.selectedDevices.add(key) : state.selectedDevices.delete(key); }); updateSelectionUi(); });
+    $("#deviceSearch").addEventListener("input", event => { state.deviceSearch = event.target.value; state.devicePage = 1; renderDevices(state.current?.devices || []); });
     $("#applyBulkState").addEventListener("click", applyBulkState);
     $("#saveConfigBtn").addEventListener("click", async event => { event.preventDefault(); const values = Object.fromEntries([...$("#parameterForm").querySelectorAll("input")].map(input => [input.name, Number(input.value)])); try { await api("/api/config", { method: "POST", body: JSON.stringify({ parameters: values }) }); $("#saveNote").textContent = "已保存"; toast("控制参数已保存"); window.setTimeout(() => $("#saveNote").textContent = "", 2000); } catch (error) { toast(error.message, "error"); } });
     $("#simulationForm").addEventListener("submit", async event => { event.preventDefault(); const values = Object.fromEntries([...event.currentTarget.querySelectorAll("input")].map(input => [input.name, Number(input.value)])); try { renderState(await api("/api/simulation", { method: "POST", body: JSON.stringify(values) })); toast("仿真遥测已应用"); } catch (error) { toast(error.message, "error"); } });
