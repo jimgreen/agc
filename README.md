@@ -137,4 +137,16 @@ python tools/agc_stress_test.py --cases 100000 --output output/agc_round2_stress
 
 第三轮验证结果保存在 `output/agc_round3_validation_20261118.html`、`output/agc_round3_stress_20261118.html` 和 `output/agc_round3_benchmark_20261118.json`。
 
+## 多页面 Web HMI（2026-11-18）
+
+Web HMI 已拆分为独立 HTML 页面，根路径 `/` 只负责跳转到 `/overview.html`：
+
+- `/overview.html`：系统总览
+- `/monitor.html`：实时监视（设备列表、设备详情、控制指令和运行分析标签）
+- `/config.html`：参数配置
+- `/logs.html`：日志查询
+- `/history.html`：历史查询
+
+每个页面只加载自己的功能区，共享导航、控制栏和接口脚本；页面之间通过导航跳转，不再把所有主功能视图堆在同一个 HTML 文档中。页面级联动检查脚本为 `output/playwright/multipage_check.py` 和 `output/playwright/multipage_console_check.py`。
+
 浏览器验证仍使用隔离的 `tests/serve_fixture.py`（18766 端口），覆盖运行分析筛选、历史范围与游标分页、历史导出、曲线预览和导入导出入口；不对生产数据库进行写入测试。

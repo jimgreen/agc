@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1" name="viewport"/><link href="/styles.css" rel="stylesheet"/><script defer="" src="/app.js"></script><title>AGC 自动发电控制 · 实时监视</title></head><body data-page="monitor"><div class="app-shell"><aside class="sidebar">
+<div class="brand">
+<div class="brand-mark">AGC</div>
+<div>
+<strong>自动发电控制</strong>
+<span>Web HMI / Control Room</span>
+</div>
+</div>
+<nav aria-label="功能导航" class="nav-list">
+<a class="nav-item" data-view="overview" href="/overview.html"><span class="nav-icon">⌂</span>主页面</a>
+<a class="nav-item active" data-view="monitor" href="/monitor.html"><span class="nav-icon">◉</span>实时监视</a>
+<a class="nav-item" data-view="config" href="/config.html"><span class="nav-icon">⚙</span>参数配置</a>
+<a class="nav-item" data-view="logs" href="/logs.html"><span class="nav-icon">≡</span>日志查询</a>
+<a class="nav-item" data-view="history" href="/history.html"><span class="nav-icon">↗</span>历史查询</a>
+</nav>
+<div class="sidebar-foot">
+<span class="dot online"></span>
+<span>本地控制服务</span>
+<small id="sidebarTime">--:--:--</small>
+</div>
+</aside><main class="main-content"><header class="topbar">
+<div>
+<div class="eyebrow">新能源 · 储能 · 柴发 · 负荷协同</div>
+<h1 id="viewTitle">实时监视</h1>
+</div>
+<div class="top-actions">
+<div class="connection"><span class="dot online"></span><span id="connectionText">服务已连接</span></div>
+<label class="mode-select"><span>控制模式</span><select id="controlMode"><option value="closed_loop">闭环自动</option><option value="open_loop">开环预设</option></select></label>
+<button class="btn btn-ghost" id="stepBtn">单步执行</button>
+<button class="btn btn-primary" id="runBtn">启动控制</button>
+</div>
+</header><section class="view active" id="view-monitor">
+<div class="page-intro"><div><span class="section-label">REAL-TIME MONITOR</span><h2>实时监视</h2><p>查看各类资源的功率、运行状态和储能 SOC。</p></div><div class="refresh-badge"><span class="dot online"></span>2 秒自动刷新</div></div>
+<div aria-label="实时监视功能" class="monitor-tabs" role="tablist"><button class="monitor-tab active" data-monitor-tab="summary">实时总览</button><button class="monitor-tab" data-monitor-tab="devices">设备列表</button><button class="monitor-tab" data-monitor-tab="detail">设备详情</button><button class="monitor-tab" data-monitor-tab="commands">控制指令</button><button class="monitor-tab" data-monitor-tab="analysis">运行分析</button></div>
+<div class="monitor-pane active" id="monitor-pane-summary">
+<div class="content-grid two-col monitor-top">
+<article class="panel chart-panel"><div class="panel-heading"><div><span class="section-label">LIVE TREND</span><h3>实时功率曲线</h3></div><span class="panel-note" id="monitorTime">--</span></div><canvas class="trend-chart large" height="280" id="monitorChart"></canvas><div class="chart-legend"><span><i class="legend-line load"></i>负荷</span><span><i class="legend-line renewable"></i>新能源</span><span><i class="legend-line storage"></i>储能</span><span><i class="legend-line diesel"></i>柴发</span></div></article>
+<article class="panel status-panel"><div class="panel-heading"><div><span class="section-label">SYSTEM HEALTH</span><h3>系统健康度</h3></div></div><div class="health-score"><div class="score-ring"><strong id="healthScore">100</strong><span>分</span></div><div><b id="healthLabel">等待采集</b><p id="healthMessage">控制服务等待操作</p></div></div><div class="health-list"><div><span class="health-dot green"></span><span>模型加载</span><b>正常</b></div><div><span class="health-dot green"></span><span>遥测链路</span><b id="telemetryStatus">仿真</b></div><div><span class="health-dot green"></span><span>SQLite 同步</span><b id="backendStatus">正常</b></div><div><span class="health-dot green"></span><span>最新数据库周期</span><b id="backendCycle">--</b></div><div><span class="health-dot green"></span><span>控制策略</span><b id="strategyStatus">待机</b></div></div></article>
+</div>
+</div>
+<div class="monitor-pane" id="monitor-pane-devices">
+<article class="panel table-panel device-list-panel"><div class="panel-heading"><div><span class="section-label">DEVICE TELEMETRY</span><h3>设备遥测与受控曲线</h3></div><div class="table-filters"><button class="filter-chip active" data-filter="all">全部</button><button class="filter-chip" data-filter="wind">风机</button><button class="filter-chip" data-filter="pv">光伏</button><button class="filter-chip" data-filter="storage">储能</button><button class="filter-chip" data-filter="diesel">柴发</button><button class="filter-chip" data-filter="load">负荷</button></div></div><div class="bulk-toolbar"><label><input id="selectAllDevices" type="checkbox"/> 全选当前页</label><span id="selectedDeviceCount">已选 0 台</span><input aria-label="搜索设备名或 ID" id="deviceSearch" placeholder="搜索设备名或 ID" type="search"/><select id="bulkState"><option value="local">批量切换为本地曲线</option><option value="remote">批量切换为远方自动</option></select><button class="btn btn-soft" id="applyBulkState">应用批量受控状态</button><label class="bulk-power"><span>默认功率</span><input aria-label="批量默认功率" id="bulkPresetPower" placeholder="MW" step="0.1" type="number"/></label><button class="btn btn-soft" id="applyBulkPreset">批量设定</button><span class="batch-result-note" id="batchResultNote" role="status"></span></div><div class="table-scroll"><table><thead><tr><th class="select-col">选择</th><th>设备</th><th>类型</th><th>运行状态</th><th>实时功率</th><th>指令功率</th><th>指令差</th><th>上限</th><th>SOC</th><th>受控状态</th><th>指令来源</th><th>默认曲线</th></tr></thead><tbody id="deviceTable"></tbody></table></div><div class="table-pager" id="devicePager"></div></article>
+</div>
+<div class="monitor-pane" id="monitor-pane-detail">
+<article class="panel device-detail-panel">
+<div class="panel-heading"><div><span class="section-label">DEVICE DETAIL</span><h3>设备控制详情</h3></div><label class="detail-picker">查看设备<select id="detailDeviceSelect"></select></label></div>
+<div class="empty-detail" id="deviceDetailEmpty">请选择设备查看实时值、指令曲线和控制时刻指令。</div>
+<div hidden="" id="deviceDetailBody">
+<div class="detail-summary" id="detailSummary"></div>
+<div aria-label="设备详情功能" class="detail-tabs" role="tablist"><button class="detail-tab active" data-detail-tab="overview">实时曲线</button><button class="detail-tab" data-detail-tab="parameters">控制参数</button><button class="detail-tab" data-detail-tab="commands">控制时刻指令</button></div>
+<div class="detail-pane active" id="detail-pane-overview">
+<div class="detail-layout">
+<div class="detail-chart-wrap"><div class="detail-chart-title"><b>实时曲线 / 指令曲线</b><span><i class="detail-legend realtime"></i>实时功率 <i class="detail-legend command"></i>控制指令 <i class="detail-legend preset"></i>默认曲线</span></div><canvas class="trend-chart detail-chart" height="240" id="deviceChart"></canvas></div>
+</div>
+</div>
+<div class="detail-pane" id="detail-pane-parameters">
+<form class="device-parameter-form" id="deviceParameterForm"><h4>设备控制参数</h4><label><span>受控状态</span><select name="control_state"><option value="remote">远方 · 自动决策</option><option value="local">本地 · 默认曲线</option></select></label><label><span>运行状态</span><select name="run_stat"><option value="1">运行</option><option value="0">停运</option></select></label><label><span>控制步长 / MW</span><input min="0" name="control_step" required="" step="0.1" type="number"/></label><label><span>控制死区 / MW</span><input min="0" name="control_deadband" required="" step="0.1" type="number"/></label><label><span>功率下限 / MW</span><input name="p_min" required="" step="0.1" type="number"/></label><label><span>功率上限 / MW</span><input name="p_max" required="" step="0.1" type="number"/></label><label><span>默认功率 / MW</span><input name="preset_power" required="" step="0.1" type="number"/></label><div class="form-actions"><button class="btn btn-primary" type="submit">保存设备参数</button><button class="btn btn-soft" id="detailCurveBtn" type="button">编辑 96 点曲线</button><button class="btn btn-soft" id="resetDeviceBtn" type="button">撤销修改</button><span id="deviceEditNote" role="status"></span></div></form>
+</div>
+<div class="detail-pane" id="detail-pane-commands">
+<div class="panel-subheading"><div><span class="section-label">CONTROL COMMANDS</span><h4>控制时刻指令表</h4></div><span class="panel-note">按最近 120 个控制时刻</span></div>
+<div class="table-scroll detail-command-scroll"><table><thead><tr><th>控制时刻</th><th>周期</th><th>受控状态</th><th>实时功率 MW</th><th>指令功率 MW</th><th>默认曲线 MW</th><th>步长 / 死区</th></tr></thead><tbody id="deviceCommandTable"></tbody></table></div><div class="table-pager" id="detailCommandPager"></div>
+</div>
+</div>
+</article>
+</div>
+<div class="monitor-pane" id="monitor-pane-analysis">
+<div class="analysis-metrics" id="analysisMetrics"></div><p class="analysis-strategy" id="analysisStrategy">等待当前周期策略说明</p>
+<article class="panel table-panel analysis-panel"><div class="panel-heading"><div><h3>资源约束与控制条件</h3><p class="helper-text" id="analysisStatus">等待评估</p></div><select aria-label="筛选资源状态" id="analysisFilter"><option value="all">全部资源</option><option value="具备试探条件">具备试探条件</option><option value="本地曲线">本地曲线</option><option value="停运">停运设备</option><option value="被动平衡">被动平衡电源</option></select></div>
+<div class="table-scroll"><table><thead><tr><th>设备</th><th>测量 MW</th><th>指令 MW</th><th>指令差 MW</th><th>额定余量 MW</th><th>步长 / 死区</th><th>条件说明</th><th>遥调映射</th></tr></thead><tbody id="analysisTable"></tbody></table></div><div class="table-pager" id="analysisPager"></div><p class="analysis-note">当前模型测量评估，不下发指令。新能源上涨仅为试探，不能据此降低柴发或构网储能功率。</p></article>
+</div>
+<div class="monitor-pane" id="monitor-pane-commands">
+<article class="panel table-panel command-list-panel"><div class="panel-heading"><div><span class="section-label">CONTROL COMMANDS</span><h3>各控制时刻实时指令</h3></div><button class="btn btn-soft" id="refreshCommandsBtn">刷新</button></div><div class="table-scroll"><table><thead><tr><th>控制时刻</th><th>周期</th><th>设备</th><th>受控状态</th><th>实时功率 MW</th><th>指令功率 MW</th><th>默认曲线 MW</th><th>步长 / 死区</th></tr></thead><tbody id="allCommandTable"></tbody></table></div><div class="table-pager" id="commandPager"></div></article>
+</div>
+</section><footer class="footer"><span>AGC Web HMI · Python 标准库服务</span><span>模型：<b id="footerModel">model_real.e</b></span></footer></main></div><div class="toast" id="toast" role="status"></div><div class="modal-backdrop" hidden="" id="curveModal">
+<div aria-labelledby="curveTitle" aria-modal="true" class="modal" role="dialog">
+<div class="modal-heading"><div><span class="section-label">LOCAL PRESET CURVE</span><h3 id="curveTitle">默认控制曲线</h3></div><button aria-label="关闭" class="icon-btn" id="closeCurveBtn">×</button></div>
+<p class="helper-text">本地状态下按 15 分钟点执行 96 点默认功率曲线。保存后立即生效，闭环自动决策会跳过本地设备。</p>
+<div class="curve-tabs"><button class="detail-tab active" data-curve-tab="edit">曲线编辑</button><button class="detail-tab" data-curve-tab="preview">全天预览</button><button class="detail-tab" data-curve-tab="transfer">导入导出</button></div><div class="curve-pane active" id="curve-pane-edit"><div class="curve-toolbar"><button class="btn btn-soft" id="fillCurveBtn">当前值填充全天</button><span id="curveRangeNote">功率单位：MW</span><div class="curve-page-actions"><button class="small-btn" id="curvePrevBtn" type="button">上一组</button><span id="curvePageNote">第 1 / 4 组</span><button class="small-btn" id="curveNextBtn" type="button">下一组</button></div></div>
+<div class="curve-tools"><label>本组起点 MW <input id="rampStart" step="0.1" type="number" value="0"/></label><label>本组终点 MW <input id="rampEnd" step="0.1" type="number" value="0"/></label><button class="small-btn" id="rampCurveBtn">生成本组线性曲线</button><button class="small-btn" id="restoreCurveBtn">恢复已保存曲线</button></div><div class="curve-grid" id="curveInputs"></div></div>
+<div class="curve-pane" id="curve-pane-preview"><div class="history-statistics" id="curveStatistics"></div><canvas class="trend-chart" height="230" id="curvePreview"></canvas><p class="helper-text">横轴为 00:00—23:45；积分采用每点保持 15 分钟。正值发电/放电，负值充电。</p></div>
+<div class="curve-pane" id="curve-pane-transfer"><h4>曲线文件交换</h4><p class="helper-text">JSON 文件包含 96 个有限功率值，间隔 15 分钟、单位 MW。导入后先预览，点击保存默认曲线才写入设备。</p><div class="transfer-actions"><label class="btn btn-soft">选择 JSON 文件<input accept=".json,application/json" id="importCurveFile" type="file"/></label><button class="btn btn-soft" id="exportCurveBtn">导出当前编辑曲线</button></div><p id="curveImportNote" role="status"></p></div>
+<div class="form-actions"><button class="btn btn-primary" id="saveCurveBtn">保存默认曲线</button><span class="save-note" id="curveSaveNote"></span></div>
+</div>
+</div></body></html>

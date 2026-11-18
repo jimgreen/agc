@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1" name="viewport"/><link href="/styles.css" rel="stylesheet"/><script defer="" src="/app.js"></script><title>AGC 自动发电控制 · 参数配置</title></head><body data-page="config"><div class="app-shell"><aside class="sidebar">
+<div class="brand">
+<div class="brand-mark">AGC</div>
+<div>
+<strong>自动发电控制</strong>
+<span>Web HMI / Control Room</span>
+</div>
+</div>
+<nav aria-label="功能导航" class="nav-list">
+<a class="nav-item" data-view="overview" href="/overview.html"><span class="nav-icon">⌂</span>主页面</a>
+<a class="nav-item" data-view="monitor" href="/monitor.html"><span class="nav-icon">◉</span>实时监视</a>
+<a class="nav-item active" data-view="config" href="/config.html"><span class="nav-icon">⚙</span>参数配置</a>
+<a class="nav-item" data-view="logs" href="/logs.html"><span class="nav-icon">≡</span>日志查询</a>
+<a class="nav-item" data-view="history" href="/history.html"><span class="nav-icon">↗</span>历史查询</a>
+</nav>
+<div class="sidebar-foot">
+<span class="dot online"></span>
+<span>本地控制服务</span>
+<small id="sidebarTime">--:--:--</small>
+</div>
+</aside><main class="main-content"><header class="topbar">
+<div>
+<div class="eyebrow">新能源 · 储能 · 柴发 · 负荷协同</div>
+<h1 id="viewTitle">参数配置</h1>
+</div>
+<div class="top-actions">
+<div class="connection"><span class="dot online"></span><span id="connectionText">服务已连接</span></div>
+<label class="mode-select"><span>控制模式</span><select id="controlMode"><option value="closed_loop">闭环自动</option><option value="open_loop">开环预设</option></select></label>
+<button class="btn btn-ghost" id="stepBtn">单步执行</button>
+<button class="btn btn-primary" id="runBtn">启动控制</button>
+</div>
+</header><section class="view active" id="view-config">
+<div class="page-intro"><div><span class="section-label">CONTROL CONFIGURATION</span><h2>参数配置</h2><p>修改控制策略参数并保存到 Web 控制台运行配置。</p></div><span class="file-badge" id="modelFile">model_real.e</span></div>
+<div class="section-tabs"><button class="detail-tab active" data-section-tab="config-controls">控制参数设置</button><button class="detail-tab" data-section-tab="config-simulation">仿真遥测设置</button></div><div class="section-pane active" id="config-controls">
+<article class="panel"><div class="panel-heading"><div><span class="section-label">AGC PARAMETERS</span><h3>控制参数</h3></div></div><form class="parameter-form" id="parameterForm"></form><div class="form-actions"><button class="btn btn-primary" id="saveConfigBtn">保存参数</button><span class="save-note" id="saveNote"></span></div></article>
+</div><div class="section-pane" id="config-simulation"><article class="panel"><div class="panel-heading"><div><span class="section-label">SIMULATION INPUT</span><h3>仿真遥测</h3></div><span class="panel-note">不修改原始 E-file</span></div><p class="helper-text">调整输入值后，下一次采集周期会使用新遥测。适合联调界面和策略。</p><form class="parameter-form simulation-form" id="simulationForm"><label><span>风速 <em>m/s</em></span><input name="wind_speed" step="0.1" type="number"/></label><label><span>辐照度 <em>W/m²</em></span><input name="solor_irrad" step="1" type="number"/></label><label><span>环境温度 <em>℃</em></span><input name="env_temp" step="0.1" type="number"/></label><label><span>单台负荷 <em>MW</em></span><input name="load_power" step="0.1" type="number"/></label><button class="btn btn-soft" type="submit">应用仿真遥测</button></form><div class="info-callout"><span>i</span><p>接入真实 FES 时，遥测会由 `fes_interface` 提供；当前服务保留模型文件的仿真数据链路。</p></div></article>
+</div>
+</section><footer class="footer"><span>AGC Web HMI · Python 标准库服务</span><span>模型：<b id="footerModel">model_real.e</b></span></footer></main></div><div class="toast" id="toast" role="status"></div></body></html>

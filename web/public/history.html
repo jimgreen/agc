@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1" name="viewport"/><link href="/styles.css" rel="stylesheet"/><script defer="" src="/app.js"></script><title>AGC 自动发电控制 · 历史查询</title></head><body data-page="history"><div class="app-shell"><aside class="sidebar">
+<div class="brand">
+<div class="brand-mark">AGC</div>
+<div>
+<strong>自动发电控制</strong>
+<span>Web HMI / Control Room</span>
+</div>
+</div>
+<nav aria-label="功能导航" class="nav-list">
+<a class="nav-item" data-view="overview" href="/overview.html"><span class="nav-icon">⌂</span>主页面</a>
+<a class="nav-item" data-view="monitor" href="/monitor.html"><span class="nav-icon">◉</span>实时监视</a>
+<a class="nav-item" data-view="config" href="/config.html"><span class="nav-icon">⚙</span>参数配置</a>
+<a class="nav-item" data-view="logs" href="/logs.html"><span class="nav-icon">≡</span>日志查询</a>
+<a class="nav-item active" data-view="history" href="/history.html"><span class="nav-icon">↗</span>历史查询</a>
+</nav>
+<div class="sidebar-foot">
+<span class="dot online"></span>
+<span>本地控制服务</span>
+<small id="sidebarTime">--:--:--</small>
+</div>
+</aside><main class="main-content"><header class="topbar">
+<div>
+<div class="eyebrow">新能源 · 储能 · 柴发 · 负荷协同</div>
+<h1 id="viewTitle">历史查询</h1>
+</div>
+<div class="top-actions">
+<div class="connection"><span class="dot online"></span><span id="connectionText">服务已连接</span></div>
+<label class="mode-select"><span>控制模式</span><select id="controlMode"><option value="closed_loop">闭环自动</option><option value="open_loop">开环预设</option></select></label>
+<button class="btn btn-ghost" id="stepBtn">单步执行</button>
+<button class="btn btn-primary" id="runBtn">启动控制</button>
+</div>
+</header><section class="view active" id="view-history">
+<div class="page-intro"><div><span class="section-label">HISTORY REVIEW</span><h2>历史查询</h2><p>按控制周期查看功率变化和 AGC 平衡效果。</p></div><div class="query-inline"><select id="historyLimit"><option value="60">每批 60 点</option><option selected="" value="240">每批 240 点</option><option value="1000">每批 1000 点</option></select><button class="btn btn-soft" id="refreshHistoryBtn">刷新</button></div></div>
+<div class="history-query"><label>开始时间<input id="historyStart" type="datetime-local"/></label><label>结束时间（不含）<input id="historyEnd" type="datetime-local"/></label><button class="btn btn-primary" id="queryHistoryBtn">查询范围</button><button class="btn btn-soft" id="clearHistoryBtn">清空时间</button><button class="btn btn-soft" id="exportHistoryBtn">导出 JSON</button><button class="small-btn" disabled="" id="newerHistoryBtn">较新一批</button><button class="small-btn" disabled="" id="olderHistoryBtn">更早一批</button></div><div class="history-statistics" id="historyStatistics"></div>
+<div class="section-tabs"><button class="detail-tab active" data-section-tab="history-trend">历史曲线</button><button class="detail-tab" data-section-tab="history-data">采样数据</button></div><div class="section-pane active" id="history-trend"><article class="panel chart-panel history-chart-panel"><div class="panel-heading"><div><span class="section-label">HISTORICAL POWER</span><h3>历史功率曲线</h3></div><span class="panel-note" id="historyCount">0 个采样点</span></div><canvas class="trend-chart large" height="340" id="historyChart"></canvas><div class="chart-legend"><span><i class="legend-line load"></i>负荷</span><span><i class="legend-line renewable"></i>新能源</span><span><i class="legend-line balance"></i>AGC平衡</span></div></article>
+</div><div class="section-pane" id="history-data"><article class="panel table-panel"><div class="panel-heading"><div><span class="section-label">HISTORY DATA</span><h3>采样数据</h3></div></div><div class="table-scroll"><table><thead><tr><th>时间</th><th>负荷 MW</th><th>新能源 MW</th><th>储能 MW</th><th>柴发 MW</th><th>AGC 平衡 MW</th></tr></thead><tbody id="historyTable"></tbody></table></div><div class="table-pager" id="historyPager"></div></article></div>
+</section><footer class="footer"><span>AGC Web HMI · Python 标准库服务</span><span>模型：<b id="footerModel">model_real.e</b></span></footer></main></div><div class="toast" id="toast" role="status"></div></body></html>

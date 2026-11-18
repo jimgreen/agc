@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1" name="viewport"/><link href="/styles.css" rel="stylesheet"/><script defer="" src="/app.js"></script><title>AGC 自动发电控制 · 日志查询</title></head><body data-page="logs"><div class="app-shell"><aside class="sidebar">
+<div class="brand">
+<div class="brand-mark">AGC</div>
+<div>
+<strong>自动发电控制</strong>
+<span>Web HMI / Control Room</span>
+</div>
+</div>
+<nav aria-label="功能导航" class="nav-list">
+<a class="nav-item" data-view="overview" href="/overview.html"><span class="nav-icon">⌂</span>主页面</a>
+<a class="nav-item" data-view="monitor" href="/monitor.html"><span class="nav-icon">◉</span>实时监视</a>
+<a class="nav-item" data-view="config" href="/config.html"><span class="nav-icon">⚙</span>参数配置</a>
+<a class="nav-item active" data-view="logs" href="/logs.html"><span class="nav-icon">≡</span>日志查询</a>
+<a class="nav-item" data-view="history" href="/history.html"><span class="nav-icon">↗</span>历史查询</a>
+</nav>
+<div class="sidebar-foot">
+<span class="dot online"></span>
+<span>本地控制服务</span>
+<small id="sidebarTime">--:--:--</small>
+</div>
+</aside><main class="main-content"><header class="topbar">
+<div>
+<div class="eyebrow">新能源 · 储能 · 柴发 · 负荷协同</div>
+<h1 id="viewTitle">日志查询</h1>
+</div>
+<div class="top-actions">
+<div class="connection"><span class="dot online"></span><span id="connectionText">服务已连接</span></div>
+<label class="mode-select"><span>控制模式</span><select id="controlMode"><option value="closed_loop">闭环自动</option><option value="open_loop">开环预设</option></select></label>
+<button class="btn btn-ghost" id="stepBtn">单步执行</button>
+<button class="btn btn-primary" id="runBtn">启动控制</button>
+</div>
+</header><section class="view active" id="view-logs">
+<div class="page-intro"><div><span class="section-label">EVENT LOG</span><h2>日志查询</h2><p>检索控制服务、采集周期和下发指令记录。</p></div><button class="btn btn-soft" id="refreshLogsBtn">刷新日志</button></div>
+<article class="panel table-panel"><div class="query-bar"><label>关键词<input id="logKeyword" placeholder="如：储能、控制、失败"/></label><label>级别<select id="logLevel"><option value="">全部级别</option><option value="INFO">INFO</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option></select></label><button class="btn btn-primary" id="queryLogsBtn">查询</button></div><div class="table-scroll log-scroll"><table><thead><tr><th>时间</th><th>级别</th><th>消息</th></tr></thead><tbody id="logTable"></tbody></table></div><div class="table-pager" id="logPager"></div></article>
+</section><footer class="footer"><span>AGC Web HMI · Python 标准库服务</span><span>模型：<b id="footerModel">model_real.e</b></span></footer></main></div><div class="toast" id="toast" role="status"></div></body></html>

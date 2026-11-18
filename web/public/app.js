@@ -1,11 +1,18 @@
 (() => {
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-  const state = { current: null, filter: "all", deviceSearch: "", selectedDevices: new Set(), curveDevice: null, curveValues: [], curvePage: 0, detailKey: "", detailData: null, detailTab: "overview", monitorTab: "summary", devicePage: 1, commandPage: 1, commandRows: [], logPage: 1, logRows: [], historyPage: 1, historyRows: [], refreshBusy: false, analysisData: null, analysisPage: 1, historyQuery: {}, historyStack: [], historyBefore: 0, historyResult: null, curveTab: "edit", view: "overview", detailPage: 1, drafts: {}, detailBusy: false };
+  const pageName = document.body.dataset.page || "overview";
+  const state = { current: null, filter: "all", deviceSearch: "", selectedDevices: new Set(), curveDevice: null, curveValues: [], curvePage: 0, detailKey: "", detailData: null, detailTab: "overview", monitorTab: "summary", devicePage: 1, commandPage: 1, commandRows: [], logPage: 1, logRows: [], historyPage: 1, historyRows: [], refreshBusy: false, analysisData: null, analysisPage: 1, historyQuery: {}, historyStack: [], historyBefore: 0, historyResult: null, curveTab: "edit", view: pageName, detailPage: 1, drafts: {}, detailBusy: false };
   const PAGE_SIZE = { devices: 8, commands: 12, logs: 12, history: 8 };
   const CURVE_PAGE_SIZE = 24;
   const kindNames = { wind: "风机", pv: "光伏", storage: "储能", diesel: "柴发", load: "负荷" };
   const typeClass = { wind: "wind", pv: "pv", storage: "storage", diesel: "diesel", load: "load" };
+  const routes = { overview: "/", monitor: "/monitor.html", config: "/config.html", logs: "/logs.html", history: "/history.html" };
+
+  function on(selector, event, handler) { const node = $(selector); if (node) node.addEventListener(event, handler); }
+  function text(selector, value) { const node = $(selector); if (node) node.textContent = value; }
+  function value(selector, next) { const node = $(selector); if (node) node.value = next; }
+  function className(selector, next) { const node = $(selector); if (node) node.className = next; }
 
   async function api(path, options = {}) {
     const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
@@ -42,48 +49,34 @@
     };
     data = state.current;
     const summary = data.summary || {};
-    $("#heroStatus").textContent = data.running ? (data.controlMode === "open_loop" ? "开环预设运行" : "闭环自动运行") : "系统已暂停";
-    $("#periodValue").textContent = data.period ?? "--";
-    $("#cycleValue").textContent = data.cycle ?? 0;
-    $("#loadKpi").textContent = formatNumber(summary.load);
-    $("#renewableKpi").textContent = formatNumber(summary.renewable);
-    $("#storageKpi").textContent = formatNumber(summary.storage);
-    $("#dieselKpi").textContent = formatNumber(summary.diesel);
-    $("#balanceKpi").textContent = formatNumber(summary.balance);
-    $("#windValue").textContent = formatNumber(data.weather?.wind_speed, 1);
-    $("#irradianceValue").textContent = formatNumber(data.weather?.solor_irrad, 0);
-    $("#tempValue").textContent = formatNumber(data.weather?.env_temp, 1);
-    $("#runBtn").textContent = data.running ? "停止控制" : "启动控制";
-    $("#runBtn").classList.toggle("btn-danger", data.running);
-    $("#runBtn").classList.toggle("btn-primary", !data.running);
-    $("#heroRunBtn").textContent = data.running ? "停止自动控制" : "启动自动控制";
-    $("#controlMode").value = data.controlMode || "closed_loop";
-    $("#strategyStatus").textContent = data.running ? (data.controlMode === "open_loop" ? "开环预设" : "闭环自动") : "待机";
-    $("#healthMessage").textContent = data.lastError ? `最近错误：${data.lastError}` : (data.running ? "控制周期正常执行" : "控制服务等待操作");
+    text("#heroStatus", data.running ? (data.controlMode === "open_loop" ? "开环预设运行" : "闭环自动运行") : "系统已暂停");
+    text("#periodValue", data.period ?? "--"); text("#cycleValue", data.cycle ?? 0);
+    text("#loadKpi", formatNumber(summary.load)); text("#renewableKpi", formatNumber(summary.renewable)); text("#storageKpi", formatNumber(summary.storage)); text("#dieselKpi", formatNumber(summary.diesel)); text("#balanceKpi", formatNumber(summary.balance));
+    text("#windValue", formatNumber(data.weather?.wind_speed, 1)); text("#irradianceValue", formatNumber(data.weather?.solor_irrad, 0)); text("#tempValue", formatNumber(data.weather?.env_temp, 1));
+    text("#runBtn", data.running ? "停止控制" : "启动控制");
+    const runButton = $("#runBtn"); if (runButton) { runButton.classList.toggle("btn-danger", data.running); runButton.classList.toggle("btn-primary", !data.running); }
+    text("#heroRunBtn", data.running ? "停止自动控制" : "启动自动控制"); value("#controlMode", data.controlMode || "closed_loop");
+    text("#strategyStatus", data.running ? (data.controlMode === "open_loop" ? "开环预设" : "闭环自动") : "待机");
+    text("#healthMessage", data.lastError ? `最近错误：${data.lastError}` : (data.running ? "控制周期正常执行" : "控制服务等待操作"));
     const backend = data.backend || {};
-    $("#backendStatus").textContent = backend.source === "sqlite" ? "已同步" : "未连接";
-    $("#backendStatus").className = backend.source === "sqlite" ? "" : "warning";
-    $("#backendCycle").textContent = backend.lastCycle ?? "--";
+    text("#backendStatus", backend.source === "sqlite" ? "已同步" : "未连接"); className("#backendStatus", backend.source === "sqlite" ? "" : "warning"); text("#backendCycle", backend.lastCycle ?? "--");
     const scada = data.scada || {};
     const sourceText = scada.source === "http" ? "SCADA HTTP" : (scada.source || "").startsWith("module:") ? "FES 模块" : "本地仿真";
     const totalPoints = Number(scada.ycTotal || 0) + Number(scada.yxTotal || 0);
     const okPoints = Number(scada.ycOk || 0) + Number(scada.yxOk || 0);
-    $("#healthScore").textContent = totalPoints ? Math.round(okPoints / totalPoints * 100) : "—";
-    $("#healthLabel").textContent = !totalPoints ? "等待采集" : okPoints < totalPoints ? "采集异常" : "采集正常";
-    $("#telemetryStatus").textContent = totalPoints ? `${sourceText} ${okPoints}/${totalPoints}` : sourceText;
-    $("#telemetryStatus").className = scada.source === "fallback" ? "warning" : "";
-    $("#monitorTime").textContent = data.timestamp || "--";
+    text("#healthScore", totalPoints ? Math.round(okPoints / totalPoints * 100) : "—"); text("#healthLabel", !totalPoints ? "等待采集" : okPoints < totalPoints ? "采集异常" : "采集正常"); text("#telemetryStatus", totalPoints ? `${sourceText} ${okPoints}/${totalPoints}` : sourceText); className("#telemetryStatus", scada.source === "fallback" ? "warning" : ""); text("#monitorTime", data.timestamp || "--");
     const devices = state.current.devices || [];
-    renderResources(devices);
-    if (!$("#deviceTable").contains(document.activeElement)) renderDevices(devices);
-    populateDeviceSelector(devices);
+    if ($("#resourceMix")) renderResources(devices);
+    if ($("#deviceTable") && !$("#deviceTable").contains(document.activeElement)) renderDevices(devices);
+    if ($("#detailDeviceSelect")) populateDeviceSelector(devices);
 
     drawChart($("#overviewChart"), data.history || [], ["load", "renewable", "balance"]);
     drawChart($("#monitorChart"), data.history || [], ["load", "renewable", "storage", "diesel"]);
-    $("#sidebarTime").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    text("#sidebarTime", new Date().toLocaleTimeString("zh-CN", { hour12: false }));
   }
 
   function renderResources(devices) {
+    if (!$("#resourceMix")) return;
     const totals = { wind: 0, pv: 0, storage: 0, diesel: 0, load: 0 };
     devices.forEach(item => { totals[item.kind] = (totals[item.kind] || 0) + Number(item.power || 0); });
     const rows = [
@@ -94,6 +87,7 @@
   }
 
   function renderDevices(devices) {
+    if (!$("#deviceTable")) return;
     PAGE_SIZE.devices = pageCapacity("deviceTable", PAGE_SIZE.devices);
     const search = state.deviceSearch.trim().toLowerCase();
     const filtered = devices.filter(item => (state.filter === "all" || item.kind === state.filter) && (!search || `${item.name} ${item.id}`.toLowerCase().includes(search)));
@@ -325,6 +319,10 @@
   }
 
   function setView(name) {
+    const target = routes[name] || routes.overview;
+    const currentPath = window.location.pathname || "/";
+    const targetPath = target === "/" ? "/" : target;
+    if (!$("#view-" + name) && (currentPath !== targetPath)) { window.location.href = target; return; }
     state.view = name;
     $$(".nav-item").forEach(button => button.classList.toggle("active", button.dataset.view === name));
     $$(".view").forEach(view => view.classList.toggle("active", view.id === `view-${name}`));
@@ -344,6 +342,7 @@
   async function loadLogs() { try { const query = new URLSearchParams({ keyword: $("#logKeyword").value, level: $("#logLevel").value, limit: "1000" }); const data = await api(`/api/logs?${query}`); state.logRows = data.items || []; state.logPage = 1; renderLogs(); } catch (error) { toast(error.message, "error"); } }
 
   function renderLogs() {
+    if (!$("#logTable")) return;
     PAGE_SIZE.logs = pageCapacity("logTable", PAGE_SIZE.logs);
     const rows = state.logRows || [];
     const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE.logs));
@@ -408,6 +407,7 @@
   }
 
   function renderHistoryTable() {
+    if (!$("#historyTable")) return;
     PAGE_SIZE.history = pageCapacity("historyTable", PAGE_SIZE.history);
     const rows = state.historyRows || [];
     const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE.history));
@@ -426,6 +426,7 @@
   }
 
   function renderCommands() {
+    if (!$("#allCommandTable")) return;
     PAGE_SIZE.commands = pageCapacity("allCommandTable", PAGE_SIZE.commands);
     const rows = state.commandRows || [];
     const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE.commands));
@@ -516,34 +517,33 @@
   function bind() {
     $$(".nav-item").forEach(button => button.addEventListener("click", () => setView(button.dataset.view)));
     $$('[data-view-jump]').forEach(button => button.addEventListener("click", () => setView(button.dataset.viewJump)));
-    $("#runBtn").addEventListener("click", () => control(state.current?.running ? "stop" : "start")); $("#heroRunBtn").addEventListener("click", () => control(state.current?.running ? "stop" : "start")); $("#stepBtn").addEventListener("click", () => control("step"));
-    $("#controlMode").addEventListener("change", async event => { try { renderState(await api("/api/mode", { method: "POST", body: JSON.stringify({ mode: event.target.value }) })); toast(event.target.value === "closed_loop" ? "已切换为闭环自动模式" : "已切换为开环预设模式"); } catch (error) { toast(error.message, "error"); } });
-    $$(".filter-chip").forEach(button => button.addEventListener("click", () => { $$(".filter-chip").forEach(item => item.classList.remove("active")); button.classList.add("active"); state.filter = button.dataset.filter; renderDevices(state.current?.devices || []); }));
-    $("#selectAllDevices").addEventListener("change", event => { $$(".device-select").forEach(input => { input.checked = event.target.checked; const key = input.dataset.deviceKey; event.target.checked ? state.selectedDevices.add(key) : state.selectedDevices.delete(key); }); updateSelectionUi(); });
-    $("#deviceSearch").addEventListener("input", event => { state.deviceSearch = event.target.value; state.devicePage = 1; renderDevices(state.current?.devices || []); });
-    $("#applyBulkState").addEventListener("click", applyBulkState); $("#applyBulkPreset").addEventListener("click", applyBulkPreset);
-    $("#saveConfigBtn").addEventListener("click", async event => { event.preventDefault(); const values = Object.fromEntries([...$("#parameterForm").querySelectorAll("input")].map(input => [input.name, Number(input.value)])); try { await api("/api/config", { method: "POST", body: JSON.stringify({ parameters: values }) }); $("#saveNote").textContent = "已保存"; toast("控制参数已保存"); window.setTimeout(() => $("#saveNote").textContent = "", 2000); } catch (error) { toast(error.message, "error"); } });
-    $("#simulationForm").addEventListener("submit", async event => { event.preventDefault(); const values = Object.fromEntries([...event.currentTarget.querySelectorAll("input")].map(input => [input.name, Number(input.value)])); try { renderState(await api("/api/simulation", { method: "POST", body: JSON.stringify(values) })); toast("仿真遥测已应用"); } catch (error) { toast(error.message, "error"); } });
-    $("#analysisFilter").addEventListener("change",()=>{ state.analysisPage=1;renderAnalysis(); });
-    $("#queryHistoryBtn").addEventListener("click",()=>loadHistory());
-    $("#clearHistoryBtn").addEventListener("click",()=>{ $("#historyStart").value="";$("#historyEnd").value="";loadHistory(); });
-    $("#olderHistoryBtn").addEventListener("click",()=>loadHistory("older"));
-    $("#newerHistoryBtn").addEventListener("click",()=>loadHistory("newer"));
-    $("#exportHistoryBtn").addEventListener("click",exportHistory);
+    on("#runBtn", "click", () => control(state.current?.running ? "stop" : "start")); on("#heroRunBtn", "click", () => control(state.current?.running ? "stop" : "start")); on("#stepBtn", "click", () => control("step"));
+    on("#controlMode", "change", async event => { try { renderState(await api("/api/mode", { method: "POST", body: JSON.stringify({ mode: event.target.value }) })); toast(event.target.value === "closed_loop" ? "已切换为闭环自动模式" : "已切换为开环预设模式"); } catch (error) { toast(error.message, "error"); } });
+    if (pageName === "monitor") {
+      $$(".filter-chip").forEach(button => button.addEventListener("click", () => { $$(".filter-chip").forEach(item => item.classList.remove("active")); button.classList.add("active"); state.filter = button.dataset.filter; renderDevices(state.current?.devices || []); }));
+      on("#selectAllDevices", "change", event => { $$(".device-select").forEach(input => { input.checked = event.target.checked; const key = input.dataset.deviceKey; event.target.checked ? state.selectedDevices.add(key) : state.selectedDevices.delete(key); }); updateSelectionUi(); });
+      on("#deviceSearch", "input", event => { state.deviceSearch = event.target.value; state.devicePage = 1; renderDevices(state.current?.devices || []); });
+      on("#applyBulkState", "click", applyBulkState); on("#applyBulkPreset", "click", applyBulkPreset);
+    }
+    on("#saveConfigBtn", "click", async event => { event.preventDefault(); const form = $("#parameterForm"); if (!form) return; const values = Object.fromEntries([...form.querySelectorAll("input")].map(input => [input.name, Number(input.value)])); try { await api("/api/config", { method: "POST", body: JSON.stringify({ parameters: values }) }); text("#saveNote", "已保存"); toast("控制参数已保存"); window.setTimeout(() => text("#saveNote", ""), 2000); } catch (error) { toast(error.message, "error"); } });
+    on("#simulationForm", "submit", async event => { event.preventDefault(); const values = Object.fromEntries([...event.currentTarget.querySelectorAll("input")].map(input => [input.name, Number(input.value)])); try { renderState(await api("/api/simulation", { method: "POST", body: JSON.stringify(values) })); toast("仿真遥测已应用"); } catch (error) { toast(error.message, "error"); } });
+    on("#analysisFilter", "change", () => { state.analysisPage = 1; renderAnalysis(); });
+    on("#queryHistoryBtn", "click", () => loadHistory()); on("#clearHistoryBtn", "click", () => { value("#historyStart", ""); value("#historyEnd", ""); loadHistory(); });
+    on("#olderHistoryBtn", "click", () => loadHistory("older")); on("#newerHistoryBtn", "click", () => loadHistory("newer")); on("#exportHistoryBtn", "click", exportHistory);
     $$("[data-curve-tab]").forEach(button=>button.addEventListener("click",()=>setCurveTab(button.dataset.curveTab)));
-    $("#importCurveFile").addEventListener("change",importCurve);
-    $("#exportCurveBtn").addEventListener("click",()=>{ try { captureCurve(); validateCurve(state.curveValues); downloadJson(`agc-curve-${state.curveDevice.kind}-${state.curveDevice.id}.json`, {format:"agc-curve/1",unit:"MW",intervalMinutes:15,device:{kind:state.curveDevice.kind,id:state.curveDevice.id,name:state.curveDevice.name},values:state.curveValues}); } catch(error) { toast(error.message,"error"); } });
-    $("#queryLogsBtn").addEventListener("click", loadLogs); $("#refreshLogsBtn").addEventListener("click", loadLogs); $("#refreshHistoryBtn").addEventListener("click", loadHistory); $("#historyLimit").addEventListener("change", loadHistory); $("#refreshCommandsBtn").addEventListener("click", loadCommands);
+    on("#importCurveFile", "change", importCurve);
+    on("#exportCurveBtn", "click", () => { try { captureCurve(); validateCurve(state.curveValues); downloadJson(`agc-curve-${state.curveDevice.kind}-${state.curveDevice.id}.json`, { format: "agc-curve/1", unit: "MW", intervalMinutes: 15, device: { kind: state.curveDevice.kind, id: state.curveDevice.id, name: state.curveDevice.name }, values: state.curveValues }); } catch (error) { toast(error.message, "error"); } });
+    on("#queryLogsBtn", "click", loadLogs); on("#refreshLogsBtn", "click", loadLogs); on("#refreshHistoryBtn", "click", loadHistory); on("#historyLimit", "change", loadHistory); on("#refreshCommandsBtn", "click", loadCommands);
     $$(".monitor-tab").forEach(button => button.addEventListener("click", () => { state.monitorTab = button.dataset.monitorTab; $$(".monitor-tab").forEach(item => item.classList.toggle("active", item === button)); $$(".monitor-pane").forEach(item => item.classList.toggle("active", item.id === `monitor-pane-${state.monitorTab}`)); refreshState(); if (state.monitorTab === "devices") renderDevices(state.current?.devices || []); if (state.monitorTab === "analysis") loadAnalysis(); if (state.monitorTab === "commands") loadCommands(); if (state.monitorTab === "detail") refreshDeviceDetail(); window.setTimeout(() => { if (state.monitorTab === "summary") drawChart($("#monitorChart"), state.current?.history || [], ["load", "renewable", "storage", "diesel"]); if (state.monitorTab === "detail" && state.detailData) drawDeviceChart($("#deviceChart"), state.detailData.history || []); }, 30); }));
-    $("#deviceParameterForm").addEventListener("submit", saveDeviceParameters);
-    $("#deviceParameterForm").addEventListener("input", event => {
+    on("#deviceParameterForm", "submit", saveDeviceParameters);
+    on("#deviceParameterForm", "input", event => {
       const input = event.target; if (!input.name) return;
       const draft = state.drafts[state.detailKey] ||= {};
       if (input.value === input.dataset.saved) delete draft[input.name]; else draft[input.name] = input.value;
-      $("#deviceEditNote").textContent = Object.keys(draft).length ? "有未保存修改 · 自动刷新保留编辑" : "已同步";
+      text("#deviceEditNote", Object.keys(draft).length ? "有未保存修改 · 自动刷新保留编辑" : "已同步");
     });
-    $("#resetDeviceBtn").addEventListener("click", () => { delete state.drafts[state.detailKey]; if (state.detailData) renderDeviceDetail(state.detailData); });
-    $("#logKeyword").addEventListener("keydown", event => { if (event.key === "Enter") loadLogs(); });
+    on("#resetDeviceBtn", "click", () => { delete state.drafts[state.detailKey]; if (state.detailData) renderDeviceDetail(state.detailData); });
+    on("#logKeyword", "keydown", event => { if (event.key === "Enter") loadLogs(); });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshState(); });
     $$('[data-section-tab]').forEach(button => button.addEventListener("click", () => {
       const view = button.closest(".view");
@@ -553,10 +553,10 @@
       if (state.view === "overview") drawChart($("#overviewChart"), state.current?.history || [], ["load", "renewable", "balance"]);
     }));
     $$("[data-detail-tab]").forEach(button => button.addEventListener("click", () => { state.detailTab = button.dataset.detailTab; $$("[data-detail-tab]").forEach(item => item.classList.toggle("active", item === button)); $$(".detail-pane").forEach(item => item.classList.toggle("active", item.id === `detail-pane-${state.detailTab}`)); if (state.detailData) window.setTimeout(() => renderDeviceDetail(state.detailData), 30); }));
-    $("#detailCurveBtn").addEventListener("click", () => { if (state.detailKey) openCurve(state.detailKey); });
-    $("#closeCurveBtn").addEventListener("click", () => { $("#curveModal").hidden = true; }); $("#curveModal").addEventListener("click", event => { if (event.target.id === "curveModal") event.currentTarget.hidden = true; }); $("#saveCurveBtn").addEventListener("click", saveCurve); $("#fillCurveBtn").addEventListener("click", () => { const value = Number(state.curveDevice?.presetPower || 0); state.curveValues.fill(value); renderCurveEditor(); });
-    $("#restoreCurveBtn").addEventListener("click", () => { state.curveValues = [...state.savedCurve]; renderCurveEditor(); });
-    $("#rampCurveBtn").addEventListener("click", () => {
+    on("#detailCurveBtn", "click", () => { if (state.detailKey) openCurve(state.detailKey); });
+    on("#closeCurveBtn", "click", () => { const modal = $("#curveModal"); if (modal) modal.hidden = true; }); on("#curveModal", "click", event => { if (event.target.id === "curveModal") event.currentTarget.hidden = true; }); on("#saveCurveBtn", "click", saveCurve); on("#fillCurveBtn", "click", () => { const fillValue = Number(state.curveDevice?.presetPower || 0); state.curveValues.fill(fillValue); renderCurveEditor(); });
+    on("#restoreCurveBtn", "click", () => { state.curveValues = [...state.savedCurve]; renderCurveEditor(); });
+    on("#rampCurveBtn", "click", () => {
       const first = Number($("#rampStart").value), last = Number($("#rampEnd").value);
       const device = state.curveDevice;
       if (![first, last].every(value => Number.isFinite(value) && value >= device.pMin && value <= device.pMax)) { toast("起止功率超出设备范围", "error"); return; }
@@ -564,9 +564,14 @@
       for (let i = 0; i < CURVE_PAGE_SIZE; i++) state.curveValues[start + i] = Number((first + (last - first) * i / (CURVE_PAGE_SIZE - 1)).toFixed(3));
       renderCurveEditor();
     });
-    $("#curvePrevBtn").addEventListener("click", () => { $$("[data-curve-index]").forEach(input => { state.curveValues[Number(input.dataset.curveIndex)] = input.value.trim() === "" ? NaN : Number(input.value); }); state.curvePage -= 1; renderCurveEditor(); }); $("#curveNextBtn").addEventListener("click", () => { $$("[data-curve-index]").forEach(input => { state.curveValues[Number(input.dataset.curveIndex)] = input.value.trim() === "" ? NaN : Number(input.value); }); state.curvePage += 1; renderCurveEditor(); });
-    window.addEventListener("resize", () => { renderAnalysis(); if (!$("#curveModal").hidden && state.curveTab === "preview") setCurveTab("preview"); renderDevices(state.current?.devices || []); renderCommands(); renderHistoryTable(); renderLogs(); if (state.detailData) renderDeviceDetail(state.detailData); if (state.current) { drawChart($("#overviewChart"), state.current.history || [], ["load", "renewable", "balance"]); drawChart($("#monitorChart"), state.current.history || [], ["load", "renewable", "storage", "diesel"]); } if (state.detailData) drawDeviceChart($("#deviceChart"), state.detailData.history || []); });
+    on("#curvePrevBtn", "click", () => { $$("[data-curve-index]").forEach(input => { state.curveValues[Number(input.dataset.curveIndex)] = input.value.trim() === "" ? NaN : Number(input.value); }); state.curvePage -= 1; renderCurveEditor(); }); on("#curveNextBtn", "click", () => { $$("[data-curve-index]").forEach(input => { state.curveValues[Number(input.dataset.curveIndex)] = input.value.trim() === "" ? NaN : Number(input.value); }); state.curvePage += 1; renderCurveEditor(); });
+    window.addEventListener("resize", () => { renderAnalysis(); const modal = $("#curveModal"); if (modal && !modal.hidden && state.curveTab === "preview") setCurveTab("preview"); renderDevices(state.current?.devices || []); renderCommands(); renderHistoryTable(); renderLogs(); if (state.detailData) renderDeviceDetail(state.detailData); if (state.current) { drawChart($("#overviewChart"), state.current.history || [], ["load", "renewable", "balance"]); drawChart($("#monitorChart"), state.current.history || [], ["load", "renewable", "storage", "diesel"]); } if (state.detailData) drawDeviceChart($("#deviceChart"), state.detailData.history || []); });
   }
 
-  bind(); refreshState(); window.setInterval(refreshState, 2000);
+  bind();
+  if (pageName === "config") loadConfig();
+  if (pageName === "logs") loadLogs();
+  if (pageName === "history") loadHistory();
+  refreshState();
+  window.setInterval(refreshState, 2000);
 })();
