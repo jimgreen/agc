@@ -59,6 +59,8 @@ Web 服务和 AGC 计算后台共用 `D:\\codex\\sqldb\\realtime\\agc\\agc.db` �
 
 服务首次启动时会把旧版 `web/data/settings.json`、`device_modes.json`、`history.json` 和 `command_history.json` 自动迁移到 SQLite；之后界面查询直接读取数据库。SQLite 文件及运行时数据库文件已加入 Git 忽略规则。
 
+AGC Web 和计算后台打开数据库时，会从实际 SQLite 表同步 RTDB 内置结构，已有数据库原地补齐定义。RTDB 使用原生 SQLite 只读模式浏览原表，需要支持该模式的 RTDB 版本。新增表须声明主键，修改已有表时使用明确的迁移 SQL，通过 `agc_schema.apply_schema(connection, database_name, script)` 提交物理表和结构定义。迁移脚本不要自行开始或提交事务。
+
 ## 依赖
 
 仅使用 Python 标准库。

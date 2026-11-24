@@ -1,4 +1,5 @@
 -- AGC Web HMI persistent data model.
+-- Applied by agc_schema.apply_schema together with the RTDB catalog.
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS system_settings (

@@ -34,6 +34,7 @@ if str(AGC_DIR) not in sys.path:
 
 import agc_ctrl  # noqa: E402  (the project is intentionally stdlib-only)
 from agc_db import DEFAULT_DB_PATH  # noqa: E402
+from agc_schema import open_database  # noqa: E402
 
 
 WEB_DIR = Path(__file__).resolve().parent
@@ -76,18 +77,9 @@ class AGCDatabase:
     """SQLite persistence used by the Web HMI and its JSON APIs."""
 
     def __init__(self, path: Path) -> None:
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self._transaction_depth = 0
-        self.conn = sqlite3.connect(self.path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.execute("PRAGMA busy_timeout = 30000")
-        schema = (WEB_DIR / "agc_schema.sql").read_text(encoding="utf-8")
-        with self.lock:
-            self.conn.executescript(schema)
-            self.conn.commit()
+        self.path, self.conn = open_database(path)
 
     @staticmethod
     def _row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:

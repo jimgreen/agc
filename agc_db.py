@@ -16,10 +16,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+if __package__:
+    from .agc_schema import open_database
+else:
+    from agc_schema import open_database
 
-AGC_DIR = Path(__file__).resolve().parent
+
 DEFAULT_DB_PATH = Path(os.environ.get("AGC_DB", r"D:\codex\sqldb\realtime\agc\agc.db"))
-SCHEMA_PATH = AGC_DIR / "web" / "agc_schema.sql"
 
 
 def _now() -> str:
@@ -52,17 +55,8 @@ class AGCDataStore:
     )
 
     def __init__(self, path: Path = DEFAULT_DB_PATH) -> None:
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
-        self.conn = sqlite3.connect(self.path, timeout=30, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.execute("PRAGMA busy_timeout = 30000")
-        if not SCHEMA_PATH.exists():
-            raise FileNotFoundError(f"AGC SQLite schema not found: {SCHEMA_PATH}")
-        self.conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        self.conn.commit()
+        self.path, self.conn = open_database(path)
 
     @classmethod
     def for_model(cls, model_path: Optional[Path] = None, path: Optional[Path] = None) -> Optional["AGCDataStore"]:

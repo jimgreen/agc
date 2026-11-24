@@ -1,0 +1,8 @@
+{
+  "host": "127.0.0.1",
+  "port": 8765,
+  "model_db": "D:\\codex\\workspace\\realtime\\qinling\\sqldb\\model\\devices.sqlite3",
+  "scada_db": "D:\\codex\\workspace\\realtime\\qinling\\sqldb\\scada\\scdfe_d.sqlite3",
+  "svg_path": "D:\\codex\\workspace\\realtime\\qinling\\model\\qinling.e",
+  "agc_db": "D:\\codex\\workspace\\realtime\\qinling\\sqldb\\agc\\agc.sqlite3"
+}

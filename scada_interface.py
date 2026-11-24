@@ -184,9 +184,14 @@ def command_endpoint_from_env() -> Optional[Path]:
         return Path(configured)
     database = _env("AGC_SCADA_DB")
     if database:
-        candidate = Path(database).with_name(Path(database).name + ".scdfe_command.json")
-        if candidate.exists():
-            return candidate
+        db_path = Path(database)
+        for candidate in (
+            db_path.parent.parent / "fes" / "scdfe_c.sqlite3.scdfe_command.json",
+            db_path.with_name(db_path.name + ".scdfe_command.json"),
+            db_path.parent / "scdfe_c.sqlite3.scdfe_command.json",
+        ):
+            if candidate.exists():
+                return candidate
     return None
 
 

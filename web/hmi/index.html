@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="minimalist-light" data-color-scheme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i18n="app.title">秦岭微电网 AGC 控制台</title>
+    <script>
+      (function () {
+        try {
+          const rawLang = localStorage.getItem("agcUiLang") || "zh-CN";
+          const lang = ["zh-CN", "en-US", "ru-RU"].includes(rawLang) ? rawLang : "zh-CN";
+          document.documentElement.lang = lang;
+          document.documentElement.dataset.lang = lang;
+        } catch (_e) {}
+        try {
+          const rawTheme = localStorage.getItem("agcUiTheme") || "minimalist-light";
+          const darkThemes = new Set(["precision-dark", "glassmorphism", "sci-fi-cyan", "sci-fi-purple", "sci-fi-matrix"]);
+          const validThemes = new Set([
+            "minimalist-light", "precision-dark", "bento-grid", "glassmorphism",
+            "editorial", "sci-fi-cyan", "sci-fi-purple", "sci-fi-matrix"
+          ]);
+          const theme = validThemes.has(rawTheme) ? rawTheme : "minimalist-light";
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.dataset.colorScheme = darkThemes.has(theme) ? "dark" : "light";
+        } catch (_e) {}
+        try {
+          if (localStorage.getItem("agcSidebarCollapsed") === "1") {
+            document.documentElement.dataset.sidebarCollapsed = "true";
+          }
+        } catch (_e) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div class="brand-text">
+            <h1 data-i18n="app.title">秦岭微电网 AGC 控制台</h1>
+            <p class="conn-line">
+              <span id="connectionDot" class="state-dot"></span>
+              <span id="connectionText" data-i18n="conn.connecting">连接中</span>
+              <span class="sep">·</span>
+              <span id="topbarModelName">qinling</span>
+            </p>
+          </div>
+        </div>
+
+        <div class="topbar-status-pills">
+          <div class="status-pill">
+            <span data-i18n="topbar.mode">模式</span>
+            <strong id="topbarLoopMode" class="badge badge-info">开环</strong>
+          </div>
+          <div class="status-pill">
+            <span data-i18n="topbar.auto">自动</span>
+            <strong id="topbarAutoState" class="badge badge-neutral">已停止</strong>
+          </div>
+          <div class="status-pill">
+            <span data-i18n="topbar.cycle">周期</span>
+            <strong id="topbarCycle" class="mono">#0</strong>
+          </div>
+          <div class="status-pill">
+            <span data-i18n="topbar.clock">时刻</span>
+            <strong id="topbarClock" class="mono">--:--:--</strong>
+          </div>
+        </div>
+
+        <div class="topbar-utility">
+          <button id="topbarAlertBadge" class="topbar-alert-badge" type="button" hidden>
+            <span class="alert-pulse-dot" aria-hidden="true"></span>
+            <span id="topbarAlertBadgeText">异常</span>
+          </button>
+          <label class="utility-select" data-i18n-title="ui.language">
+            <span data-i18n="ui.language">语言</span>
+            <select id="langSelector" aria-label="Language">
+              <option value="zh-CN">中文</option>
+              <option value="en-US">English</option>
+              <option value="ru-RU">Русский</option>
+            </select>
+          </label>
+          <label class="utility-select" data-i18n-title="ui.style">
+            <span data-i18n="ui.style">风格</span>
+            <select id="themeSelector" aria-label="Theme">
+              <option value="minimalist-light" data-i18n="theme.minimalist-light">极简明亮</option>
+              <option value="precision-dark" data-i18n="theme.precision-dark">精密暗黑</option>
+              <option value="bento-grid" data-i18n="theme.bento-grid">便当盒网格</option>
+              <option value="glassmorphism" data-i18n="theme.glassmorphism">毛玻璃拟态</option>
+              <option value="editorial" data-i18n="theme.editorial">编辑杂志</option>
+              <option value="sci-fi-cyan" data-i18n="theme.sci-fi-cyan">科幻 · 电光青</option>
+              <option value="sci-fi-purple" data-i18n="theme.sci-fi-purple">科幻 · 赛博紫</option>
+              <option value="sci-fi-matrix" data-i18n="theme.sci-fi-matrix">科幻 · 矩阵绿</option>
+            </select>
+          </label>
+        </div>
+      </header>
+
+      <div class="app-body">
+        <aside id="appSidebar" class="app-sidebar">
+          <nav class="page-nav" aria-label="Primary">
+            <button type="button" data-nav-page="overview" class="is-active" data-i18n-title="nav.overview">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+              <span class="nav-label" data-i18n="nav.overview">主页</span>
+            </button>
+            <button type="button" data-nav-page="agc-control" data-i18n-title="nav.agcControl">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>
+              <span class="nav-label" data-i18n="nav.agcControl">AGC 控制</span>
+            </button>
+            <button type="button" data-nav-page="diagram" data-i18n-title="nav.diagram">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.5 6h9M6.5 8.2 10.7 15.8M17.5 8.2 13.3 15.8"/></svg>
+              <span class="nav-label" data-i18n="nav.diagram">接线图</span>
+            </button>
+            <button type="button" data-nav-page="model" data-i18n-title="nav.model">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg>
+              <span class="nav-label" data-i18n="nav.model">电网模型</span>
+            </button>
+            <button type="button" data-nav-page="measurements" data-i18n-title="nav.measurements">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M2 12h4l2.5-6 4 12 2.5-6H22"/></svg>
+              <span class="nav-label" data-i18n="nav.measurements">实时量测</span>
+            </button>
+            <button type="button" data-nav-page="commands" data-i18n-title="nav.commands">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M13 2 3 14h8l-1 8 10-12h-8Z"/></svg>
+              <span class="nav-label" data-i18n="nav.commands">控制指令</span>
+            </button>
+            <button type="button" data-nav-page="curves" data-i18n-title="nav.curves">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 3v18h18"/><path d="m6 15 4-4 3 3 6-7"/></svg>
+              <span class="nav-label" data-i18n="nav.curves">曲线查询</span>
+            </button>
+            <button type="button" data-nav-page="parameters" data-i18n-title="nav.parameters">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+              <span class="nav-label" data-i18n="nav.parameters">参数配置</span>
+            </button>
+            <button type="button" data-nav-page="history" data-i18n-title="nav.history">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg>
+              <span class="nav-label" data-i18n="nav.history">运行日志</span>
+            </button>
+          </nav>
+          <div class="sidebar-footer">
+            <button id="appSidebarToggle" class="sidebar-toggle-btn" type="button" data-i18n-title="nav.collapse">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 18l-6-6 6-6"/><path d="M4 5v14"/></svg>
+              <span class="nav-label" data-i18n="nav.collapse">收起侧栏</span>
+            </button>
+          </div>
+        </aside>
+
+        <main class="page-main">
+          <!-- ==================== 1. 主页总览 ==================== -->
+          <section class="page-section is-active" data-page="overview">
+            <div class="overview-grid">
+              <section class="panel overview-kpi-bar">
+                <div class="kpi-item">
+                  <span class="kpi-label" data-i18n="overview.load">总负荷</span>
+                  <div class="kpi-val"><strong id="ovTotalLoad" class="mono">--</strong><small>kW</small></div>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label" data-i18n="overview.renewable">新能源出力</span>
+                  <div class="kpi-val"><strong id="ovTotalRenewable" class="mono">--</strong><small>kW</small></div>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label" data-i18n="overview.greenShare">绿电占比</span>
+                  <div class="kpi-val"><strong id="ovGreenShare" class="mono">--</strong><small>%</small></div>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label" data-i18n="overview.storage">储能总功率</span>
+                  <div class="kpi-val"><strong id="ovTotalStorage" class="mono">--</strong><small>kW</small></div>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label" data-i18n="overview.diesel">柴发总功率</span>
+                  <div class="kpi-val"><strong id="ovTotalDiesel" class="mono">--</strong><small>kW</small></div>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label" data-i18n="overview.measCount">有效量测</span>
+                  <div class="kpi-val"><strong id="ovMeasCount" class="mono">0</strong><small id="ovAgeText" class="mono">--s</small></div>
+                </div>
+              </section>
+
+              <div class="overview-center-row">
+                <section class="panel energy-flow-panel">
+                  <div class="panel-head">
+                    <h2 data-i18n="overview.energyFlow">交直流微电网与氢能全景流向</h2>
+                    <div class="panel-head-actions">
+                      <button id="ovQuickCalcBtn" type="button" class="btn btn-primary btn-sm" data-i18n="agc.calcOnce">单次计算</button>
+                      <button id="ovGoAgcBtn" type="button" class="btn btn-sm" data-i18n="overview.openAgc">进入控制</button>
+                    </div>
+                  </div>
+                  <div class="energy-flow-board">
+                    <div class="ef-column ef-dc">
+                      <div class="ef-col-title" data-i18n="overview.dcSide">直流侧 (750V)</div>
+                      <div class="ef-card wind" id="efDcWind">
+                        <div class="ef-card-head"><span data-i18n="cat.dcWind">直流风电</span><small class="mono" data-ef-meta>--</small></div>
+                        <div class="ef-readings">
+                          <div><span data-i18n="lbl.current">当前</span><strong class="mono" data-ef-cur>--</strong></div>
+                          <div><span data-i18n="lbl.target">目标</span><strong class="mono" data-ef-tgt>--</strong></div>
+                          <div><span data-i18n="lbl.maxAvail">最大可发</span><strong class="mono" data-ef-max>--</strong></div>
+                        </div>
+                      </div>
+                      <div class="ef-card solar" id="efDcPv">
+                        <div class="ef-card-head"><span data-i18n="cat.dcPv">直流光伏</span><small class="mono" data-ef-meta>--</small></div>
+                        <div class="ef-readings">
+                          <div><span data-i18n="lbl.current">当前</span><strong class="mono" data-ef-cur>--</strong></div>
+                          <div><span data-i18n="lbl.target">目标</span><strong class="mono" data-ef-tgt>--</strong></div>
+                          <div><span data-i18n="lbl.maxAvail">最大可发</span><strong class="mono" data-ef-max>--</strong></div>
+                        </div>
+                      </div>
+                      <div class="ef-card storage" id="efDcStorage">
+                        <div class="ef-card-head"><span data-i18n="cat.dcStorage">直流储能</span><small class="mono" data-ef-meta>SOC --</small></div>
+                        <div class="ef-readings">
+                          <div><span data-i18n="lbl.current">当前</span><strong class="mono" data-ef-cur>--</strong></div>
+                          <div><span data-i18n="lbl.target">目标</span><strong class="mono" data-ef-tgt>--</strong></div>
+                        </div>
+                      </div>
+                      <div class="ef-card load" id="efDcLoad">
+                        <div class="ef-card-head"><span data-i18n="cat.dcLoad">直流负荷</span><small class="mono" data-ef-meta>--</small></div>
+                        <div class="ef-readings">
+                          <div><span data-i18n="lbl.current">当前</span><strong class="mono" data-ef-cur>--</strong></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="ef-bus dc-bus"><span data-i18n="overview.dcBus">直流母线</span></div>
+
+                    <div class="ef-column ef-center">
+                      <div class="ef-card green-box">
+                        <div class="ef-card-head"><span data-i18n="overview.greenMetrics">绿电指标</span><span id="efDataQualityBadge" class="badge badge-ok">正常</span></div>
+                        <div class="ef-readings">
+                          <div><span data-i18n="overview.greenPower">绿电功率</span><strong id="efGreenPower" class="mono">--</strong></div>
+                          <div><span data-i18n="overview.greenShare">绿电占比</span><strong id="efGreenShare" class="mono">--</strong></div>
+                        </div>
+                      </div>
+
+                      <div class="ef-card converter" id="efAcdc">
+                        <div class="ef-card-head"><span data-i18n="cat.converter">DC/AC 变流器</span><small class="mono" data-ef-meta>--</small></div>
+                        <div class="ef-readings">
+                          <div><span data-i18n="lbl.current">当前</span><strong class="mono" data-ef-cur>--</strong></div>
+                          <div><span data-i18n="lbl.target">目标</span><strong class="mono" data-ef-tgt>--</strong></div>
+                        </div>
+                      </div>
+
+                      <div class="ef-hydrogen-box">
+                        <div class="ef-col-title" data-i18n="overview.hydrogenChain">氢能转换链</div>
+                        <div class="ef-hydrogen-grid">
+                          <div class="ef-mini-card" id="efFuelCell">
+                            <span data-i18n="cat.fuelCell">燃料电池</span>
+                            <strong class="mono" data-ef-cur>--</strong>
+                            <small class="mono" data-ef-meta>--</small>
+                          </div>
+                          <div class="ef-mini-card" id="efHydroTank">
+                            <span data-i18n="cat.hydroTank">储氢罐</span>
+                            <strong class="mono" data-ef-cur>--</strong>
+                            <small class="mono" data-ef-meta>--</small>
+                          </div>
+                          <div class="ef-mini-card" id="efElectrolyzer">
+                            <span data-i18n="cat.electrolyzer">电制氢</span>
+                            <strong class="mono" data-ef-cur>--</strong>
+                            <small class="mono" data-ef-meta>--</small>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="ef-bus ac-bus"><span data-i18n="overview.acBus">交流母线</span></div>
+
+                    <div class="ef-column ef-ac">
+                      <div class="ef-col-title" data-i18n="overview.acSide">交流侧 (380V)</div>
+                      <div class="ef-card wind" id="efAcWind">
+                        <div class="ef-card-head"><span data-i18n="cat.acWind">交流风电</span><small class="mono" data-ef-meta>--</small></div>
+                        <div class="ef-readings">
+                          <div><span data-i18n="lbl.current">当前</span><strong class="mono" data-ef-cur>--</strong></div>
+                          <div><span data-i18n="lbl.target">目标</span><strong class="mono" data-ef-tgt>--</strong></div>
+                          <div><span data-i18n="lbl.maxAvail">最大可发</span><strong class="mono" data-ef-max>--</strong></div>
+                        </div>
+                      </div>
+                      <div class="ef-card solar" id="efAcPv">
+                        <div class="ef-card-head"><span data-i18n="cat.acPv">交流光伏</span><small class="mono" data-ef-meta>--</small></div>
+                        <div class="ef-readings">
+                          <div><span data-i18n="lbl.current">当前</span><strong class="mono" data-ef-cur>--</strong></div>
+                          <div><span data-i18n="lbl.target">目标</span><strong class="mono" data-ef-tgt>--</strong></div>
+                          <div><span data-i18n="lbl.maxAvail">最大可发</span><strong class="mono" data-ef-max>--</strong></div>
+                        </div>
+                      </div>
+                      <div class="ef-card storage" id="efAcStorage">
+                        <div class="ef-card-head"><span data-i18n="cat.acStorage">交流储能</span><small class="mono" data-ef-meta>SOC --</small></div>
+                        <div class="ef-readings">
+                          <div><span data-i18n="lbl.current">当前</span><strong class="mono" data-ef-cur>--</strong></div>
+                          <div><span data-i18n="lbl.target">目标</span><strong class="mono" data-ef-tgt>--</strong></div>
+                        </div>
+                      </div>
+                      <div class="ef-card diesel" id="efDiesel">
+                        <div class="ef-card-head"><span data-i18n="cat.diesel">柴油发电</span><small class="mono" data-ef-meta>--</small></div>
+                        <div class="ef-readings">
+                          <div><span data-i18n="lbl.current">当前</span><strong class="mono" data-ef-cur>--</strong></div>
+                          <div><span data-i18n="lbl.target">目标</span><strong class="mono" data-ef-tgt>--</strong></div>
+                        </div>
+                      </div>
+                      <div class="ef-card load" id="efAcLoad">
+                        <div class="ef-card-head"><span data-i18n="cat.acLoad">交流负荷</span><small class="mono" data-ef-meta>--</small></div>
+                        <div class="ef-readings">
+                          <div><span data-i18n="lbl.current">当前</span><strong class="mono" data-ef-cur>--</strong></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="panel overview-env-panel">
+                  <div class="panel-head">
+                    <h2 data-i18n="overview.envTitle">环境与数据源</h2>
+                    <span id="ovSampleTime" class="mono muted">--</span>
+                  </div>
+                  <dl class="kv-list">
+                    <div><dt data-i18n="env.windSpeed">实时风速</dt><dd id="ovWindSpeed" class="mono">-- m/s</dd></div>
+                    <div><dt data-i18n="env.solar">太阳辐照度</dt><dd id="ovSolarIrr" class="mono">-- W/m²</dd></div>
+                    <div><dt data-i18n="env.temp">环境温度</dt><dd id="ovAirTemp" class="mono">-- °C</dd></div>
+                    <div><dt data-i18n="env.modelDb">模型源</dt><dd id="ovModelDb" class="mono ellipsis">devices.sqlite3</dd></div>
+                    <div><dt data-i18n="env.scadaDb">实时源</dt><dd id="ovScadaDb" class="mono ellipsis">scdfe_d.sqlite3</dd></div>
+                    <div><dt data-i18n="env.agcDb">AGC 存储</dt><dd id="ovAgcDb" class="mono ellipsis">agc.sqlite3</dd></div>
+                    <div><dt data-i18n="env.scadaCmd">四遥通道</dt><dd id="ovScadaCmd" class="mono">--</dd></div>
+                  </dl>
+                </section>
+              </div>
+
+              <div class="overview-bottom-row">
+                <section class="panel">
+                  <div class="panel-head">
+                    <h2 data-i18n="overview.decisionSummary">最新控制决策摘要</h2>
+                    <span id="ovDecisionCycle" class="mono muted">#0</span>
+                  </div>
+                  <div id="ovDecisionList" class="decision-summary-list"></div>
+                </section>
+                <section class="panel">
+                  <div class="panel-head">
+                    <h2 data-i18n="overview.activeCmds">本周期变动指令</h2>
+                    <span id="ovChangedCount" class="mono muted">0</span>
+                  </div>
+                  <div id="ovChangedTable" class="table-scroll compact-table"></div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <!-- ==================== 2. AGC 控制决策（核心页） ==================== -->
+          <section class="page-section" data-page="agc-control">
+            <div class="agc-page-layout">
+              <aside class="agc-side-col">
+                <section class="panel agc-ctrl-panel">
+                  <div class="panel-head">
+                    <h2 data-i18n="agc.panelTitle">运行控制</h2>
+                    <span id="agcStateBadge" class="badge badge-neutral">已停止</span>
+                  </div>
+                  <div class="agc-primary-actions">
+                    <button id="agcAutoToggleBtn" type="button" class="btn btn-primary" data-i18n="agc.startAuto">启动实时控制</button>
+                    <button id="agcCalcOnceBtn" type="button" class="btn" data-i18n="agc.calcOnce">单次计算</button>
+                  </div>
+                  <div class="agc-setting-row">
+                    <span data-i18n="agc.loopMode">控制方式</span>
+                    <div class="segmented" id="agcLoopModeGroup" role="group">
+                      <button type="button" class="is-active" data-loop-mode="open" data-i18n="mode.open">开环</button>
+                      <button type="button" data-loop-mode="closed" data-i18n="mode.closed">闭环</button>
+                    </div>
+                  </div>
+                  <div class="agc-setting-row">
+                    <span data-i18n="agc.strategyParams">策略参数</span>
+                    <div class="inline-btn-group">
+                      <button id="openAgcParamsBtn" type="button" class="btn btn-sm" data-i18n="agc.editParams">控制参数</button>
+                      <button id="openDeratingQuickBtn" type="button" class="btn btn-sm" data-i18n="agc.deratingCurve">降额曲线</button>
+                    </div>
+                  </div>
+                  <div class="agc-env-strip">
+                    <div><span data-i18n="env.windSpeed">风速</span><strong id="agcEnvWind" class="mono">--</strong><small>m/s</small></div>
+                    <div><span data-i18n="env.solar">辐照度</span><strong id="agcEnvSolar" class="mono">--</strong><small>W/m²</small></div>
+                  </div>
+                  <div class="agc-meta-line">
+                    <span data-i18n="agc.lastCalc">最近计算</span>
+                    <strong id="agcLastCalc" class="mono">--</strong>
+                  </div>
+                  <p id="agcStatusLine" class="status-note">--</p>
+                </section>
+
+                <section class="panel agc-metrics-panel">
+                  <div class="panel-head">
+                    <h2 data-i18n="agc.metricsTitle">统计指标</h2>
+                    <span class="muted" data-i18n="agc.curVsTgt">实时 / 目标</span>
+                  </div>
+                  <div class="tab-bar" id="agcMetricTabs" role="tablist">
+                    <button type="button" class="is-active" data-metric-tab="ac" data-i18n="scope.ac">交流</button>
+                    <button type="button" data-metric-tab="dc" data-i18n="scope.dc">直流</button>
+                    <button type="button" data-metric-tab="hydrogen" data-i18n="scope.hydrogen">氢能</button>
+                    <button type="button" data-metric-tab="system" data-i18n="scope.system">系统</button>
+                  </div>
+                  <div id="agcMetricTableWrap" class="table-scroll"></div>
+                </section>
+              </aside>
+
+              <div class="agc-main-col">
+                <section class="panel agc-strategy-panel">
+                  <div class="panel-head">
+                    <div class="panel-title-inline">
+                      <h2 data-i18n="agc.strategyTitle">控制策略</h2>
+                      <span id="agcStrategySummary" class="muted mono">0 条</span>
+                    </div>
+                    <label class="inline-check">
+                      <input id="agcChangedOnlyCheck" type="checkbox" />
+                      <span data-i18n="agc.onlyChanged">仅看变动</span>
+                    </label>
+                  </div>
+                  <div class="tab-bar scrollable-tabs" id="agcStrategyTabs" role="tablist">
+                    <button type="button" class="is-active" data-strategy-tab="all" data-i18n="cat.all">全部</button>
+                    <button type="button" data-strategy-tab="ac-wind" data-i18n="cat.acWind">交流风电</button>
+                    <button type="button" data-strategy-tab="dc-wind" data-i18n="cat.dcWind">直流风电</button>
+                    <button type="button" data-strategy-tab="ac-pv" data-i18n="cat.acPv">交流光伏</button>
+                    <button type="button" data-strategy-tab="dc-pv" data-i18n="cat.dcPv">直流光伏</button>
+                    <button type="button" data-strategy-tab="ac-grid-storage" data-i18n="cat.acGridStorage">交流跟网储能</button>
+                    <button type="button" data-strategy-tab="dc-grid-storage" data-i18n="cat.dcGridStorage">直流跟网储能</button>
+                    <button type="button" data-strategy-tab="ac-balance-storage" data-i18n="cat.acBalStorage">交流平衡储能</button>
+                    <button type="button" data-strategy-tab="dc-balance-storage" data-i18n="cat.dcBalStorage">直流平衡储能</button>
+                    <button type="button" data-strategy-tab="diesel" data-i18n="cat.diesel">柴发</button>
+                    <button type="button" data-strategy-tab="converter" data-i18n="cat.converter">ACDC变流</button>
+                    <button type="button" data-strategy-tab="hydrogen" data-i18n="cat.hydrogen">氢能</button>
+                  </div>
+                  <div id="agcStrategyTableWrap" class="table-scroll"></div>
+                </section>
+
+                <section class="panel agc-detail-panel">
+                  <div class="panel-head">
+                    <div class="tab-bar inline-tabs" id="agcDetailTabs" role="tablist">
+                      <button type="button" class="is-active" data-detail-tab="trend" data-i18n="agc.tabTrend">综合趋势曲线</button>
+                      <button type="button" data-detail-tab="logs" data-i18n="agc.tabLogs">控制决策日志</button>
+                    </div>
+                    <div id="agcTrendToolbar" class="chart-toolbar">
+                      <button type="button" class="btn btn-icon btn-sm" id="agcTrendPrevBtn" title="上一时段">&#8592;</button>
+                      <button type="button" class="btn btn-icon btn-sm" id="agcTrendNowBtn" title="当前时段">&#9673;</button>
+                      <button type="button" class="btn btn-icon btn-sm" id="agcTrendNextBtn" title="下一时段">&#8594;</button>
+                      <select id="agcTrendWindow" class="compact-select">
+                        <option value="15">15 min</option>
+                        <option value="60" selected>1 h</option>
+                        <option value="120">2 h</option>
+                        <option value="360">6 h</option>
+                        <option value="1440">1 d</option>
+                        <option value="10080">1 w</option>
+                        <option value="43200">1 M</option>
+                        <option value="525600">1 Y</option>
+                      </select>
+                    </div>
+                    <div id="agcLogToolbar" class="chart-toolbar" hidden>
+                      <input id="agcLogKeyword" type="search" class="compact-input" data-i18n-placeholder="filter.keyword" placeholder="搜索..." />
+                      <select id="agcLogLevel" class="compact-select">
+                        <option value="all" data-i18n="filter.allLevel">全部级别</option>
+                        <option value="info">INFO</option>
+                        <option value="warn">WARN</option>
+                        <option value="error">ERROR</option>
+                      </select>
+                      <button id="agcLogClearBtn" type="button" class="btn btn-sm btn-danger-ghost" data-i18n="action.clear">清空</button>
+                    </div>
+                  </div>
+
+                  <div id="agcDetailPaneTrend" class="agc-trend-workspace">
+                    <aside class="trend-series-picker">
+                      <input id="agcSeriesSearch" type="search" class="compact-input" data-i18n-placeholder="filter.series" placeholder="过滤曲线..." />
+                      <div class="series-picker-actions">
+                        <button id="agcSeriesSelectDefault" type="button" class="btn btn-xs" data-i18n="action.default">默认</button>
+                        <button id="agcSeriesSelectAll" type="button" class="btn btn-xs" data-i18n="action.selectAll">全选</button>
+                        <button id="agcSeriesClearAll" type="button" class="btn btn-xs" data-i18n="action.clearAll">清空</button>
+                      </div>
+                      <div id="agcSeriesList" class="series-checkbox-list"></div>
+                    </aside>
+                    <div class="chart-stage">
+                      <div id="agcTrendLegend" class="chart-legend-bar"></div>
+                      <canvas id="agcTrendCanvas" class="chart-canvas"></canvas>
+                    </div>
+                  </div>
+
+                  <div id="agcDetailPaneLogs" class="agc-log-workspace" hidden>
+                    <div id="agcLogTableWrap" class="table-scroll"></div>
+                    <div id="agcLogPager" class="pager-bar"></div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <!-- ==================== 3. 接线图 ==================== -->
+          <section class="page-section" data-page="diagram">
+            <section class="panel diagram-panel">
+              <div class="panel-head">
+                <div class="panel-title-inline">
+                  <h2 data-i18n="nav.diagram">接线图</h2>
+                  <span id="diagramFileLabel" class="mono muted">qinling.svg</span>
+                </div>
+                <div class="diagram-toolbar">
+                  <label class="inline-check">
+                    <input id="diagramShowOverlay" type="checkbox" checked />
+                    <span data-i18n="diagram.overlay">遥测标注</span>
+                  </label>
+                  <button id="diagramZoomOut" type="button" class="btn btn-sm">-</button>
+                  <span id="diagramZoomText" class="mono muted">100%</span>
+                  <button id="diagramZoomIn" type="button" class="btn btn-sm">+</button>
+                  <button id="diagramFitBtn" type="button" class="btn btn-sm" data-i18n="diagram.fit">适应窗口</button>
+                </div>
+              </div>
+              <div id="diagramViewport" class="diagram-viewport">
+                <div id="diagramStage" class="diagram-stage"></div>
+                <div id="diagramDeviceCard" class="diagram-floating-card" hidden>
+                  <div class="floating-card-head">
+                    <strong id="diagCardTitle">--</strong>
+                    <button id="diagCardClose" type="button" class="icon-close">×</button>
+                  </div>
+                  <dl id="diagCardMetrics" class="kv-list compact"></dl>
+                  <div id="diagCardActions" class="floating-card-actions"></div>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <!-- ==================== 4. 电网模型 ==================== -->
+          <section class="page-section" data-page="model">
+            <div class="split-tree-layout">
+              <aside class="panel tree-panel">
+                <div class="panel-head">
+                  <h2 data-i18n="model.treeTitle">设备分类树</h2>
+                  <span id="modelTreeSummary" class="mono muted">0</span>
+                </div>
+                <input id="modelTreeFilter" type="search" class="compact-input" data-i18n-placeholder="filter.device" placeholder="过滤设备..." />
+                <div id="modelTreeList" class="tree-list"></div>
+              </aside>
+              <section class="panel main-table-panel">
+                <div class="panel-head">
+                  <h2 data-i18n="model.paramTitle">模型参数</h2>
+                  <span id="modelTableSummary" class="mono muted">0</span>
+                </div>
+                <div id="modelParamTable" class="table-scroll"></div>
+              </section>
+            </div>
+          </section>
+
+          <!-- ==================== 5. 实时量测 ==================== -->
+          <section class="page-section" data-page="measurements">
+            <div class="split-tree-layout">
+              <aside class="panel tree-panel">
+                <div class="panel-head">
+                  <h2 data-i18n="model.treeTitle">设备分类树</h2>
+                  <span id="measTreeSummary" class="mono muted">0</span>
+                </div>
+                <input id="measTreeFilter" type="search" class="compact-input" data-i18n-placeholder="filter.device" placeholder="过滤设备..." />
+                <div id="measTreeList" class="tree-list"></div>
+              </aside>
+              <div class="v-stack-panel">
+                <section class="panel flex-grow-panel">
+                  <div class="panel-head">
+                    <h2 data-i18n="nav.measurements">实时量测</h2>
+                    <div class="filter-inline">
+                      <input id="measKeyword" type="search" class="compact-input" data-i18n-placeholder="filter.keyword" placeholder="搜索..." />
+                      <select id="measTypeSelect" class="compact-select"><option value="all" data-i18n="filter.allType">全部类型</option></select>
+                      <label class="inline-check">
+                        <input id="measAbnormalOnly" type="checkbox" />
+                        <span data-i18n="meas.abnormalOnly">仅异常</span>
+                      </label>
+                      <button id="exportMeasCsvBtn" type="button" class="btn btn-sm" data-i18n="action.exportCsv">导出 CSV</button>
+                    </div>
+                  </div>
+                  <div id="measTableWrap" class="table-scroll"></div>
+                </section>
+                <section class="panel trace-panel">
+                  <div class="panel-head">
+                    <div class="panel-title-inline">
+                      <h2 data-i18n="meas.traceTitle">测点跟踪曲线</h2>
+                      <span id="measTraceTitle" class="mono muted">--</span>
+                    </div>
+                    <select id="measTraceWindow" class="compact-select">
+                      <option value="15">15 min</option>
+                      <option value="60" selected>1 h</option>
+                      <option value="120">2 h</option>
+                      <option value="360">6 h</option>
+                      <option value="1440">1 d</option>
+                    </select>
+                  </div>
+                  <div class="chart-stage small">
+                    <canvas id="measTraceCanvas" class="chart-canvas"></canvas>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <!-- ==================== 6. 控制指令 ==================== -->
+          <section class="page-section" data-page="commands">
+            <div class="split-tree-layout">
+              <aside class="panel tree-panel">
+                <div class="panel-head">
+                  <h2 data-i18n="model.treeTitle">设备分类树</h2>
+                  <span id="cmdTreeSummary" class="mono muted">0</span>
+                </div>
+                <input id="cmdTreeFilter" type="search" class="compact-input" data-i18n-placeholder="filter.device" placeholder="过滤设备..." />
+                <div id="cmdTreeList" class="tree-list"></div>
+              </aside>
+              <div class="v-stack-panel">
+                <section class="panel flex-grow-panel">
+                  <div class="panel-head">
+                    <div class="tab-bar inline-tabs" id="cmdKindTabs">
+                      <button type="button" class="is-active" data-cmd-kind="yt" data-i18n="cmd.yt">遥调 (YT)</button>
+                      <button type="button" data-cmd-kind="yk" data-i18n="cmd.yk">遥控 (YK)</button>
+                    </div>
+                    <div class="filter-inline">
+                      <input id="cmdKeyword" type="search" class="compact-input" data-i18n-placeholder="filter.keyword" placeholder="搜索..." />
+                      <select id="cmdOriginFilter" class="compact-select">
+                        <option value="all" data-i18n="cmd.allOrigin">全部来源</option>
+                        <option value="automatic" data-i18n="cmd.auto">自动</option>
+                        <option value="manual" data-i18n="cmd.manual">人工</option>
+                      </select>
+                      <label class="inline-check">
+                        <input id="cmdActiveOnly" type="checkbox" />
+                        <span data-i18n="cmd.activeOnly">仅有效</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div id="cmdTableWrap" class="table-scroll"></div>
+                </section>
+                <section class="panel trace-panel">
+                  <div class="panel-head">
+                    <div class="panel-title-inline">
+                      <h2 data-i18n="cmd.traceTitle">指令跟踪曲线</h2>
+                      <span id="cmdTraceTitle" class="mono muted">--</span>
+                    </div>
+                    <select id="cmdTraceWindow" class="compact-select">
+                      <option value="15">15 min</option>
+                      <option value="60" selected>1 h</option>
+                      <option value="360">6 h</option>
+                      <option value="1440">1 d</option>
+                    </select>
+                  </div>
+                  <div class="chart-stage small">
+                    <canvas id="cmdTraceCanvas" class="chart-canvas"></canvas>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <!-- ==================== 7. 曲线查询 ==================== -->
+          <section class="page-section" data-page="curves">
+            <div class="split-tree-layout">
+              <aside class="panel tree-panel">
+                <div class="panel-head">
+                  <h2 data-i18n="curves.listTitle">曲线列表</h2>
+                  <span id="curveListCount" class="mono muted">0</span>
+                </div>
+                <input id="curveListFilter" type="search" class="compact-input" data-i18n-placeholder="filter.series" placeholder="过滤曲线..." />
+                <div id="curveMetricList" class="tree-list"></div>
+              </aside>
+              <div class="v-stack-panel">
+                <section class="panel trace-panel tall">
+                  <div class="panel-head">
+                    <div class="panel-title-inline">
+                      <h2 id="curveChartTitle" data-i18n="nav.curves">曲线查询</h2>
+                      <span id="curvePointCount" class="mono muted">0</span>
+                    </div>
+                    <div class="chart-toolbar">
+                      <button type="button" class="btn btn-icon btn-sm" id="curvePrevBtn">&#8592;</button>
+                      <button type="button" class="btn btn-icon btn-sm" id="curveNowBtn">&#9673;</button>
+                      <button type="button" class="btn btn-icon btn-sm" id="curveNextBtn">&#8594;</button>
+                      <select id="curveWindowSelect" class="compact-select">
+                        <option value="15">15 min</option>
+                        <option value="60" selected>1 h</option>
+                        <option value="360">6 h</option>
+                        <option value="1440">1 d</option>
+                        <option value="10080">1 w</option>
+                        <option value="43200">1 M</option>
+                      </select>
+                      <button id="exportCurveCsvBtn" type="button" class="btn btn-sm" data-i18n="action.exportCsv">导出 CSV</button>
+                    </div>
+                  </div>
+                  <div class="chart-stage">
+                    <canvas id="curveQueryCanvas" class="chart-canvas"></canvas>
+                  </div>
+                </section>
+                <section class="panel flex-grow-panel">
+                  <div class="panel-head">
+                    <h2 data-i18n="curves.tableTitle">曲线数值表</h2>
+                    <span id="curveTableMeta" class="mono muted">agc.sqlite3</span>
+                  </div>
+                  <div id="curveDataTableWrap" class="table-scroll"></div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <!-- ==================== 8. 参数配置 ==================== -->
+          <section class="page-section" data-page="parameters">
+            <div class="params-page-grid">
+              <section class="panel">
+                <div class="panel-head">
+                  <h2 data-i18n="params.backendTitle">后台运行参数</h2>
+                  <div class="inline-btn-group">
+                    <button id="resetBackendParamsBtn" type="button" class="btn btn-sm" data-i18n="action.restoreDefault">恢复默认</button>
+                    <button id="saveBackendParamsBtn" type="button" class="btn btn-primary btn-sm" data-i18n="action.save">保存</button>
+                  </div>
+                </div>
+                <div class="table-scroll">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th data-i18n="col.paramName">参数名称</th>
+                        <th class="num" data-i18n="col.currentVal">当前值</th>
+                        <th data-i18n="col.setVal">设置值</th>
+                        <th data-i18n="col.unit">单位</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td data-i18n="params.backendRefresh">后台数据刷新周期</td>
+                        <td id="curBackendRefresh" class="num mono">1</td>
+                        <td><input id="inpBackendRefresh" type="number" min="0.3" max="60" step="0.1" class="cell-input" /></td>
+                        <td>s</td>
+                      </tr>
+                      <tr>
+                        <td data-i18n="params.frameAgeLimit">数据帧超时上限</td>
+                        <td id="curFrameAgeLimit" class="num mono">30</td>
+                        <td><input id="inpFrameAgeLimit" type="number" min="2" max="3600" step="1" class="cell-input" /></td>
+                        <td>s</td>
+                      </tr>
+                      <tr>
+                        <td data-i18n="params.cmdTimeout">四遥指令超时</td>
+                        <td id="curCmdTimeout" class="num mono">5</td>
+                        <td><input id="inpCmdTimeout" type="number" min="1" max="60" step="1" class="cell-input" /></td>
+                        <td>s</td>
+                      </tr>
+                      <tr>
+                        <td data-i18n="params.trendRetention">趋势留存上限</td>
+                        <td id="curTrendRetention" class="num mono">50000</td>
+                        <td>
+                          <select id="inpTrendRetention" class="cell-input">
+                            <option value="10000">10000</option>
+                            <option value="50000">50000</option>
+                            <option value="100000">100000</option>
+                            <option value="500000">500000</option>
+                          </select>
+                        </td>
+                        <td>pts</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h2 data-i18n="params.webTitle">WEB 运行参数</h2>
+                  <div class="inline-btn-group">
+                    <button id="resetWebParamsBtn" type="button" class="btn btn-sm" data-i18n="action.restoreDefault">恢复默认</button>
+                    <button id="saveWebParamsBtn" type="button" class="btn btn-primary btn-sm" data-i18n="action.save">保存</button>
+                  </div>
+                </div>
+                <div class="table-scroll">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th data-i18n="col.paramName">参数名称</th>
+                        <th class="num" data-i18n="col.currentVal">当前值</th>
+                        <th data-i18n="col.setVal">设置值</th>
+                        <th data-i18n="col.unit">单位</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td data-i18n="params.webRefresh">前端数据刷新周期</td>
+                        <td id="curWebRefresh" class="num mono">1.5</td>
+                        <td><input id="inpWebRefresh" type="number" min="0.5" max="60" step="0.5" class="cell-input" /></td>
+                        <td>s</td>
+                      </tr>
+                      <tr>
+                        <td data-i18n="params.logPageSize">运行日志分页条数</td>
+                        <td id="curLogPageSize" class="num mono">20</td>
+                        <td>
+                          <select id="inpLogPageSize" class="cell-input">
+                            <option value="10">10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                          </select>
+                        </td>
+                        <td>rows</td>
+                      </tr>
+                      <tr>
+                        <td data-i18n="params.diagElectricThreshold">电功率箭头显示门槛</td>
+                        <td id="curDiagElectric" class="num mono">0.1</td>
+                        <td><input id="inpDiagElectric" type="number" min="0" max="1000" step="0.05" class="cell-input" /></td>
+                        <td>kW</td>
+                      </tr>
+                      <tr>
+                        <td data-i18n="params.diagHydroThreshold">氢流量箭头显示门槛</td>
+                        <td id="curDiagHydro" class="num mono">0.1</td>
+                        <td><input id="inpDiagHydro" type="number" min="0" max="1000" step="0.05" class="cell-input" /></td>
+                        <td>Nm³/h</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <!-- ==================== 9. 运行日志 ==================== -->
+          <section class="page-section" data-page="history">
+            <section class="panel full-panel">
+              <div class="panel-head">
+                <div class="panel-title-inline">
+                  <h2 data-i18n="nav.history">运行日志</h2>
+                  <span id="runtimeLogTotal" class="mono muted">0</span>
+                </div>
+                <div class="filter-inline">
+                  <input id="runtimeLogKeyword" type="search" class="compact-input" data-i18n-placeholder="filter.keyword" placeholder="搜索..." />
+                  <select id="runtimeLogType" class="compact-select">
+                    <option value="all" data-i18n="filter.allType">全部类型</option>
+                  </select>
+                  <label class="inline-check">
+                    <input id="runtimeLogAlertOnly" type="checkbox" />
+                    <span data-i18n="logs.alertOnly">仅告警</span>
+                  </label>
+                  <button id="clearRuntimeLogsBtn" type="button" class="btn btn-sm btn-danger-ghost" data-i18n="action.clear">清空日志</button>
+                </div>
+              </div>
+              <div id="runtimeLogTableWrap" class="table-scroll"></div>
+              <div id="runtimeLogPager" class="pager-bar"></div>
+            </section>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <!-- ==================== 弹窗 1：AGC 控制参数 ==================== -->
+    <dialog id="agcParamsDialog" class="modal-dialog wide">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2 data-i18n="agc.editParams">AGC 控制参数</h2>
+          <button type="button" class="icon-close" data-close-dialog="agcParamsDialog">×</button>
+        </div>
+        <div class="modal-preset-row">
+          <label>
+            <span data-i18n="agc.preset">策略预设方案</span>
+            <select id="agcPresetSelect" class="compact-select">
+              <option value="standard" data-i18n="preset.standard">标准均衡（默认）</option>
+              <option value="aggressive_renewable" data-i18n="preset.aggressive">新能源积极消纳</option>
+              <option value="conservative_protection" data-i18n="preset.conservative">储能/氢能保守保护</option>
+              <option value="custom" data-i18n="preset.custom">自定义参数</option>
+            </select>
+          </label>
+          <button id="openDeratingFromParamsBtn" type="button" class="btn btn-sm" data-i18n="agc.deratingCurve">配置储能降额曲线</button>
+        </div>
+        <div class="tab-bar" id="agcParamTabs">
+          <button type="button" class="is-active" data-param-tab="runtime" data-i18n="ptab.runtime">运行与步长</button>
+          <button type="button" data-param-tab="protection" data-i18n="ptab.protection">储能与保护</button>
+          <button type="button" data-param-tab="hydrogen" data-i18n="ptab.hydrogen">氢能与控制</button>
+          <button type="button" data-param-tab="optimization" data-i18n="ptab.optimization">优化与求解</button>
+        </div>
+        <div class="modal-body">
+          <div class="param-pane is-active" data-param-pane="runtime">
+            <div class="form-grid-2">
+              <label><span data-i18n="p.interval">自动控制周期 (s)</span><input id="p_interval_seconds" type="number" min="1" step="0.5" /></label>
+              <label><span data-i18n="p.validMin">指令有效期 (min)</span><input id="p_command_valid_minutes" type="number" min="0.1" step="1" /></label>
+              <label><span data-i18n="p.renStep">新能源步长 (%)</span><input id="p_step_coefficient" type="number" min="0" max="100" step="0.5" data-percent="1" /></label>
+              <label><span data-i18n="p.stStep">跟网储能步长 (%)</span><input id="p_storage_step_ratio" type="number" min="0" max="100" step="0.5" data-percent="1" /></label>
+              <label><span data-i18n="p.dieselStep">柴发步长 (%)</span><input id="p_diesel_step_ratio" type="number" min="0" max="100" step="0.5" data-percent="1" /></label>
+              <label><span data-i18n="p.convStep">变流器爬坡步长 (%)</span><input id="p_converter_ramp_step_ratio" type="number" min="0" max="100" step="1" data-percent="1" /></label>
+            </div>
+          </div>
+          <div class="param-pane" data-param-pane="protection" hidden>
+            <div class="form-grid-2">
+              <label><span data-i18n="p.socMin">默认 SOC 下限 (%)</span><input id="p_soc_min" type="number" min="0" max="100" step="1" data-percent="1" /></label>
+              <label><span data-i18n="p.socMax">默认 SOC 上限 (%)</span><input id="p_soc_max" type="number" min="0" max="100" step="1" data-percent="1" /></label>
+              <label><span data-i18n="p.socDeadband">SOC 死区 (%)</span><input id="p_soc_deadband" type="number" min="0" max="50" step="0.5" data-percent="1" /></label>
+              <label><span data-i18n="p.socCorrScale">SOC 越界步长倍率 (%)</span><input id="p_storage_soc_correction_step_scale" type="number" min="10" max="100" step="1" data-percent="1" /></label>
+              <label><span data-i18n="p.gfGuard">构网储能保护带 (%)</span><input id="p_grid_forming_storage_protection_ratio" type="number" min="0" max="50" step="0.5" data-percent="1" /></label>
+              <label><span data-i18n="p.dieselGuard">柴发功率保护带 (%)</span><input id="p_diesel_power_protection_ratio" type="number" min="0" max="50" step="0.5" data-percent="1" /></label>
+            </div>
+          </div>
+          <div class="param-pane" data-param-pane="hydrogen" hidden>
+            <div class="form-grid-2">
+              <label class="inline-check"><input id="p_hydrogen_closed_loop_enabled" type="checkbox" /><span data-i18n="p.h2Closed">启用氢能闭环控制</span></label>
+              <label><span data-i18n="p.h2PressDead">氢储罐压力死区 (%)</span><input id="p_hydrogen_pressure_deadband_ratio" type="number" min="0" max="50" step="0.5" data-percent="1" /></label>
+              <label><span data-i18n="p.elMin">电制氢下限 (%)</span><input id="p_electrolyzer_power_min_ratio" type="number" min="0" max="100" step="1" data-percent="1" /></label>
+              <label><span data-i18n="p.elMax">电制氢上限 (%)</span><input id="p_electrolyzer_power_max_ratio" type="number" min="0" max="100" step="1" data-percent="1" /></label>
+              <label><span data-i18n="p.elStep">电制氢调节步长 (%)</span><input id="p_electrolyzer_power_step_ratio" type="number" min="0.1" max="100" step="1" data-percent="1" /></label>
+              <label><span data-i18n="p.elSocStart">制氢启机电储 SOC (%)</span><input id="p_electrolyzer_storage_soc_start_minimum" type="number" min="0" max="100" step="1" data-percent="1" /></label>
+              <label><span data-i18n="p.fcMin">燃电出力下限 (%)</span><input id="p_fuel_cell_power_min_ratio" type="number" min="0" max="100" step="1" data-percent="1" /></label>
+              <label><span data-i18n="p.fcMax">燃电出力上限 (%)</span><input id="p_fuel_cell_power_max_ratio" type="number" min="0" max="100" step="1" data-percent="1" /></label>
+              <label><span data-i18n="p.fcStep">燃电调节步长 (%)</span><input id="p_fuel_cell_power_step_ratio" type="number" min="0.1" max="100" step="1" data-percent="1" /></label>
+              <label><span data-i18n="p.fcSocLim">燃电启机电储 SOC (%)</span><input id="p_fuel_cell_storage_soc_limit" type="number" min="0" max="100" step="1" data-percent="1" /></label>
+            </div>
+          </div>
+          <div class="param-pane" data-param-pane="optimization" hidden>
+            <div class="form-grid-2">
+              <label><span data-i18n="p.wCurtail">新能源弃电权重</span><input id="p_optimization_renewable_curtailment_weight" type="number" min="0" step="0.1" /></label>
+              <label><span data-i18n="p.wDiesel">柴发出力权重</span><input id="p_optimization_diesel_output_weight" type="number" min="0" step="0.1" /></label>
+              <label><span data-i18n="p.maxIter">最大迭代次数</span>
+                <select id="p_optimization_max_iterations">
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                  <option value="200">200</option>
+                  <option value="500">500</option>
+                </select>
+              </label>
+              <label><span data-i18n="p.balTol">平衡容差 (kW)</span><input id="p_optimization_balance_tolerance_kw" type="number" min="0" step="0.05" /></label>
+              <label><span data-i18n="p.bndTol">边界容差 (kW)</span><input id="p_optimization_bound_tolerance_kw" type="number" min="0" step="0.05" /></label>
+              <label><span data-i18n="p.ftol">求解收敛容差</span><input id="p_optimization_ftol" type="number" min="0" step="0.0005" /></label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span id="agcParamsMessage" class="muted"></span>
+          <div class="inline-btn-group">
+            <button type="button" class="btn" data-close-dialog="agcParamsDialog" data-i18n="action.cancel">取消</button>
+            <button id="saveAgcParamsBtn" type="button" class="btn btn-primary" data-i18n="action.save">保存</button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- ==================== 弹窗 2：储能充放电 SOC 降额曲线 ==================== -->
+    <dialog id="deratingDialog" class="modal-dialog wide">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2 data-i18n="agc.deratingCurve">储能充放电降额曲线</h2>
+          <button type="button" class="icon-close" data-close-dialog="deratingDialog">×</button>
+        </div>
+        <div class="modal-body derating-grid">
+          <div>
+            <h3 data-i18n="derating.charge">充电功率上限 (SOC %)</h3>
+            <table class="data-table">
+              <thead><tr><th>SOC (%)</th><th data-i18n="derating.ratio">功率上限 (%)</th></tr></thead>
+              <tbody id="chargeDeratingBody"></tbody>
+            </table>
+          </div>
+          <div>
+            <h3 data-i18n="derating.discharge">放电功率上限 (SOC %)</h3>
+            <table class="data-table">
+              <thead><tr><th>SOC (%)</th><th data-i18n="derating.ratio">功率上限 (%)</th></tr></thead>
+              <tbody id="dischargeDeratingBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button id="resetDeratingBtn" type="button" class="btn btn-sm" data-i18n="action.restoreDefault">恢复默认</button>
+          <div class="inline-btn-group">
+            <button type="button" class="btn" data-close-dialog="deratingDialog" data-i18n="action.cancel">取消</button>
+            <button id="saveDeratingBtn" type="button" class="btn btn-primary" data-i18n="action.save">保存</button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- ==================== 弹窗 3：人工遥控 / 遥调 ==================== -->
+    <dialog id="manualCmdDialog" class="modal-dialog">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2 id="manualCmdTitle" data-i18n="cmd.manualOp">人工操作</h2>
+          <button type="button" class="icon-close" data-close-dialog="manualCmdDialog">×</button>
+        </div>
+        <div class="modal-body">
+          <dl class="kv-list compact">
+            <div><dt data-i18n="col.device">设备</dt><dd id="mcDevice" class="mono">--</dd></div>
+            <div><dt data-i18n="col.point">测点</dt><dd id="mcSetType" class="mono">--</dd></div>
+            <div><dt data-i18n="col.currentVal">当前值</dt><dd id="mcCurrent" class="mono">--</dd></div>
+          </dl>
+          <div id="mcYtBox" class="form-field">
+            <label>
+              <span data-i18n="cmd.targetVal">目标设定值</span>
+              <input id="mcYtInput" type="number" step="0.1" class="cell-input" />
+            </label>
+            <div class="inline-btn-group">
+              <button type="button" class="btn btn-xs" data-yt-quick="zero">0</button>
+              <button type="button" class="btn btn-xs" data-yt-quick="minus10">-10%</button>
+              <button type="button" class="btn btn-xs" data-yt-quick="cur" data-i18n="lbl.current">当前</button>
+              <button type="button" class="btn btn-xs" data-yt-quick="plus10">+10%</button>
+            </div>
+          </div>
+          <div id="mcYkBox" class="form-field" hidden>
+            <label>
+              <span data-i18n="cmd.targetState">目标状态</span>
+              <select id="mcYkSelect" class="cell-input">
+                <option value="1" data-i18n="state.on">投入 / 合闸 (1)</option>
+                <option value="0" data-i18n="state.off">退出 / 分闸 (0)</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span></span>
+          <div class="inline-btn-group">
+            <button type="button" class="btn" data-close-dialog="manualCmdDialog" data-i18n="action.cancel">取消</button>
+            <button id="mcConfirmBtn" type="button" class="btn btn-danger" data-i18n="action.confirmDispatch">确认下发</button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- ==================== 弹窗 4：高危不可逆操作确认 ==================== -->
+    <dialog id="dangerConfirmDialog" class="modal-dialog danger-modal">
+      <div class="modal-card">
+        <div class="modal-head danger-head">
+          <span class="badge badge-danger" data-i18n="danger.badge">高危确认</span>
+          <h2 id="dangerTitle">确认执行此操作？</h2>
+        </div>
+        <div class="modal-body">
+          <p id="dangerTarget" class="danger-target mono"></p>
+          <p id="dangerMessage" class="danger-message"></p>
+        </div>
+        <div class="modal-foot">
+          <span></span>
+          <div class="inline-btn-group">
+            <button id="dangerCancelBtn" type="button" class="btn" autofocus data-i18n="action.cancel">取消</button>
+            <button id="dangerOkBtn" type="button" class="btn btn-danger" data-i18n="action.confirm">确认执行</button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+    <script defer src="/js/00-i18n.js"></script>
+    <script defer src="/js/01-core.js"></script>
+    <script defer src="/js/02-overview-diagram.js"></script>
+    <script defer src="/js/03-agc-control.js"></script>
+    <script defer src="/js/04-monitor-pages.js"></script>
+    <script defer src="/js/05-bootstrap.js"></script>
+  </body>
+</html>
