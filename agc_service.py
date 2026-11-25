@@ -24,6 +24,12 @@ from agc_datasources import (
     DEFAULT_MODEL_DB,
     DEFAULT_SCADA_DB,
     DEFAULT_SVG_PATH,
+    SCDFE_D_CTRL_STATUS_DISABLED,
+    SCDFE_D_CTRL_STATUS_FAILED,
+    SCDFE_D_CTRL_STATUS_IDLE,
+    SCDFE_D_CTRL_STATUS_PENDING,
+    SCDFE_D_CTRL_STATUS_SUCCESS,
+    SCDFE_D_CTRL_STATUS_UNCONFIGURED,
     QinlingDataAdapter,
 )
 from agc_engine import (
@@ -109,6 +115,8 @@ class AGCRealtimeService:
         command_endpoint: Optional[str | Path] = None,
         command_sender: Optional[Callable[[str, int, int, Any], bool]] = None,
         start_background: bool = True,
+        ack_timeout_seconds: float = 15.0,
+        ack_poll_interval_seconds: float = 0.2,
     ) -> None:
         self.adapter = QinlingDataAdapter(
             model_db=model_db,
@@ -161,6 +169,17 @@ class AGCRealtimeService:
 
         self._stop_event = threading.Event()
         self._worker_thread: Optional[threading.Thread] = None
+
+        # 独立指令回执监听线程状态（异步等待 scdfe_d 写回 *_cmd_status / *_cmd_ack_time）
+        self._ack_timeout_seconds: float = max(0.5, float(ack_timeout_seconds))
+        self._ack_poll_interval_seconds: float = max(0.05, float(ack_poll_interval_seconds))
+        self._ack_lock = threading.Lock()
+        self._ack_stop_event = threading.Event()
+        self._ack_wake_event = threading.Event()
+        self._pending_acks: Dict[Tuple[str, int, str], Dict[str, Any]] = {}
+        self._ack_watcher_thread: Optional[threading.Thread] = None
+        self.start_ack_watcher()
+
         if start_background:
             self.start_background_loop()
 
@@ -189,9 +208,193 @@ class AGCRealtimeService:
         if self._worker_thread is not None and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=3.0)
 
+    def start_ack_watcher(self) -> None:
+        """启动独立的指令回执等待守护线程（空闲休眠零开销，有在途指令时轮询 scdfe_d 回执状态）。"""
+        if self._ack_watcher_thread is not None and self._ack_watcher_thread.is_alive():
+            return
+        self._ack_stop_event.clear()
+        self._ack_watcher_thread = threading.Thread(
+            target=self._ack_watcher_loop,
+            name="agc-cmd-ack-watcher",
+            daemon=True,
+        )
+        self._ack_watcher_thread.start()
+
+    def stop_ack_watcher(self) -> None:
+        self._ack_stop_event.set()
+        self._ack_wake_event.set()
+        if self._ack_watcher_thread is not None and self._ack_watcher_thread.is_alive():
+            self._ack_watcher_thread.join(timeout=3.0)
+
     def close(self) -> None:
         self.stop_background_loop()
+        self.stop_ack_watcher()
         self.store.close()
+
+    def _register_pending_ack(self, entry: Dict[str, Any]) -> None:
+        """将在途指令登记至独立回执监听队列；同点位旧在途指令标记为 superseded。"""
+        slot = entry["slot"]
+        replaced: Optional[Dict[str, Any]] = None
+        with self._ack_lock:
+            replaced = self._pending_acks.get(slot)
+            self._pending_acks[slot] = entry
+        if replaced is not None:
+            self._finalize_ack_entry(
+                replaced,
+                final_status="superseded",
+                final_msg="已被同点位更新指令覆盖",
+                log_event=False,
+            )
+        self._ack_wake_event.set()
+
+    def _finalize_ack_entry(
+        self,
+        entry: Mapping[str, Any],
+        *,
+        final_status: str,
+        final_msg: str,
+        log_event: bool = True,
+    ) -> None:
+        rec_id = int(entry.get("record_id") or 0)
+        cycle = int(entry.get("cycle") or 0)
+        origin = str(entry.get("origin") or "automatic")
+        dev_type = str(entry.get("dev_type") or "")
+        dev_name = str(entry.get("dev_name") or "")
+        set_type = str(entry.get("set_type") or "")
+
+        if rec_id > 0:
+            try:
+                self.store.update_command_record_status(
+                    rec_id,
+                    status=final_status,
+                    message=final_msg,
+                )
+            except Exception:
+                pass
+        if origin == "automatic" and cycle > 0:
+            try:
+                self.store.update_strategy_command_dispatch_status(
+                    cycle=cycle,
+                    dev_type=dev_type,
+                    dev_name=dev_name,
+                    set_type=set_type,
+                    dispatch_status=final_status,
+                    dispatch_message=final_msg,
+                )
+            except Exception:
+                pass
+        elif origin == "manual":
+            with self.lock:
+                cur_rec = self._latest_manual_commands.get((dev_type, dev_name, set_type))
+                if cur_rec is not None and int(cur_rec.get("cmd_time_ms") or 0) == int(entry.get("cmd_time_ms") or 0):
+                    cur_rec["status"] = final_status
+                    cur_rec["message"] = final_msg
+
+        if final_status == "dispatched":
+            with self.lock:
+                self._last_dispatched_at = _now_iso()
+
+        if log_event:
+            is_ok = final_status == "dispatched"
+            level = "info" if is_ok else "warn"
+            try:
+                self.store.append_runtime_log(
+                    level=level,
+                    log_type="command_ack",
+                    target=f"{dev_name} ({set_type})",
+                    result="执行成功" if is_ok else final_status,
+                    summary=f"{'自动' if origin == 'automatic' else '人工'}指令={entry.get('value')}｜{final_msg}",
+                )
+                if not is_ok:
+                    self.store.append_control_log(
+                        level="warn",
+                        event_type="command_ack",
+                        cycle=cycle,
+                        subject=f"指令回执异常：{dev_name} ({set_type})",
+                        summary=final_msg,
+                    )
+            except Exception:
+                pass
+
+    def _ack_watcher_loop(self) -> None:
+        """独立线程主循环：只读轮询 scdfe_d.sqlite3 中在途指令的返回状态并异步更新审计与策略表。"""
+        while not self._ack_stop_event.is_set():
+            with self._ack_lock:
+                pending_items = dict(self._pending_acks)
+            if not pending_items:
+                self._ack_wake_event.clear()
+                self._ack_wake_event.wait(timeout=1.0)
+                continue
+
+            try:
+                states = self.adapter.read_scdfe_d_command_states(list(pending_items.keys()))
+            except Exception:
+                states = {}
+
+            now_mono = time.monotonic()
+            backend_cfg = self.runtime_settings.get("backend", {})
+            cfg_timeout = backend_cfg.get(
+                "command_ack_timeout_seconds",
+                backend_cfg.get("scada_command_timeout_seconds", self._ack_timeout_seconds),
+            )
+            # 若构造时显式指定了更短的测试超时（<15s），优先保留构造值
+            timeout_sec = max(
+                0.5,
+                float(self._ack_timeout_seconds if self._ack_timeout_seconds < 15.0 else cfg_timeout),
+            )
+            resolved: List[Tuple[Tuple[str, int, str], Dict[str, Any], str, str]] = []
+
+            for slot, entry in pending_items.items():
+                st = states.get(slot)
+                expected_time = int(entry.get("cmd_time_ms") or 0)
+                elapsed_ms = int(round((now_mono - float(entry.get("submitted_mono") or now_mono)) * 1000.0))
+
+                if st is not None:
+                    live_time = st.get("cmd_time")
+                    live_status = int(st.get("cmd_status") or 0)
+                    live_ack = st.get("cmd_ack_time")
+
+                    # 若库内时标已经大于本条写入时标，说明已被更新指令覆写
+                    if live_time is not None and expected_time > 0 and int(live_time) > expected_time:
+                        resolved.append((slot, entry, "superseded", f"已被更新指令覆盖 (new_time={live_time})"))
+                        continue
+
+                    if live_status == SCDFE_D_CTRL_STATUS_SUCCESS:
+                        ack_note = f"ack={live_ack}" if live_ack else f"{elapsed_ms}ms"
+                        resolved.append((slot, entry, "dispatched", f"scdfe_d 回执：执行成功 ({ack_note})"))
+                        continue
+                    if live_status == SCDFE_D_CTRL_STATUS_FAILED:
+                        resolved.append((slot, entry, "failed", f"scdfe_d 回执：执行失败 ({elapsed_ms}ms)"))
+                        continue
+                    if live_status == SCDFE_D_CTRL_STATUS_UNCONFIGURED:
+                        resolved.append((slot, entry, "unconfigured", "scdfe_d 回执：控调点未配置有效 RTU/点号"))
+                        continue
+                    if live_status == SCDFE_D_CTRL_STATUS_DISABLED:
+                        resolved.append((slot, entry, "disabled", "scdfe_d 回执：控制点已禁用闭锁"))
+                        continue
+                    if live_status == SCDFE_D_CTRL_STATUS_IDLE and live_ack is not None and live_ack >= expected_time:
+                        resolved.append((slot, entry, "dispatched", f"scdfe_d 回执完成 (ack={live_ack})"))
+                        continue
+
+                if now_mono - float(entry.get("submitted_mono") or now_mono) >= timeout_sec:
+                    resolved.append((slot, entry, "timeout", f"等待 scdfe_d 回执超时 ({timeout_sec:.1f}s)"))
+
+            for slot, entry, final_status, final_msg in resolved:
+                removed = False
+                with self._ack_lock:
+                    cur = self._pending_acks.get(slot)
+                    if cur is entry:
+                        self._pending_acks.pop(slot, None)
+                        removed = True
+                if removed:
+                    self._finalize_ack_entry(
+                        entry,
+                        final_status=final_status,
+                        final_msg=final_msg,
+                        log_event=(final_status != "superseded"),
+                    )
+
+            self._ack_stop_event.wait(timeout=self._ack_poll_interval_seconds)
 
     def _background_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -317,7 +520,8 @@ class AGCRealtimeService:
         now_iso = _now_iso()
         now_ms = int(round(time.time() * 1000))
 
-        # 仅在闭环模式且数据质量允许时真正下发变动指令
+        # 仅在闭环模式且数据质量允许时写回 scdfe_d.sqlite3 并交由独立线程异步等待回执
+        pending_to_watch: List[Tuple[int, Dict[str, Any]]] = []
         if loop_mode == "closed" and dispatch_allowed:
             for cmd in commands_to_send:
                 d_type = str(cmd.get("dev_type", ""))
@@ -337,8 +541,9 @@ class AGCRealtimeService:
                         }
                     )
                     continue
-                ok, msg, pt = self.adapter.dispatch_scada_command(d_type, d_name, s_type, s_val)
-                st = "dispatched" if ok else "failed"
+                ok, st, msg, pt, cmd_time_ms = self.adapter.write_scdfe_d_command(
+                    d_type, d_name, s_type, s_val
+                )
                 dispatch_results.append(
                     {
                         "dev_type": d_type,
@@ -348,6 +553,7 @@ class AGCRealtimeService:
                         "message": msg,
                     }
                 )
+                audit_idx = len(audit_records)
                 audit_records.append(
                     {
                         "issued_at": now_iso,
@@ -365,12 +571,31 @@ class AGCRealtimeService:
                         "message": msg,
                     }
                 )
+                if ok and st == "pending" and pt is not None and pt.scdfe_table and pt.scdfe_col:
+                    pending_to_watch.append(
+                        (
+                            audit_idx,
+                            {
+                                "slot": (pt.scdfe_table, int(pt.scdfe_idx), pt.scdfe_col),
+                                "origin": "automatic",
+                                "kind": pt.kind,
+                                "dev_type": d_type,
+                                "dev_name": d_name,
+                                "set_type": s_type,
+                                "value": s_val,
+                                "cmd_time_ms": int(cmd_time_ms or now_ms),
+                                "submitted_mono": time.monotonic(),
+                            },
+                        )
+                    )
             for rcmd in run_commands_to_send:
                 d_type = str(rcmd.get("dev_type", ""))
                 d_name = str(rcmd.get("dev_name", ""))
                 s_val = int(bool(rcmd.get("run_stat", 1)))
-                ok, msg, pt = self.adapter.dispatch_scada_command(d_type, d_name, "run_stat", s_val)
-                st = "dispatched" if ok else "failed"
+                ok, st, msg, pt, cmd_time_ms = self.adapter.write_scdfe_d_command(
+                    d_type, d_name, "run_stat", s_val
+                )
+                audit_idx = len(audit_records)
                 audit_records.append(
                     {
                         "issued_at": now_iso,
@@ -388,6 +613,23 @@ class AGCRealtimeService:
                         "message": msg,
                     }
                 )
+                if ok and st == "pending" and pt is not None and pt.scdfe_table and pt.scdfe_col:
+                    pending_to_watch.append(
+                        (
+                            audit_idx,
+                            {
+                                "slot": (pt.scdfe_table, int(pt.scdfe_idx), pt.scdfe_col),
+                                "origin": "automatic",
+                                "kind": "yk",
+                                "dev_type": d_type,
+                                "dev_name": d_name,
+                                "set_type": "run_stat",
+                                "value": s_val,
+                                "cmd_time_ms": int(cmd_time_ms or now_ms),
+                                "submitted_mono": time.monotonic(),
+                            },
+                        )
+                    )
         else:
             # 开环模式或数据陈旧闭锁：仅记录策略计算值，不下发
             reason_msg = (
@@ -446,19 +688,33 @@ class AGCRealtimeService:
         )
         for rec in audit_records:
             rec["cycle"] = cycle
-        self.store.append_command_records(audit_records)
+        inserted_ids = self.store.append_command_records(audit_records)
+
+        # 将已写入 scdfe_d 的待回执指令交由独立线程异步等待返回状态
+        for audit_idx, entry in pending_to_watch:
+            entry["cycle"] = cycle
+            entry["record_id"] = inserted_ids[audit_idx] if audit_idx < len(inserted_ids) else 0
+            self._register_pending_ack(entry)
 
         dispatched_ok = sum(1 for r in dispatch_results if r["status"] == "dispatched")
-        dispatched_fail = sum(1 for r in dispatch_results if r["status"] == "failed")
+        dispatched_pending = sum(1 for r in dispatch_results if r["status"] == "pending")
+        dispatched_fail = sum(
+            1 for r in dispatch_results if r["status"] in {"failed", "disabled", "unconfigured", "timeout"}
+        )
         level = "warn" if (dispatched_fail > 0 or stale_blocked or dq.get("status") != "ok") else "info"
         trigger_cn = "自动周期" if trigger == "auto" else "单次计算"
         mode_cn = "闭环" if loop_mode == "closed" else "开环"
+        dispatch_brief = (
+            f"写入 scdfe_d 待回执 {dispatched_pending}，成功 {dispatched_ok}，失败 {dispatched_fail}"
+            if dispatched_pending > 0
+            else f"下发成功 {dispatched_ok}，失败 {dispatched_fail}"
+        )
         self.store.append_control_log(
             level=level,
             event_type=trigger,
             cycle=cycle,
             subject=f"周期 #{cycle}（{trigger_cn} · {mode_cn}）",
-            summary=f"{summary_line}｜下发成功 {dispatched_ok}，失败 {dispatched_fail}",
+            summary=f"{summary_line}｜{dispatch_brief}",
             detail="\n".join(str(line) for line in decision_detail),
         )
 
@@ -602,8 +858,9 @@ class AGCRealtimeService:
                         measured_val = _finite(m.get("value"))
                         break
 
-        ok, msg, pt = self.adapter.dispatch_scada_command(dev_type, dev_name, set_type, parsed_val)
-        status = "dispatched" if ok else "failed"
+        ok, status, msg, pt, cmd_time_ms = self.adapter.write_scdfe_d_command(
+            dev_type, dev_name, set_type, parsed_val
+        )
         now_iso = _now_iso()
         now_ms = int(round(time.time() * 1000))
         record = {
@@ -621,15 +878,34 @@ class AGCRealtimeService:
             "pnt_no": pt.pnt_no if pt else None,
             "status": status,
             "message": msg,
+            "cmd_time_ms": cmd_time_ms,
         }
-        self.store.append_command_records([record])
+        inserted_ids = self.store.append_command_records([record])
+        rec_id = inserted_ids[0] if inserted_ids else 0
+        record["id"] = rec_id
         with self.lock:
             self._latest_manual_commands[(dev_type, dev_name, set_type)] = record
+        if ok and status == "pending" and pt is not None and pt.scdfe_table and pt.scdfe_col:
+            self._register_pending_ack(
+                {
+                    "slot": (pt.scdfe_table, int(pt.scdfe_idx), pt.scdfe_col),
+                    "record_id": rec_id,
+                    "cycle": self._last_cycle,
+                    "origin": "manual",
+                    "kind": pt.kind,
+                    "dev_type": dev_type,
+                    "dev_name": dev_name,
+                    "set_type": set_type,
+                    "value": parsed_val,
+                    "cmd_time_ms": int(cmd_time_ms or now_ms),
+                    "submitted_mono": time.monotonic(),
+                }
+            )
         self.store.append_runtime_log(
             level="info" if ok else "warn",
             log_type="manual_command",
             target=f"{dev_name} ({set_type})",
-            result="已下发" if ok else "失败",
+            result="待回执" if status == "pending" else ("已下发" if ok else status),
             summary=f"人工{'遥控' if is_yk else '遥调'} = {parsed_val}｜{msg}",
         )
         return {"ok": ok, "record": record, "message": msg}
@@ -661,6 +937,8 @@ class AGCRealtimeService:
                     "scada_error": self._last_scada_error,
                     "age_seconds": round(self._last_age_seconds, 2),
                     "agc_db": str(self.store.path),
+                    "command_channel": "scdfe_d",
+                    "pending_ack_count": len(self._pending_acks),
                 },
                 "latest_strategy": latest_strategy,
                 "runtime_settings": self.runtime_settings,
@@ -690,6 +968,8 @@ class AGCRealtimeService:
                 "age_seconds": round(self._last_age_seconds, 2),
                 "scada_error": self._last_scada_error,
                 "agc_db": str(self.store.path),
+                "command_channel": "scdfe_d",
+                "pending_ack_count": len(self._pending_acks),
                 "latest": latest,
             }
 
@@ -744,7 +1024,7 @@ class AGCRealtimeService:
             )
             row_origin = lrec["origin"] if lrec is not None else ("automatic" if srow is not None else "")
             row_status = lrec["status"] if lrec is not None else (srow["dispatch_status"] if srow is not None else "idle")
-            active = cmd_val is not None and row_status in {"dispatched", "calculated", "open_loop_only"}
+            active = cmd_val is not None and row_status in {"pending", "dispatched", "calculated", "open_loop_only"}
             if only_active and not active:
                 continue
             if origin != "all" and row_origin != origin:
@@ -774,6 +1054,8 @@ class AGCRealtimeService:
             else:
                 yt_rows.append(entry)
         return {
+            "command_channel": "scdfe_d",
+            "pending_ack_count": len(self._pending_acks),
             "yk": yk_rows,
             "yt": yt_rows,
             "recent_records": recent_records[:100],

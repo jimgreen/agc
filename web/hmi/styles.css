@@ -600,6 +600,7 @@ html[data-color-scheme="dark"] .btn-primary { color: #04101B; font-weight: 600; 
 .badge-danger { background: var(--danger-soft); color: var(--danger); }
 .badge-info { background: var(--accent-soft); color: var(--accent); }
 .badge-neutral { background: var(--bg-subtle); color: var(--text-secondary); }
+.badge.is-pending { animation: agcPulse 1.5s ease-in-out infinite; }
 
 /* 分段控件与 Tab */
 .segmented {

@@ -229,7 +229,11 @@ function renderOverviewPage() {
   document.getElementById("ovAgcDb").textContent = (agc.agc_db || "agc.sqlite3").split("\\").pop();
   document.getElementById("ovAgcDb").title = agc.agc_db || "";
   const sc = (snap.static_meta && snap.static_meta.scada_command) || {};
-  document.getElementById("ovScadaCmd").textContent = sc.available ? `YT:${sc.yt_count} / YK:${sc.yk_count}` : "--";
+  const pendingAck = Number(agc.pending_ack_count || 0);
+  const chanLabel = sc.channel || agc.command_channel || "scdfe_d";
+  document.getElementById("ovScadaCmd").textContent = sc.available
+    ? `${chanLabel} · YT:${sc.yt_count} / YK:${sc.yk_count}${pendingAck > 0 ? ` · 待回执 ${pendingAck}` : ""}`
+    : "--";
 
   // 决策摘要与变动指令
   document.getElementById("ovDecisionCycle").textContent = `#${latest ? latest.cycle : 0}`;
@@ -259,17 +263,19 @@ function renderOverviewPage() {
           <th>策略说明</th>
         </tr></thead>
         <tbody>
-          ${changedRows.map((r) => `
+          ${changedRows.map((r) => {
+            const st = cmdStatusMeta(r.dispatch_status);
+            return `
             <tr>
               <td>${escapeHtml(r.category || "--")}</td>
               <td><strong>${escapeHtml(r.dev_name)}</strong></td>
               <td class="num">${fmtNum(r.current_kw, 2)}</td>
               <td class="num">${fmtNum(r.target_kw, 2)}</td>
               <td class="num ${Number(r.delta_kw) >= 0 ? "val-pos" : "val-neg"}">${Number(r.delta_kw) >= 0 ? "+" : ""}${fmtNum(r.delta_kw, 2)}</td>
-              <td><span class="badge ${r.dispatch_status === "dispatched" ? "badge-ok" : "badge-info"}">${escapeHtml(r.dispatch_status)}</span></td>
+              <td><span class="badge ${st.cls}" title="${escapeHtml(r.dispatch_message || "")}">${escapeHtml(st.label)}</span></td>
               <td class="ellipsis" title="${escapeHtml(r.status_label || "")}">${escapeHtml(r.status_label || "--")}</td>
-            </tr>
-          `).join("")}
+            </tr>`;
+          }).join("")}
         </tbody>
       </table>`;
   }

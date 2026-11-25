@@ -510,6 +510,110 @@ class AGCRealtimeSystemTests(unittest.TestCase):
         self.assertTrue(q_ok.payload()["dispatchAllowed"])
         self.assertTrue(q_ok.payload()["inputs"]["load"]["valid"])
 
+    def test_scdfe_d_direct_write_and_async_ack_watcher(self):
+        """验证策略直写 scdfe_d.sqlite3 控制列，并由独立线程异步等待执行成功/失败/禁用/超时回执。"""
+        import time
+
+        # 为临时 scdfe_d.sqlite3 添加标准控制列组（对齐 scdfe_d 官方 9 列协议）
+        conn = sqlite3.connect(self.env["scada_db"])
+        conn.executescript(
+            """
+            ALTER TABLE ACGenerator ADD COLUMN p_set REAL;
+            ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_time INTEGER;
+            ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_status INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_ack_time INTEGER;
+            ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_notuse INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_rtu INTEGER;
+            ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_pnt INTEGER;
+            ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_max REAL;
+            ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_min REAL;
+            ALTER TABLE ACGenerator ADD COLUMN run_stat INTEGER;
+            ALTER TABLE ACGenerator ADD COLUMN run_stat_cmd_time INTEGER;
+            ALTER TABLE ACGenerator ADD COLUMN run_stat_cmd_status INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE ACGenerator ADD COLUMN run_stat_cmd_ack_time INTEGER;
+            ALTER TABLE ACGenerator ADD COLUMN run_stat_cmd_notuse INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE ACGenerator ADD COLUMN run_stat_cmd_rtu INTEGER;
+            ALTER TABLE ACGenerator ADD COLUMN run_stat_cmd_pnt INTEGER;
+            UPDATE ACGenerator SET p_set_cmd_rtu=3, p_set_cmd_pnt=11, run_stat_cmd_rtu=3, run_stat_cmd_pnt=21 WHERE idx=1;
+            UPDATE ACGenerator SET p_set_cmd_rtu=3, p_set_cmd_pnt=12, run_stat_cmd_rtu=3, run_stat_cmd_pnt=22 WHERE idx=2;
+            UPDATE ACGenerator SET p_set_cmd_rtu=3, p_set_cmd_pnt=13, run_stat_cmd_rtu=3, run_stat_cmd_pnt=23, p_set_cmd_notuse=1 WHERE idx=3;
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        service = AGCRealtimeService(
+            model_db=self.env["model_db"],
+            scada_db=self.env["scada_db"],
+            svg_path=self.env["svg_path"],
+            agc_db=self.env["agc_db"],
+            start_background=False,
+            ack_timeout_seconds=0.8,
+            ack_poll_interval_seconds=0.05,
+        )
+        self.addCleanup(service.close)
+
+        # 确认独立回执线程已运行且控制点来自 scdfe_d.sqlite3（未连接 scdfe_c）
+        self.assertIsNotNone(service._ack_watcher_thread)
+        self.assertTrue(service._ack_watcher_thread.is_alive())
+        self.assertEqual(service.adapter.control_point_meta.get("channel"), "scdfe_d")
+
+        # 1) 人工写入 idx=1（期待回执成功）和 idx=2（期待回执失败）
+        r1 = service.execute_manual_command(dev_type="ACGenerator", dev_name="交流风电-1", set_type="p_set", value=25.5)
+        r2 = service.execute_manual_command(dev_type="ACGenerator", dev_name="交流储能-1", set_type="p_set", value=-15.0)
+        # 2) idx=3 已设置 notuse=1，应直接拦截不写库
+        r3 = service.execute_manual_command(dev_type="ACGenerator", dev_name="交流柴发-1", set_type="p_set", value=110.0)
+
+        self.assertTrue(r1["ok"])
+        self.assertEqual(r1["record"]["status"], "pending")
+        self.assertTrue(r2["ok"])
+        self.assertEqual(r2["record"]["status"], "pending")
+        self.assertFalse(r3["ok"])
+        self.assertEqual(r3["record"]["status"], "disabled")
+
+        # 验证 scdfe_d.sqlite3 宽表已被直写为 cmd_status=1 且值正确，idx=3 未被修改
+        chk = sqlite3.connect(self.env["scada_db"])
+        chk.row_factory = sqlite3.Row
+        rows = {r["idx"]: dict(r) for r in chk.execute("SELECT idx, p_set, p_set_cmd_time, p_set_cmd_status FROM ACGenerator").fetchall()}
+        self.assertAlmostEqual(rows[1]["p_set"], 25.5)
+        self.assertEqual(rows[1]["p_set_cmd_status"], 1)
+        self.assertAlmostEqual(rows[2]["p_set"], -15.0)
+        self.assertEqual(rows[2]["p_set_cmd_status"], 1)
+        self.assertIsNone(rows[3]["p_set"])
+
+        # 模拟下游 scdfe_d 写回回执：idx=1 执行成功(2)，idx=2 执行失败(3)
+        ack_ms = int(round(time.time() * 1000)) + 10
+        chk.execute("UPDATE ACGenerator SET p_set_cmd_status=2, p_set_cmd_ack_time=? WHERE idx=1", (ack_ms,))
+        chk.execute("UPDATE ACGenerator SET p_set_cmd_status=3, p_set_cmd_ack_time=? WHERE idx=2", (ack_ms,))
+        chk.commit()
+        chk.close()
+
+        # 等待独立线程异步更新 agc_command_records
+        deadline = time.monotonic() + 3.0
+        st1 = st2 = "pending"
+        while time.monotonic() < deadline:
+            rec1 = service.store.conn.execute("SELECT status FROM agc_command_records WHERE id=?", (r1["record"]["id"],)).fetchone()
+            rec2 = service.store.conn.execute("SELECT status FROM agc_command_records WHERE id=?", (r2["record"]["id"],)).fetchone()
+            st1, st2 = rec1["status"], rec2["status"]
+            if st1 != "pending" and st2 != "pending":
+                break
+            time.sleep(0.05)
+        self.assertEqual(st1, "dispatched")
+        self.assertEqual(st2, "failed")
+
+        # 3) 验证超时场景：写入 idx=1 run_stat 后下游不回执，0.8s 后独立线程应标记为 timeout
+        r_to = service.execute_manual_command(dev_type="ACGenerator", dev_name="交流风电-1", set_type="run_stat", value=1)
+        self.assertEqual(r_to["record"]["status"], "pending")
+        deadline = time.monotonic() + 3.0
+        st_to = "pending"
+        while time.monotonic() < deadline:
+            rec_to = service.store.conn.execute("SELECT status FROM agc_command_records WHERE id=?", (r_to["record"]["id"],)).fetchone()
+            st_to = rec_to["status"]
+            if st_to != "pending":
+                break
+            time.sleep(0.05)
+        self.assertEqual(st_to, "timeout")
+
 
 if __name__ == "__main__":
     unittest.main()

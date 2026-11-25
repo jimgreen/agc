@@ -79,6 +79,32 @@ function escapeHtml(str) {
     .replaceAll('"', "&quot;");
 }
 
+function cmdStatusMeta(status) {
+  const s = String(status || "idle").trim().toLowerCase();
+  const map = {
+    pending: { cls: "badge-warn is-pending", label: "待回执" },
+    dispatched: { cls: "badge-ok", label: "执行成功" },
+    failed: { cls: "badge-danger", label: "执行失败" },
+    timeout: { cls: "badge-danger", label: "回执超时" },
+    disabled: { cls: "badge-danger", label: "控制禁用" },
+    unconfigured: { cls: "badge-danger", label: "无配置" },
+    blocked: { cls: "badge-danger", label: "已闭锁" },
+    superseded: { cls: "badge-neutral", label: "已覆盖" },
+    open_loop_only: { cls: "badge-info", label: "开环未发" },
+    unchanged: { cls: "badge-neutral", label: "维持不变" },
+    calculated: { cls: "badge-info", label: "已计算" },
+    idle: { cls: "badge-neutral", label: "空闲" }
+  };
+  return map[s] || { cls: "badge-neutral", label: status || "--" };
+}
+
+function cmdOriginLabel(origin) {
+  const o = String(origin || "").trim().toLowerCase();
+  if (o === "automatic") return "自动";
+  if (o === "manual") return "人工";
+  return origin || "--";
+}
+
 function showToast(msg, level = "info") {
   const container = document.getElementById("toastContainer");
   if (!container) return;

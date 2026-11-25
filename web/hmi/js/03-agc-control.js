@@ -130,6 +130,13 @@ function renderAgcControlPage() {
   badge.className = `badge ${c.auto_enabled ? "badge-ok" : "badge-neutral"}`;
   badge.textContent = c.auto_enabled ? t("state.running") : t("state.stopped");
 
+  const ackBadge = document.getElementById("agcPendingAckBadge");
+  if (ackBadge) {
+    const pendingCnt = Number(c.pending_ack_count || 0);
+    ackBadge.hidden = pendingCnt <= 0;
+    ackBadge.textContent = `待回执 ${pendingCnt}`;
+  }
+
   const toggleBtn = document.getElementById("agcAutoToggleBtn");
   toggleBtn.textContent = c.auto_enabled ? t("agc.stopAuto") : t("agc.startAuto");
   toggleBtn.className = `btn ${c.auto_enabled ? "btn-danger" : "btn-primary"}`;
@@ -364,10 +371,7 @@ function renderAgcStrategyTable() {
       <tbody>
         ${filtered.map((r) => {
           const deltaCls = r.changed ? (Number(r.delta_kw) >= 0 ? "val-pos" : "val-neg") : "";
-          const badgeCls =
-            r.dispatch_status === "dispatched" ? "badge-ok"
-            : r.dispatch_status === "failed" || r.dispatch_status === "blocked" ? "badge-danger"
-            : r.changed ? "badge-info" : "badge-neutral";
+          const st = cmdStatusMeta(r.dispatch_status);
           return `
             <tr class="${r.changed ? "is-selected" : ""}">
               <td>${escapeHtml(r.category)}</td>
@@ -378,7 +382,7 @@ function renderAgcStrategyTable() {
               <td class="num">${fmtNum(r.target_kw, 2)}</td>
               <td class="num ${deltaCls}">${r.delta_kw !== null && r.delta_kw !== undefined ? (Number(r.delta_kw) >= 0 ? "+" : "") + fmtNum(r.delta_kw, 2) : "--"}</td>
               <td class="num">${r.soc !== null && r.soc !== undefined ? fmtPct(r.soc) : "--"}</td>
-              <td><span class="badge ${badgeCls}">${escapeHtml(r.dispatch_status)}</span></td>
+              <td><span class="badge ${st.cls}" title="${escapeHtml(r.dispatch_message || "")}">${escapeHtml(st.label)}</span></td>
               <td class="ellipsis" title="${escapeHtml(r.status_label)}">${escapeHtml(r.status_label)}</td>
             </tr>`;
         }).join("")}

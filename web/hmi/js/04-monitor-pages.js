@@ -235,6 +235,14 @@ async function refreshCommandsPage() {
 function renderCommandsPage() {
   const data = AGCState.commands;
   if (!data) return;
+  const chBadge = document.getElementById("cmdChannelBadge");
+  if (chBadge) chBadge.textContent = data.command_channel || "scdfe_d";
+  const ackBadge = document.getElementById("cmdPendingAckBadge");
+  if (ackBadge) {
+    const pCnt = Number(data.pending_ack_count || 0);
+    ackBadge.hidden = pCnt <= 0;
+    ackBadge.textContent = `待回执 ${pCnt}`;
+  }
   const rows = AGCState.cmdKind === "yk" ? (data.yk || []) : (data.yt || []);
   const treeFilter = document.getElementById("cmdTreeFilter")?.value || "";
   buildBlockTree("cmdTreeList", "cmdTreeSummary", rows, AGCState.cmdFilterBlock, treeFilter, (blk) => {
@@ -267,13 +275,14 @@ function renderCommandsPage() {
           <th class="num">指令值</th>
           <th>来源</th>
           <th>状态</th>
+          <th>回执说明</th>
           <th>操作</th>
         </tr>
       </thead>
       <tbody>
         ${filtered.map((r, idx) => {
           const isSel = sel && sel.dev_type === r.dev_type && sel.dev_name === r.dev_name && sel.set_type === r.set_type;
-          const stCls = r.status === "dispatched" ? "badge-ok" : r.status === "failed" ? "badge-danger" : "badge-neutral";
+          const st = cmdStatusMeta(r.status);
           return `
             <tr data-cmd-idx="${idx}" class="${isSel ? "is-selected" : ""}" style="cursor:pointer;">
               <td><strong>${escapeHtml(r.dev_name)}</strong></td>
@@ -281,8 +290,9 @@ function renderCommandsPage() {
               <td class="num">${r.rtu_id != null ? `${r.rtu_id}:${r.pnt_no}` : "--"}</td>
               <td class="num">${fmtNum(r.measured_value, 2)}</td>
               <td class="num">${fmtNum(r.command_value, 2)}</td>
-              <td>${escapeHtml(r.origin)}</td>
-              <td><span class="badge ${stCls}">${escapeHtml(r.status)}</span></td>
+              <td>${escapeHtml(cmdOriginLabel(r.origin))}</td>
+              <td><span class="badge ${st.cls}" title="${escapeHtml(r.message || "")}">${escapeHtml(st.label)}</span></td>
+              <td class="ellipsis" title="${escapeHtml(r.message || "")}">${escapeHtml(r.message || "--")}</td>
               <td><button type="button" class="btn btn-xs" data-manual-idx="${idx}">${t("cmd.manualOp")}</button></td>
             </tr>`;
         }).join("")}
@@ -551,15 +561,20 @@ function bindMonitorPageEvents() {
     const ok = await confirmDanger({
       title: isYk ? "确认下发人工遥控 (YK)？" : "确认下发人工遥调 (YT)？",
       target: `${devName} · ${setType} = ${val}`,
-      message: "该指令将直接通过 SCADA 四遥通道发送并写入操作审计日志。",
+      message: "该指令将写入 scdfe_d.sqlite3 控制列，并由独立线程异步等待回执状态与记录审计日志。",
       confirmText: "确认下发"
     });
     if (!ok) return;
     try {
       const res = await apiPost("/api/commands/manual", { dev_type: devType, dev_name: devName, set_type: setType, value: val });
       document.getElementById("manualCmdDialog")?.close();
-      showToast(res.message || "指令已下发", res.ok ? "ok" : "warn");
+      const isPending = res.record && res.record.status === "pending";
+      showToast(res.message || (isPending ? "已写入 scdfe_d 等待回执" : "指令已下发"), res.ok ? (isPending ? "info" : "ok") : "warn");
       await refreshCommandsPage();
+      if (isPending) {
+        setTimeout(() => { if (AGCState.page === "commands") refreshCommandsPage(); }, 500);
+        setTimeout(() => { if (AGCState.page === "commands") refreshCommandsPage(); }, 1500);
+      }
     } catch (err) {
       showToast(err.message, "danger");
     }

@@ -1,4 +1,4 @@
-"""秦岭微电网模型库、实时库（scdfe_d）、SVG 接线图与四遥点表适配器。
+"""秦岭微电网模型库、实时库（scdfe_d）、SVG 接线图与四遥控制适配器。
 
 职责：
 1. 只读解析 ``devices.sqlite3``（兼容 RTDB ``rtdb_data_*`` 与原生表及 ``.e`` 文件回退），
@@ -6,8 +6,8 @@
 2. 只读轮询 ``scdfe_d.sqlite3``（WAL 友好），实时采集交直流发电、储能 SOC、负荷、
    变流器、氢能系统、断路器与气象量（风速、辐照度），生成标准快照与测点列表。
 3. 解析 SVG 接线图路径（传入 ``qinling.e`` 时自动关联同目录 ``qinling.svg``）。
-4. 加载 ``point_catalog.json``（及 ``scdfe_c.sqlite3`` 回退）建立四遥控制点映射，
-   支持闭环或人工确认后向 ``scdfe_c`` 指令端点安全下发 YT/YK 指令。
+4. 直接面向 ``scdfe_d.sqlite3`` 设备宽表控制列读取四遥控制点、直写 YT/YK 控制设定值，
+   并供独立回执监听线程批量只读查询 ``*_cmd_status / *_cmd_ack_time``，不直接与 ``scdfe_c`` 交互。
 """
 
 from __future__ import annotations
@@ -24,7 +24,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from scada_interface import ScadaCommandClient, ScadaHttpClient, load_http_client
+# scdfe_d 设备宽表控制状态码（与 scdfe_d/measurement_layout.py 官方枚举完全对齐）
+SCDFE_D_CTRL_STATUS_IDLE = 0          # 空闲
+SCDFE_D_CTRL_STATUS_PENDING = 1       # 待回执
+SCDFE_D_CTRL_STATUS_SUCCESS = 2       # 执行成功
+SCDFE_D_CTRL_STATUS_FAILED = 3        # 执行失败
+SCDFE_D_CTRL_STATUS_UNCONFIGURED = 4  # 无配置
+SCDFE_D_CTRL_STATUS_DISABLED = 5      # 控制禁用
+
+SCDFE_D_CTRL_STATUS_LABELS: Dict[int, str] = {
+    SCDFE_D_CTRL_STATUS_IDLE: "空闲",
+    SCDFE_D_CTRL_STATUS_PENDING: "待回执",
+    SCDFE_D_CTRL_STATUS_SUCCESS: "执行成功",
+    SCDFE_D_CTRL_STATUS_FAILED: "执行失败",
+    SCDFE_D_CTRL_STATUS_UNCONFIGURED: "无配置",
+    SCDFE_D_CTRL_STATUS_DISABLED: "控制禁用",
+}
+
+SCDFE_D_YK_COLUMNS = frozenset({"run_stat", "status", "closed_status", "start_stop", "open_close"})
 
 DEFAULT_MODEL_DB = Path(
     os.environ.get(
@@ -86,7 +103,7 @@ EXTENSION_LINK_TABLES: Tuple[Tuple[str, str, str], ...] = (
     ("DCStorageGen", "DCGenerator", "idx_dcgenerator"),
 )
 
-# 控制字段名到点表 metric 的映射关系
+# 控制字段名到 scdfe_d 控制列 / 点表 metric 的映射关系
 SET_TYPE_TO_METRICS: Dict[str, Tuple[str, ...]] = {
     "p_set": ("p_set",),
     "q_set": ("q_set",),
@@ -97,19 +114,19 @@ SET_TYPE_TO_METRICS: Dict[str, Tuple[str, ...]] = {
     "p_dc_set": ("p_dc_set", "p_set"),
     "v_ac_set": ("v_ac_set",),
     "v_dc_set": ("v_dc_set",),
-    "run_stat": ("start_stop", "run"),
-    "closed_status": ("open_close", "start_stop"),
+    "run_stat": ("run_stat", "start_stop", "run"),
+    "closed_status": ("status", "closed_status", "open_close", "start_stop"),
     "flow_set": ("flow_set", "p_set"),
 }
 
 
 @dataclass(frozen=True)
 class ScadaControlPoint:
-    """单个四遥控制点映射定义。"""
+    """单个四遥控制点映射定义（优先绑定 scdfe_d 设备宽表控制列）。"""
 
     kind: str  # "yt" 或 "yk"
-    rtu_id: int
-    pnt_no: int
+    rtu_id: Optional[int]
+    pnt_no: Optional[int]
     model_table: str
     model_idx: int
     device_name: str
@@ -119,6 +136,10 @@ class ScadaControlPoint:
     unit: str = ""
     eng_min: Optional[float] = None
     eng_max: Optional[float] = None
+    scdfe_table: str = ""
+    scdfe_idx: int = 0
+    scdfe_col: str = ""
+    notuse: int = 0
 
 
 def _finite(value: Any) -> Optional[float]:
@@ -298,12 +319,99 @@ def load_model_tables(model_db: Path, fallback_e_path: Optional[Path] = None) ->
     return {}
 
 
+def _sqlite_rw_connect(path: Path, timeout: float = 5.0) -> sqlite3.Connection:
+    """以读写方式连接 scdfe_d.sqlite3（启用 WAL 兼容忙等待，用于写回控制设定列）。"""
+    resolved = Path(path).resolve()
+    conn = sqlite3.connect(str(resolved), timeout=timeout, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute(f"PRAGMA busy_timeout = {int(max(1000, timeout * 1000))}")
+    return conn
+
+
+def _parse_positive_int(val: Any) -> Optional[int]:
+    num = _finite(val)
+    if num is None:
+        return None
+    iv = int(round(num))
+    return iv if iv > 0 else None
+
+
 def load_control_point_catalog(scada_db: Path) -> Tuple[List[ScadaControlPoint], Dict[str, Any]]:
-    """加载四遥控制点目录（优先同目录 ``point_catalog.json``，缺省回退 ``scdfe_c.sqlite3``）。"""
-    scada_dir = Path(scada_db).resolve().parent
-    catalog_path = scada_dir / "point_catalog.json"
+    """从 ``scdfe_d.sqlite3`` 设备宽表控制列加载四遥控制点（绝不访问 ``scdfe_c``）；
+    若遇不含 ``*_cmd_status`` 列的最小测试库，则回退读取同目录 ``point_catalog.json``。
+    """
+    db_path = Path(scada_db)
     points: List[ScadaControlPoint] = []
-    meta: Dict[str, Any] = {"source": "", "yt_count": 0, "yk_count": 0}
+    meta: Dict[str, Any] = {"source": "", "channel": "scdfe_d", "yt_count": 0, "yk_count": 0}
+
+    if db_path.is_file():
+        try:
+            conn = _sqlite_ro_connect(db_path)
+            try:
+                t_rows = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'rtdb_%' ORDER BY name"
+                ).fetchall()
+                for (tname,) in t_rows:
+                    cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{tname}")').fetchall()]
+                    col_set = set(cols)
+                    if "idx" not in col_set or "name" not in col_set:
+                        continue
+                    cmd_cols = [c[:-11] for c in cols if c.endswith("_cmd_status") and c[:-11] in col_set]
+                    if not cmd_cols:
+                        continue
+                    select_cols = ['"idx"', '"name"']
+                    for ctrl in cmd_cols:
+                        for suffix in ("_cmd_rtu", "_cmd_pnt", "_cmd_notuse", "_cmd_min", "_cmd_max"):
+                            cname = f"{ctrl}{suffix}"
+                            if cname in col_set:
+                                select_cols.append(f'"{cname}"')
+                    rows = conn.execute(f'SELECT {", ".join(select_cols)} FROM "{tname}" ORDER BY idx').fetchall()
+                    for r in rows:
+                        idx_val = _int_or_default(r["idx"], 0)
+                        dev_name = str(r["name"] or "").strip()
+                        if not dev_name:
+                            continue
+                        for ctrl in cmd_cols:
+                            rtu_id = _parse_positive_int(r[f"{ctrl}_cmd_rtu"]) if f"{ctrl}_cmd_rtu" in r.keys() else None
+                            pnt_no = _parse_positive_int(r[f"{ctrl}_cmd_pnt"]) if f"{ctrl}_cmd_pnt" in r.keys() else None
+                            notuse = _int_or_default(r[f"{ctrl}_cmd_notuse"], 0) if f"{ctrl}_cmd_notuse" in r.keys() else 0
+                            eng_min = _finite(r[f"{ctrl}_cmd_min"]) if f"{ctrl}_cmd_min" in r.keys() else None
+                            eng_max = _finite(r[f"{ctrl}_cmd_max"]) if f"{ctrl}_cmd_max" in r.keys() else None
+                            kind = "yk" if ctrl in SCDFE_D_YK_COLUMNS else "yt"
+                            points.append(
+                                ScadaControlPoint(
+                                    kind=kind,
+                                    rtu_id=rtu_id,
+                                    pnt_no=pnt_no,
+                                    model_table=tname,
+                                    model_idx=idx_val,
+                                    device_name=dev_name,
+                                    dev_type=tname,
+                                    metric=ctrl,
+                                    name=f"{dev_name} / {ctrl}",
+                                    unit="" if kind == "yk" else ("kW" if "p_" in ctrl else ""),
+                                    eng_min=eng_min,
+                                    eng_max=eng_max,
+                                    scdfe_table=tname,
+                                    scdfe_idx=idx_val,
+                                    scdfe_col=ctrl,
+                                    notuse=1 if notuse else 0,
+                                )
+                            )
+                if points:
+                    meta["source"] = str(db_path)
+                    meta["yt_count"] = sum(1 for p in points if p.kind == "yt" and p.rtu_id and p.pnt_no)
+                    meta["yk_count"] = sum(1 for p in points if p.kind == "yk" and p.rtu_id and p.pnt_no)
+                    return points, meta
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            pass
+
+    # 回退：仅当 scdfe_d 无控制列（如极简离线测试环境）时读取同目录 point_catalog.json
+    scada_dir = db_path.resolve().parent
+    catalog_path = scada_dir / "point_catalog.json"
     if catalog_path.is_file():
         try:
             payload = json.loads(catalog_path.read_text(encoding="utf-8"))
@@ -314,8 +422,8 @@ def load_control_point_catalog(scada_db: Path) -> Tuple[List[ScadaControlPoint],
                 points.append(
                     ScadaControlPoint(
                         kind=kind,
-                        rtu_id=int(item.get("rtu_id", 1)),
-                        pnt_no=int(item.get("pnt_no", 0)),
+                        rtu_id=_parse_positive_int(item.get("rtu_id")),
+                        pnt_no=_parse_positive_int(item.get("pnt_no")),
                         model_table=str(item.get("model_table", "")),
                         model_idx=_int_or_default(item.get("model_idx", 0), 0),
                         device_name=str(item.get("device_name", "")),
@@ -333,76 +441,11 @@ def load_control_point_catalog(scada_db: Path) -> Tuple[List[ScadaControlPoint],
             return points, meta
         except (OSError, json.JSONDecodeError, ValueError):
             pass
-
-    # 若无 point_catalog.json，优先从同级 fes 目录、其次同目录只读解析 scdfe_c.sqlite3
-    fes_scdfe_c = scada_dir.parent / "fes" / "scdfe_c.sqlite3"
-    scdfe_c = fes_scdfe_c if fes_scdfe_c.is_file() else (scada_dir / "scdfe_c.sqlite3")
-    if scdfe_c.is_file():
-        try:
-            conn = _sqlite_ro_connect(scdfe_c)
-            try:
-                for kind, tbl in (("yt", "fes_yt_define"), ("yk", "fes_yk_define")):
-                    exists = conn.execute(
-                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tbl,)
-                    ).fetchone()
-                    if not exists:
-                        continue
-                    for r in conn.execute(f'SELECT rtu_id, pnt_no, name FROM "{tbl}"').fetchall():
-                        raw_name = str(r["name"] or "")
-                        dev_name = raw_name.split("/")[0].strip() if "/" in raw_name else raw_name
-                        metric = "start_stop" if kind == "yk" else "p_set"
-                        if "无功" in raw_name:
-                            metric = "q_set"
-                        elif "电压" in raw_name:
-                            metric = "v_set"
-                        elif "交流" in raw_name and "有功" in raw_name:
-                            metric = "p_ac_set"
-                        elif "直流" in raw_name and "有功" in raw_name:
-                            metric = "p_dc_set"
-                        points.append(
-                            ScadaControlPoint(
-                                kind=kind,
-                                rtu_id=int(r["rtu_id"]),
-                                pnt_no=int(r["pnt_no"]),
-                                model_table="",
-                                model_idx=0,
-                                device_name=dev_name,
-                                dev_type="",
-                                metric=metric,
-                                name=raw_name,
-                            )
-                        )
-                meta["source"] = str(scdfe_c)
-                meta["yt_count"] = sum(1 for p in points if p.kind == "yt")
-                meta["yk_count"] = sum(1 for p in points if p.kind == "yk")
-            finally:
-                conn.close()
-        except sqlite3.Error:
-            pass
     return points, meta
 
 
-def _resolve_command_endpoint(scada_db: Path, explicit: Optional[Path] = None) -> Optional[Path]:
-    if explicit is not None and Path(explicit).is_file():
-        return Path(explicit)
-    env_path = str(os.environ.get("AGC_SCADA_COMMAND_ENDPOINT", "") or "").strip()
-    if env_path and Path(env_path).is_file():
-        return Path(env_path)
-    scada_dir = Path(scada_db).resolve().parent
-    fes_dir = scada_dir.parent / "fes"
-    for base_dir in (fes_dir, scada_dir):
-        for name in (
-            "scdfe_c.sqlite3.scdfe_command.json",
-            f"{Path(scada_db).name}.scdfe_command.json",
-        ):
-            cand = base_dir / name
-            if cand.is_file():
-                return cand
-    return None
-
-
 class QinlingDataAdapter:
-    """秦岭微电网模型、实时库、SVG 与四遥控制统一适配器。"""
+    """秦岭微电网模型、实时库（scdfe_d）、SVG 与四遥控制统一适配器（不直接访问 scdfe_c）。"""
 
     def __init__(
         self,
@@ -416,16 +459,9 @@ class QinlingDataAdapter:
         self.scada_db = Path(scada_db)
         self.svg_input_path = Path(svg_path)
         self.svg_file, self.e_file = resolve_svg_file(self.svg_input_path)
-        self.command_endpoint = _resolve_command_endpoint(
-            self.scada_db, Path(command_endpoint) if command_endpoint else None
-        )
+        # 保留参数签名兼容旧调用方，但严禁直接连接 scdfe_c；控制通道统一面向 scdfe_d.sqlite3
+        self.command_endpoint: Optional[Path] = self.scada_db
         self._custom_sender = command_sender
-        self._http_client: Optional[ScadaHttpClient] = load_http_client()
-        self._cmd_client: Optional[ScadaCommandClient] = (
-            ScadaCommandClient(self.command_endpoint)
-            if self.command_endpoint is not None
-            else None
-        )
 
         self.model_tables: Dict[str, List[Dict[str, Any]]] = {}
         self.model_meta: Dict[str, Any] = {}
@@ -518,6 +554,151 @@ class QinlingDataAdapter:
                     return pt
         return None
 
+    def write_scdfe_d_command(
+        self,
+        dev_type: str,
+        dev_name: str,
+        set_type: str,
+        value: Any,
+    ) -> Tuple[bool, str, str, Optional[ScadaControlPoint], Optional[int]]:
+        """将控制策略直写至 ``scdfe_d.sqlite3`` 对应设备宽表的控制列组，由 ``scdfe_d`` 统一转发与回执。
+
+        返回 ``(ok, status_code, message, point, cmd_time_ms)``：
+        - 写入成功返回 ``(True, "pending", "已写入 scdfe_d 待回执", pt, cmd_time_ms)``；
+        - 若注入测试用 ``_custom_sender`` 则直接调用自定义回调并返回 ``dispatched`` / ``failed``；
+        - 未配置 / 禁用 / 写库异常返回对应终态且不写脏数据。
+        """
+        pt = self.resolve_control_point(dev_type, dev_name, set_type)
+        if pt is None:
+            return False, "unconfigured", f"未在 scdfe_d 控制列中找到映射: {dev_type}.{dev_name}.{set_type}", None, None
+
+        if self._custom_sender is not None:
+            try:
+                ok = bool(self._custom_sender(pt.kind, int(pt.rtu_id or 0), int(pt.pnt_no or 0), value))
+                return (
+                    ok,
+                    "dispatched" if ok else "failed",
+                    "已提交(自定义测试通道)" if ok else "自定义测试通道拒绝",
+                    pt,
+                    int(round(time.time() * 1000)),
+                )
+            except Exception as exc:
+                return False, "failed", f"自定义通道异常: {exc}", pt, None
+
+        if not pt.scdfe_table or not pt.scdfe_col or pt.scdfe_idx <= 0:
+            return False, "unconfigured", f"scdfe_d 未包含设备控制宽表列: {dev_type}.{dev_name}.{set_type}", pt, None
+
+        if not self.scada_db.is_file():
+            return False, "failed", f"实时库不存在: {self.scada_db}", pt, None
+
+        tbl = pt.scdfe_table
+        col = pt.scdfe_col
+        idx = int(pt.scdfe_idx)
+        norm_val: Any = int(bool(int(float(value)))) if pt.kind == "yk" else float(value)
+
+        try:
+            conn = _sqlite_rw_connect(self.scada_db, timeout=5.0)
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    f'SELECT "{col}_cmd_time", "{col}_cmd_rtu", "{col}_cmd_pnt", "{col}_cmd_notuse" '
+                    f'FROM "{tbl}" WHERE idx = ?',
+                    (idx,),
+                ).fetchone()
+                if row is None:
+                    conn.rollback()
+                    return False, "unconfigured", f"scdfe_d 表 {tbl} 中未找到 idx={idx}({dev_name})", pt, None
+
+                rtu_live = _parse_positive_int(row[f"{col}_cmd_rtu"])
+                pnt_live = _parse_positive_int(row[f"{col}_cmd_pnt"])
+                notuse_live = _int_or_default(row[f"{col}_cmd_notuse"], 0)
+                if rtu_live is None or pnt_live is None:
+                    conn.rollback()
+                    return False, "unconfigured", f"scdfe_d 控制点 {tbl}.{dev_name}.{col} 未配置有效 RTU/点号", pt, None
+                if notuse_live:
+                    conn.rollback()
+                    return False, "disabled", f"scdfe_d 控制点 {tbl}.{dev_name}.{col} 已禁用闭锁", pt, None
+
+                prev_time = _int_or_default(row[f"{col}_cmd_time"], 0)
+                cmd_time_ms = max(int(round(time.time() * 1000)), prev_time + 1)
+                conn.execute(
+                    f'UPDATE "{tbl}" SET "{col}" = ?, "{col}_cmd_time" = ?, '
+                    f'"{col}_cmd_status" = ?, "{col}_cmd_ack_time" = NULL WHERE idx = ?',
+                    (norm_val, cmd_time_ms, SCDFE_D_CTRL_STATUS_PENDING, idx),
+                )
+                conn.commit()
+                return (
+                    True,
+                    "pending",
+                    f"已写入 scdfe_d ({tbl}.{col}, RTU {rtu_live}:{pnt_live}) 待回执",
+                    pt,
+                    cmd_time_ms,
+                )
+            except BaseException:
+                try:
+                    conn.rollback()
+                except sqlite3.Error:
+                    pass
+                raise
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:
+            return False, "failed", f"写入 scdfe_d 控制列失败: {exc}", pt, None
+
+    def read_scdfe_d_command_states(
+        self,
+        slots: Sequence[Tuple[str, int, str]],
+    ) -> Dict[Tuple[str, int, str], Dict[str, Any]]:
+        """供独立回执监听线程以只读方式批量查询 ``scdfe_d.sqlite3`` 中在途指令的返回状态。"""
+        if not slots or not self.scada_db.is_file():
+            return {}
+        by_table: Dict[str, List[Tuple[int, str]]] = {}
+        for tbl, idx, col in slots:
+            if tbl and col and idx > 0:
+                by_table.setdefault(tbl, []).append((int(idx), col))
+        result: Dict[Tuple[str, int, str], Dict[str, Any]] = {}
+        try:
+            conn = _sqlite_ro_connect(self.scada_db, timeout=3.0)
+            try:
+                for tbl, pairs in by_table.items():
+                    idxs = sorted({i for i, _ in pairs})
+                    cols = sorted({c for _, c in pairs})
+                    select_parts = ['"idx"']
+                    for c in cols:
+                        select_parts.extend(
+                            [
+                                f'"{c}"',
+                                f'"{c}_cmd_time"',
+                                f'"{c}_cmd_status"',
+                                f'"{c}_cmd_ack_time"',
+                                f'"{c}_cmd_notuse"',
+                            ]
+                        )
+                    placeholders = ",".join("?" for _ in idxs)
+                    rows = conn.execute(
+                        f'SELECT {", ".join(select_parts)} FROM "{tbl}" WHERE idx IN ({placeholders})',
+                        idxs,
+                    ).fetchall()
+                    row_by_idx = {_int_or_default(r["idx"], 0): r for r in rows}
+                    for idx_val, col in pairs:
+                        r = row_by_idx.get(idx_val)
+                        if r is None:
+                            continue
+                        status_code = _int_or_default(r[f"{col}_cmd_status"], SCDFE_D_CTRL_STATUS_IDLE)
+                        result[(tbl, idx_val, col)] = {
+                            "value": r[col],
+                            "cmd_time": _int_or_default(r[f"{col}_cmd_time"], 0) if r[f"{col}_cmd_time"] is not None else None,
+                            "cmd_status": status_code,
+                            "cmd_status_label": SCDFE_D_CTRL_STATUS_LABELS.get(status_code, str(status_code)),
+                            "cmd_ack_time": _int_or_default(r[f"{col}_cmd_ack_time"], 0) if r[f"{col}_cmd_ack_time"] is not None else None,
+                            "notuse": _int_or_default(r[f"{col}_cmd_notuse"], 0),
+                        }
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            return result
+        return result
+
     def dispatch_scada_command(
         self,
         dev_type: str,
@@ -525,23 +706,9 @@ class QinlingDataAdapter:
         set_type: str,
         value: Any,
     ) -> Tuple[bool, str, Optional[ScadaControlPoint]]:
-        """通过配置好的四遥通道下发单条 YT/YK 指令。"""
-        pt = self.resolve_control_point(dev_type, dev_name, set_type)
-        if pt is None:
-            return False, f"未在点表中找到控制点映射: {dev_type}.{dev_name}.{set_type}", None
-        try:
-            if self._custom_sender is not None:
-                ok = bool(self._custom_sender(pt.kind, pt.rtu_id, pt.pnt_no, value))
-                return ok, "已提交(自定义通道)" if ok else "自定义通道拒绝", pt
-            if self._cmd_client is not None:
-                ok = self._cmd_client.send(pt.kind, pt.rtu_id, pt.pnt_no, value)
-                return bool(ok), "已提交至 SCADA 指令服务" if ok else "SCADA 指令服务拒绝", pt
-            if self._http_client is not None:
-                ok = self._http_client.send(pt.kind, pt.rtu_id, pt.pnt_no, value)
-                return bool(ok), "已提交至 SCADA HTTP 接口" if ok else "SCADA HTTP 接口拒绝", pt
-            return False, "未配置 SCADA 指令端点（scdfe_command.json / HTTP）", pt
-        except Exception as exc:
-            return False, f"指令下发异常: {exc}", pt
+        """兼容入口：通过 ``scdfe_d.sqlite3`` 控制列下发单条 YT/YK 指令。"""
+        ok, _status, msg, pt, _cmd_time = self.write_scdfe_d_command(dev_type, dev_name, set_type, value)
+        return ok, msg, pt
 
     def _read_scdfe_tables(self) -> Tuple[Dict[str, List[Dict[str, Any]]], Optional[float], str]:
         """只读抓取 ``scdfe_d.sqlite3`` 全部实时表。"""
@@ -1089,8 +1256,18 @@ class QinlingDataAdapter:
                     "available": bool(self._svg_text),
                 },
                 "scada_command": {
-                    "endpoint": str(self.command_endpoint or ""),
-                    "available": bool(self._cmd_client or self._http_client or self._custom_sender),
+                    "channel": "scdfe_d",
+                    "endpoint": str(self.scada_db),
+                    "available": bool(
+                        self._custom_sender is not None
+                        or (
+                            self.scada_db.is_file()
+                            and (
+                                self.control_point_meta.get("yt_count", 0) > 0
+                                or self.control_point_meta.get("yk_count", 0) > 0
+                            )
+                        )
+                    ),
                     "yt_count": self.control_point_meta.get("yt_count", 0),
                     "yk_count": self.control_point_meta.get("yk_count", 0),
                 },

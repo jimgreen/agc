@@ -499,38 +499,94 @@ class AGCRealtimeStore:
             self.conn.commit()
             return int(cur.lastrowid or 0)
 
-    def append_command_records(self, records: Sequence[Mapping[str, Any]]) -> None:
+    def append_command_records(self, records: Sequence[Mapping[str, Any]]) -> List[int]:
         if not records:
-            return
+            return []
         now = _now_iso()
         now_ms = int(round(time.time() * 1000))
-        rows = [
-            (
-                str(r.get("issued_at") or now),
-                int(r.get("epoch_ms") or now_ms),
-                int(r.get("cycle") or 0),
-                str(r.get("origin") or "automatic"),
-                str(r.get("kind") or "yt"),
-                str(r.get("dev_type") or ""),
-                str(r.get("dev_name") or ""),
-                str(r.get("set_type") or ""),
-                _finite_or_none(r.get("measured_value")),
-                _finite_or_none(r.get("command_value")),
-                r.get("rtu_id"),
-                r.get("pnt_no"),
-                str(r.get("status") or "calculated"),
-                str(r.get("message") or ""),
-            )
-            for r in records
-        ]
+        inserted_ids: List[int] = []
         with self.lock:
-            self.conn.executemany(
-                """INSERT INTO agc_command_records(
-                    issued_at, epoch_ms, cycle, origin, kind,
-                    dev_type, dev_name, set_type, measured_value, command_value,
-                    rtu_id, pnt_no, status, message
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                rows,
+            for r in records:
+                cur = self.conn.execute(
+                    """INSERT INTO agc_command_records(
+                        issued_at, epoch_ms, cycle, origin, kind,
+                        dev_type, dev_name, set_type, measured_value, command_value,
+                        rtu_id, pnt_no, status, message
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        str(r.get("issued_at") or now),
+                        int(r.get("epoch_ms") or now_ms),
+                        int(r.get("cycle") or 0),
+                        str(r.get("origin") or "automatic"),
+                        str(r.get("kind") or "yt"),
+                        str(r.get("dev_type") or ""),
+                        str(r.get("dev_name") or ""),
+                        str(r.get("set_type") or ""),
+                        _finite_or_none(r.get("measured_value")),
+                        _finite_or_none(r.get("command_value")),
+                        r.get("rtu_id"),
+                        r.get("pnt_no"),
+                        str(r.get("status") or "calculated"),
+                        str(r.get("message") or ""),
+                    ),
+                )
+                inserted_ids.append(int(cur.lastrowid or 0))
+            self.conn.commit()
+        return inserted_ids
+
+    def update_command_record_status(
+        self,
+        record_id: int,
+        *,
+        status: str,
+        message: str,
+    ) -> None:
+        """供独立回执监听线程异步回填指令审计终态（如 pending -> dispatched/failed/timeout）。"""
+        if int(record_id or 0) <= 0:
+            return
+        with self.lock:
+            self.conn.execute(
+                "UPDATE agc_command_records SET status = ?, message = ? WHERE id = ?",
+                (str(status), str(message), int(record_id)),
+            )
+            self.conn.commit()
+
+    def update_strategy_command_dispatch_status(
+        self,
+        *,
+        cycle: int,
+        dev_type: str,
+        dev_name: str,
+        set_type: str,
+        dispatch_status: str,
+        dispatch_message: str,
+    ) -> None:
+        """同步回填指定周期策略表内对应设备的下发回执状态与快照成功计数。"""
+        if int(cycle or 0) <= 0:
+            return
+        with self.lock:
+            self.conn.execute(
+                """UPDATE agc_strategy_commands
+                   SET dispatch_status = ?, dispatch_message = ?
+                   WHERE cycle = ? AND dev_type = ? AND dev_name = ? AND set_type = ?""",
+                (
+                    str(dispatch_status),
+                    str(dispatch_message),
+                    int(cycle),
+                    str(dev_type),
+                    str(dev_name),
+                    str(set_type),
+                ),
+            )
+            row = self.conn.execute(
+                """SELECT COUNT(*) AS cnt FROM agc_strategy_commands
+                   WHERE cycle = ? AND dispatch_status = 'dispatched'""",
+                (int(cycle),),
+            ).fetchone()
+            ok_cnt = int(row["cnt"] if row else 0)
+            self.conn.execute(
+                "UPDATE agc_strategy_snapshots SET dispatched_count = ? WHERE cycle = ?",
+                (ok_cnt, int(cycle)),
             )
             self.conn.commit()
 

@@ -30,7 +30,7 @@
         } catch (_e) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20261125-fix12" />
+    <link rel="stylesheet" href="/styles.css?v=20261125-fix14" />
   </head>
   <body>
     <div class="app-shell">
@@ -455,7 +455,10 @@
                 <section class="panel agc-ctrl-panel split-pane">
                   <div class="panel-head">
                     <h2 data-i18n="agc.panelTitle">运行控制</h2>
-                    <span id="agcStateBadge" class="badge badge-neutral">已停止</span>
+                    <div class="inline-btn-group">
+                      <span id="agcPendingAckBadge" class="badge badge-warn is-pending" hidden>待回执 0</span>
+                      <span id="agcStateBadge" class="badge badge-neutral">已停止</span>
+                    </div>
                   </div>
                   <div class="agc-ctrl-body">
                     <div class="agc-primary-actions">
@@ -720,6 +723,8 @@
                       <button type="button" data-cmd-kind="yk" data-i18n="cmd.yk">遥控 (YK)</button>
                     </div>
                     <div class="filter-inline">
+                      <span id="cmdChannelBadge" class="badge badge-info mono" title="控制策略直写 scdfe_d.sqlite3 宽表控制列">scdfe_d</span>
+                      <span id="cmdPendingAckBadge" class="badge badge-warn is-pending" hidden>待回执 0</span>
                       <input id="cmdKeyword" type="search" class="compact-input" data-i18n-placeholder="filter.keyword" placeholder="搜索..." />
                       <select id="cmdOriginFilter" class="compact-select">
                         <option value="all" data-i18n="cmd.allOrigin">全部来源</option>
@@ -1161,11 +1166,11 @@
 
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-    <script defer src="/js/00-i18n.js?v=20261125-fix12"></script>
-    <script defer src="/js/01-core.js?v=20261125-fix12"></script>
-    <script defer src="/js/02-overview-diagram.js?v=20261125-fix12"></script>
-    <script defer src="/js/03-agc-control.js?v=20261125-fix12"></script>
-    <script defer src="/js/04-monitor-pages.js?v=20261125-fix12"></script>
-    <script defer src="/js/05-bootstrap.js?v=20261125-fix12"></script>
+    <script defer src="/js/00-i18n.js?v=20261125-fix14"></script>
+    <script defer src="/js/01-core.js?v=20261125-fix14"></script>
+    <script defer src="/js/02-overview-diagram.js?v=20261125-fix14"></script>
+    <script defer src="/js/03-agc-control.js?v=20261125-fix14"></script>
+    <script defer src="/js/04-monitor-pages.js?v=20261125-fix14"></script>
+    <script defer src="/js/05-bootstrap.js?v=20261125-fix14"></script>
   </body>
 </html>
