@@ -197,6 +197,7 @@ async function pollingTick() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   applyI18n();
+  initAllSplitters();
   bindGlobalShellEvents();
   bindDiagramInteractions();
   bindAgcControlEvents();

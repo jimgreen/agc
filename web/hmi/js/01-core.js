@@ -167,9 +167,10 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
 
 function drawLineChart(canvas, { labels = [], series = [], leftUnit = "kW", rightUnit = "%", emptyText = "暂无数据" }) {
   if (!canvas) return;
-  const rect = canvas.getBoundingClientRect();
+  const host = canvas.parentElement || canvas;
+  const rect = host.getBoundingClientRect();
   const width = Math.max(260, Math.floor(rect.width || 600));
-  const height = Math.max(150, Math.floor(rect.height || 220));
+  const height = Math.max(120, Math.floor(rect.height || 220));
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
   if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
@@ -308,11 +309,34 @@ function drawLineChart(canvas, { labels = [], series = [], leftUnit = "kW", righ
       }
     });
     ctx.stroke();
+    // 点数较少时显式绘制圆点，避免仅 1 个周期点时折线不可见
+    if (labels.length <= 2) {
+      ctx.setLineDash([]);
+      ctx.fillStyle = color;
+      (s.values || []).forEach((v, i) => {
+        if (v === null || v === undefined || !Number.isFinite(Number(v))) return;
+        const x = mapX(i);
+        const y = mapY(Number(v), s.axis);
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
     ctx.restore();
   });
 
   // 鼠标悬停十字准星与半透明圆角胶囊 Tooltip
   canvas._chartRenderMeta = { labels, series, padL, padT, plotW, plotH, mapX, mapY, pal, leftUnit, rightUnit };
+  if (!canvas._resizeObserved && typeof ResizeObserver !== "undefined") {
+    canvas._resizeObserved = true;
+    const ro = new ResizeObserver(() => {
+      const m = canvas._chartRenderMeta;
+      if (m && host.clientWidth > 0 && host.clientHeight > 0) {
+        drawLineChart(canvas, { labels: m.labels, series: m.series, leftUnit: m.leftUnit, rightUnit: m.rightUnit });
+      }
+    });
+    ro.observe(host);
+  }
   if (!canvas._hoverBound) {
     canvas._hoverBound = true;
     canvas.addEventListener("mousemove", (ev) => {
@@ -399,4 +423,155 @@ function drawChartHover(canvas, idx) {
     }
   });
   ctx.restore();
+}
+
+// =========================================================================
+// 通用可拖拽折叠分栏引擎（支持拖拽缩放、一键折叠/恢复、双击复原与本地持久化）
+// =========================================================================
+function initAllSplitters() {
+  const splitters = document.querySelectorAll(".splitter[data-split-id]");
+  splitters.forEach((bar) => {
+    if (bar._splitReady) return;
+    bar._splitReady = true;
+
+    const id = bar.dataset.splitId;
+    const axis = bar.dataset.axis === "y" ? "y" : "x";
+    const targetSide = bar.dataset.target === "next" ? "next" : "prev";
+    const collapseSide = bar.dataset.collapse === "next" ? "next" : "prev";
+    const defaultRaw = String(bar.dataset.default || "260").trim();
+    const minPx = Math.max(80, Number(bar.dataset.min || 140));
+    const storageKey = `agcSplit:${id}`;
+
+    const prevPane = bar.previousElementSibling;
+    const nextPane = bar.nextElementSibling;
+    const container = bar.parentElement;
+    if (!prevPane || !nextPane || !container) return;
+
+    const controlledPane = targetSide === "next" ? nextPane : prevPane;
+    const flexPane = targetSide === "next" ? prevPane : nextPane;
+    const collapsiblePane = collapseSide === "next" ? nextPane : prevPane;
+
+    // 创建居中一键折叠/展开按钮
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "splitter-toggle";
+    btn.setAttribute("aria-label", "折叠或展开分区");
+    bar.appendChild(btn);
+
+    let savedState = { size: defaultRaw, collapsed: false };
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          savedState = {
+            size: parsed.size || defaultRaw,
+            collapsed: Boolean(parsed.collapsed)
+          };
+        }
+      }
+    } catch (_e) {}
+
+    function persist() {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(savedState));
+      } catch (_e) {}
+    }
+
+    function updateToggleIcon() {
+      const c = savedState.collapsed;
+      if (axis === "x") {
+        btn.textContent = collapseSide === "prev" ? (c ? "›" : "‹") : (c ? "‹" : "›");
+      } else {
+        btn.textContent = collapseSide === "prev" ? (c ? "⌄" : "⌃") : (c ? "⌃" : "⌄");
+      }
+      btn.title = c ? "展开分区" : "折叠分区";
+      bar.classList.toggle("is-collapsed-host", c);
+    }
+
+    function applySize(sizeSpec) {
+      const s = String(sizeSpec || defaultRaw).trim();
+      if (s.endsWith("%")) {
+        controlledPane.style.flex = `0 0 ${s}`;
+      } else {
+        const px = Math.max(minPx, parseFloat(s) || 240);
+        controlledPane.style.flex = `0 0 ${Math.round(px)}px`;
+      }
+      flexPane.style.flex = "1 1 0";
+    }
+
+    function applyState() {
+      if (savedState.collapsed) {
+        collapsiblePane.classList.add("is-collapsed");
+        const other = collapsiblePane === prevPane ? nextPane : prevPane;
+        other.style.flex = "1 1 0";
+      } else {
+        collapsiblePane.classList.remove("is-collapsed");
+        applySize(savedState.size);
+      }
+      updateToggleIcon();
+      if (typeof redrawActiveCharts === "function") {
+        requestAnimationFrame(() => redrawActiveCharts());
+      }
+    }
+
+    // 按钮点击：一键折叠 / 恢复原尺寸
+    btn.addEventListener("mousedown", (ev) => ev.stopPropagation());
+    btn.addEventListener("dblclick", (ev) => ev.stopPropagation());
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      savedState.collapsed = !savedState.collapsed;
+      persist();
+      applyState();
+    });
+
+    // 双击分割条：恢复默认尺寸并展开
+    bar.addEventListener("dblclick", () => {
+      savedState = { size: defaultRaw, collapsed: false };
+      persist();
+      applyState();
+    });
+
+    // 鼠标拖拽实时缩放
+    bar.addEventListener("mousedown", (ev) => {
+      if (ev.target.closest(".splitter-toggle")) return;
+      ev.preventDefault();
+      if (savedState.collapsed) {
+        savedState.collapsed = false;
+        collapsiblePane.classList.remove("is-collapsed");
+      }
+      const rect = container.getBoundingClientRect();
+      const total = axis === "x" ? rect.width : rect.height;
+      const barSize = axis === "x" ? bar.offsetWidth : bar.offsetHeight;
+      const maxPx = Math.max(minPx + 20, total - barSize - minPx);
+
+      bar.classList.add("is-dragging");
+      document.body.classList.add(axis === "x" ? "is-resizing-x" : "is-resizing-y");
+
+      const onMove = (moveEv) => {
+        const curPos = axis === "x" ? moveEv.clientX - rect.left : moveEv.clientY - rect.top;
+        let nextPx = targetSide === "prev" ? curPos - barSize / 2 : total - curPos - barSize / 2;
+        nextPx = Math.max(minPx, Math.min(maxPx, nextPx));
+        savedState.size = `${Math.round(nextPx)}px`;
+        applySize(savedState.size);
+      };
+
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        bar.classList.remove("is-dragging");
+        document.body.classList.remove("is-resizing-x", "is-resizing-y");
+        updateToggleIcon();
+        persist();
+        if (typeof redrawActiveCharts === "function") {
+          requestAnimationFrame(() => redrawActiveCharts());
+        }
+      };
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    });
+
+    applyState();
+  });
 }

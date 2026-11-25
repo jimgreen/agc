@@ -30,7 +30,7 @@
         } catch (_e) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=20261125-fix4" />
   </head>
   <body>
     <div class="app-shell">
@@ -175,15 +175,16 @@
                 </div>
               </section>
 
-              <div class="overview-center-row">
-                <section class="panel energy-flow-panel">
-                  <div class="panel-head">
-                    <h2 data-i18n="overview.energyFlow">交直流微电网与氢能全景流向</h2>
-                    <div class="panel-head-actions">
-                      <button id="ovQuickCalcBtn" type="button" class="btn btn-primary btn-sm" data-i18n="agc.calcOnce">单次计算</button>
-                      <button id="ovGoAgcBtn" type="button" class="btn btn-sm" data-i18n="overview.openAgc">进入控制</button>
+              <div class="split-y">
+                <div class="overview-center-row split-x split-pane" style="flex: 1 1 0;">
+                  <section class="panel energy-flow-panel split-pane" style="flex: 1 1 0;">
+                    <div class="panel-head">
+                      <h2 data-i18n="overview.energyFlow">交直流微电网与氢能全景流向</h2>
+                      <div class="panel-head-actions">
+                        <button id="ovQuickCalcBtn" type="button" class="btn btn-primary btn-sm" data-i18n="agc.calcOnce">单次计算</button>
+                        <button id="ovGoAgcBtn" type="button" class="btn btn-sm" data-i18n="overview.openAgc">进入控制</button>
+                      </div>
                     </div>
-                  </div>
                   <div class="energy-flow-board">
                     <div class="ef-column ef-dc">
                       <div class="ef-col-title" data-i18n="overview.dcSide">直流侧 (750V)</div>
@@ -301,49 +302,55 @@
                       </div>
                     </div>
                   </div>
-                </section>
+                  </section>
 
-                <section class="panel overview-env-panel">
-                  <div class="panel-head">
-                    <h2 data-i18n="overview.envTitle">环境与数据源</h2>
-                    <span id="ovSampleTime" class="mono muted">--</span>
-                  </div>
-                  <dl class="kv-list">
-                    <div><dt data-i18n="env.windSpeed">实时风速</dt><dd id="ovWindSpeed" class="mono">-- m/s</dd></div>
-                    <div><dt data-i18n="env.solar">太阳辐照度</dt><dd id="ovSolarIrr" class="mono">-- W/m²</dd></div>
-                    <div><dt data-i18n="env.temp">环境温度</dt><dd id="ovAirTemp" class="mono">-- °C</dd></div>
-                    <div><dt data-i18n="env.modelDb">模型源</dt><dd id="ovModelDb" class="mono ellipsis">devices.sqlite3</dd></div>
-                    <div><dt data-i18n="env.scadaDb">实时源</dt><dd id="ovScadaDb" class="mono ellipsis">scdfe_d.sqlite3</dd></div>
-                    <div><dt data-i18n="env.agcDb">AGC 存储</dt><dd id="ovAgcDb" class="mono ellipsis">agc.sqlite3</dd></div>
-                    <div><dt data-i18n="env.scadaCmd">四遥通道</dt><dd id="ovScadaCmd" class="mono">--</dd></div>
-                  </dl>
-                </section>
-              </div>
+                  <div class="splitter splitter-x" data-split-id="ov-center-x" data-axis="x" data-target="next" data-collapse="next" data-default="270" data-min="190" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
 
-              <div class="overview-bottom-row">
-                <section class="panel">
-                  <div class="panel-head">
-                    <h2 data-i18n="overview.decisionSummary">最新控制决策摘要</h2>
-                    <span id="ovDecisionCycle" class="mono muted">#0</span>
-                  </div>
-                  <div id="ovDecisionList" class="decision-summary-list"></div>
-                </section>
-                <section class="panel">
-                  <div class="panel-head">
-                    <h2 data-i18n="overview.activeCmds">本周期变动指令</h2>
-                    <span id="ovChangedCount" class="mono muted">0</span>
-                  </div>
-                  <div id="ovChangedTable" class="table-scroll compact-table"></div>
-                </section>
+                  <section class="panel overview-env-panel split-pane">
+                    <div class="panel-head">
+                      <h2 data-i18n="overview.envTitle">环境与数据源</h2>
+                      <span id="ovSampleTime" class="mono muted">--</span>
+                    </div>
+                    <dl class="kv-list">
+                      <div><dt data-i18n="env.windSpeed">实时风速</dt><dd id="ovWindSpeed" class="mono">-- m/s</dd></div>
+                      <div><dt data-i18n="env.solar">太阳辐照度</dt><dd id="ovSolarIrr" class="mono">-- W/m²</dd></div>
+                      <div><dt data-i18n="env.temp">环境温度</dt><dd id="ovAirTemp" class="mono">-- °C</dd></div>
+                      <div><dt data-i18n="env.modelDb">模型源</dt><dd id="ovModelDb" class="mono ellipsis">devices.sqlite3</dd></div>
+                      <div><dt data-i18n="env.scadaDb">实时源</dt><dd id="ovScadaDb" class="mono ellipsis">scdfe_d.sqlite3</dd></div>
+                      <div><dt data-i18n="env.agcDb">AGC 存储</dt><dd id="ovAgcDb" class="mono ellipsis">agc.sqlite3</dd></div>
+                      <div><dt data-i18n="env.scadaCmd">四遥通道</dt><dd id="ovScadaCmd" class="mono">--</dd></div>
+                    </dl>
+                  </section>
+                </div>
+
+                <div class="splitter splitter-y" data-split-id="ov-main-y" data-axis="y" data-target="next" data-collapse="next" data-default="210" data-min="120" title="拖动调整高度 · 双击复原 · 点击按钮折叠"></div>
+
+                <div class="overview-bottom-row split-x split-pane">
+                  <section class="panel split-pane">
+                    <div class="panel-head">
+                      <h2 data-i18n="overview.decisionSummary">最新控制决策摘要</h2>
+                      <span id="ovDecisionCycle" class="mono muted">#0</span>
+                    </div>
+                    <div id="ovDecisionList" class="decision-summary-list"></div>
+                  </section>
+                  <div class="splitter splitter-x" data-split-id="ov-bottom-x" data-axis="x" data-target="prev" data-collapse="next" data-default="50%" data-min="220" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
+                  <section class="panel split-pane" style="flex: 1 1 0;">
+                    <div class="panel-head">
+                      <h2 data-i18n="overview.activeCmds">本周期变动指令</h2>
+                      <span id="ovChangedCount" class="mono muted">0</span>
+                    </div>
+                    <div id="ovChangedTable" class="table-scroll compact-table"></div>
+                  </section>
+                </div>
               </div>
             </div>
           </section>
 
           <!-- ==================== 2. AGC 控制决策（核心页） ==================== -->
           <section class="page-section" data-page="agc-control">
-            <div class="agc-page-layout">
-              <aside class="agc-side-col">
-                <section class="panel agc-ctrl-panel">
+            <div class="agc-page-layout split-x">
+              <aside class="agc-side-col split-y split-pane">
+                <section class="panel agc-ctrl-panel split-pane">
                   <div class="panel-head">
                     <h2 data-i18n="agc.panelTitle">运行控制</h2>
                     <span id="agcStateBadge" class="badge badge-neutral">已停止</span>
@@ -377,7 +384,9 @@
                   <p id="agcStatusLine" class="status-note">--</p>
                 </section>
 
-                <section class="panel agc-metrics-panel">
+                <div class="splitter splitter-y" data-split-id="agc-side-y" data-axis="y" data-target="prev" data-collapse="prev" data-default="272" data-min="160" title="拖动调整高度 · 双击复原 · 点击按钮折叠"></div>
+
+                <section class="panel agc-metrics-panel split-pane" style="flex: 1 1 0;">
                   <div class="panel-head">
                     <h2 data-i18n="agc.metricsTitle">统计指标</h2>
                     <span class="muted" data-i18n="agc.curVsTgt">实时 / 目标</span>
@@ -392,8 +401,10 @@
                 </section>
               </aside>
 
-              <div class="agc-main-col">
-                <section class="panel agc-strategy-panel">
+              <div class="splitter splitter-x" data-split-id="agc-main-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="310" data-min="220" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
+
+              <div class="agc-main-col split-y split-pane" style="flex: 1 1 0;">
+                <section class="panel agc-strategy-panel split-pane">
                   <div class="panel-head">
                     <div class="panel-title-inline">
                       <h2 data-i18n="agc.strategyTitle">控制策略</h2>
@@ -421,7 +432,9 @@
                   <div id="agcStrategyTableWrap" class="table-scroll"></div>
                 </section>
 
-                <section class="panel agc-detail-panel">
+                <div class="splitter splitter-y" data-split-id="agc-main-y" data-axis="y" data-target="prev" data-collapse="next" data-default="52%" data-min="160" title="拖动调整高度 · 双击复原 · 点击按钮折叠"></div>
+
+                <section class="panel agc-detail-panel split-pane" style="flex: 1 1 0;">
                   <div class="panel-head">
                     <div class="tab-bar inline-tabs" id="agcDetailTabs" role="tablist">
                       <button type="button" class="is-active" data-detail-tab="trend" data-i18n="agc.tabTrend">综合趋势曲线</button>
@@ -454,8 +467,8 @@
                     </div>
                   </div>
 
-                  <div id="agcDetailPaneTrend" class="agc-trend-workspace">
-                    <aside class="trend-series-picker">
+                  <div id="agcDetailPaneTrend" class="agc-trend-workspace split-x">
+                    <aside class="trend-series-picker split-pane">
                       <input id="agcSeriesSearch" type="search" class="compact-input" data-i18n-placeholder="filter.series" placeholder="过滤曲线..." />
                       <div class="series-picker-actions">
                         <button id="agcSeriesSelectDefault" type="button" class="btn btn-xs" data-i18n="action.default">默认</button>
@@ -464,9 +477,12 @@
                       </div>
                       <div id="agcSeriesList" class="series-checkbox-list"></div>
                     </aside>
-                    <div class="chart-stage">
+                    <div class="splitter splitter-x" data-split-id="agc-trend-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="205" data-min="140" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
+                    <div class="chart-stage split-pane" style="flex: 1 1 0;">
                       <div id="agcTrendLegend" class="chart-legend-bar"></div>
-                      <canvas id="agcTrendCanvas" class="chart-canvas"></canvas>
+                      <div class="chart-canvas-wrap">
+                        <canvas id="agcTrendCanvas" class="chart-canvas"></canvas>
+                      </div>
                     </div>
                   </div>
 
@@ -489,6 +505,10 @@
                 </div>
                 <div class="diagram-toolbar">
                   <label class="inline-check">
+                    <input id="diagramShowFlow" type="checkbox" checked />
+                    <span data-i18n="diagram.flow">流动箭头</span>
+                  </label>
+                  <label class="inline-check">
                     <input id="diagramShowOverlay" type="checkbox" checked />
                     <span data-i18n="diagram.overlay">遥测标注</span>
                   </label>
@@ -500,22 +520,14 @@
               </div>
               <div id="diagramViewport" class="diagram-viewport">
                 <div id="diagramStage" class="diagram-stage"></div>
-                <div id="diagramDeviceCard" class="diagram-floating-card" hidden>
-                  <div class="floating-card-head">
-                    <strong id="diagCardTitle">--</strong>
-                    <button id="diagCardClose" type="button" class="icon-close">×</button>
-                  </div>
-                  <dl id="diagCardMetrics" class="kv-list compact"></dl>
-                  <div id="diagCardActions" class="floating-card-actions"></div>
-                </div>
               </div>
             </section>
           </section>
 
           <!-- ==================== 4. 电网模型 ==================== -->
           <section class="page-section" data-page="model">
-            <div class="split-tree-layout">
-              <aside class="panel tree-panel">
+            <div class="split-tree-layout split-x">
+              <aside class="panel tree-panel split-pane">
                 <div class="panel-head">
                   <h2 data-i18n="model.treeTitle">设备分类树</h2>
                   <span id="modelTreeSummary" class="mono muted">0</span>
@@ -523,7 +535,8 @@
                 <input id="modelTreeFilter" type="search" class="compact-input" data-i18n-placeholder="filter.device" placeholder="过滤设备..." />
                 <div id="modelTreeList" class="tree-list"></div>
               </aside>
-              <section class="panel main-table-panel">
+              <div class="splitter splitter-x" data-split-id="model-tree-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="245" data-min="160" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
+              <section class="panel main-table-panel split-pane" style="flex: 1 1 0;">
                 <div class="panel-head">
                   <h2 data-i18n="model.paramTitle">模型参数</h2>
                   <span id="modelTableSummary" class="mono muted">0</span>
@@ -535,8 +548,8 @@
 
           <!-- ==================== 5. 实时量测 ==================== -->
           <section class="page-section" data-page="measurements">
-            <div class="split-tree-layout">
-              <aside class="panel tree-panel">
+            <div class="split-tree-layout split-x">
+              <aside class="panel tree-panel split-pane">
                 <div class="panel-head">
                   <h2 data-i18n="model.treeTitle">设备分类树</h2>
                   <span id="measTreeSummary" class="mono muted">0</span>
@@ -544,8 +557,9 @@
                 <input id="measTreeFilter" type="search" class="compact-input" data-i18n-placeholder="filter.device" placeholder="过滤设备..." />
                 <div id="measTreeList" class="tree-list"></div>
               </aside>
-              <div class="v-stack-panel">
-                <section class="panel flex-grow-panel">
+              <div class="splitter splitter-x" data-split-id="meas-tree-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="245" data-min="160" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
+              <div class="v-stack-panel split-y split-pane" style="flex: 1 1 0;">
+                <section class="panel flex-grow-panel split-pane">
                   <div class="panel-head">
                     <h2 data-i18n="nav.measurements">实时量测</h2>
                     <div class="filter-inline">
@@ -560,7 +574,8 @@
                   </div>
                   <div id="measTableWrap" class="table-scroll"></div>
                 </section>
-                <section class="panel trace-panel">
+                <div class="splitter splitter-y" data-split-id="meas-main-y" data-axis="y" data-target="prev" data-collapse="next" data-default="56%" data-min="160" title="拖动调整高度 · 双击复原 · 点击按钮折叠"></div>
+                <section class="panel trace-panel split-pane" style="flex: 1 1 0;">
                   <div class="panel-head">
                     <div class="panel-title-inline">
                       <h2 data-i18n="meas.traceTitle">测点跟踪曲线</h2>
@@ -575,7 +590,9 @@
                     </select>
                   </div>
                   <div class="chart-stage small">
-                    <canvas id="measTraceCanvas" class="chart-canvas"></canvas>
+                    <div class="chart-canvas-wrap">
+                      <canvas id="measTraceCanvas" class="chart-canvas"></canvas>
+                    </div>
                   </div>
                 </section>
               </div>
@@ -584,8 +601,8 @@
 
           <!-- ==================== 6. 控制指令 ==================== -->
           <section class="page-section" data-page="commands">
-            <div class="split-tree-layout">
-              <aside class="panel tree-panel">
+            <div class="split-tree-layout split-x">
+              <aside class="panel tree-panel split-pane">
                 <div class="panel-head">
                   <h2 data-i18n="model.treeTitle">设备分类树</h2>
                   <span id="cmdTreeSummary" class="mono muted">0</span>
@@ -593,8 +610,9 @@
                 <input id="cmdTreeFilter" type="search" class="compact-input" data-i18n-placeholder="filter.device" placeholder="过滤设备..." />
                 <div id="cmdTreeList" class="tree-list"></div>
               </aside>
-              <div class="v-stack-panel">
-                <section class="panel flex-grow-panel">
+              <div class="splitter splitter-x" data-split-id="cmd-tree-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="245" data-min="160" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
+              <div class="v-stack-panel split-y split-pane" style="flex: 1 1 0;">
+                <section class="panel flex-grow-panel split-pane">
                   <div class="panel-head">
                     <div class="tab-bar inline-tabs" id="cmdKindTabs">
                       <button type="button" class="is-active" data-cmd-kind="yt" data-i18n="cmd.yt">遥调 (YT)</button>
@@ -615,7 +633,8 @@
                   </div>
                   <div id="cmdTableWrap" class="table-scroll"></div>
                 </section>
-                <section class="panel trace-panel">
+                <div class="splitter splitter-y" data-split-id="cmd-main-y" data-axis="y" data-target="prev" data-collapse="next" data-default="56%" data-min="160" title="拖动调整高度 · 双击复原 · 点击按钮折叠"></div>
+                <section class="panel trace-panel split-pane" style="flex: 1 1 0;">
                   <div class="panel-head">
                     <div class="panel-title-inline">
                       <h2 data-i18n="cmd.traceTitle">指令跟踪曲线</h2>
@@ -629,7 +648,9 @@
                     </select>
                   </div>
                   <div class="chart-stage small">
-                    <canvas id="cmdTraceCanvas" class="chart-canvas"></canvas>
+                    <div class="chart-canvas-wrap">
+                      <canvas id="cmdTraceCanvas" class="chart-canvas"></canvas>
+                    </div>
                   </div>
                 </section>
               </div>
@@ -638,8 +659,8 @@
 
           <!-- ==================== 7. 曲线查询 ==================== -->
           <section class="page-section" data-page="curves">
-            <div class="split-tree-layout">
-              <aside class="panel tree-panel">
+            <div class="split-tree-layout split-x">
+              <aside class="panel tree-panel split-pane">
                 <div class="panel-head">
                   <h2 data-i18n="curves.listTitle">曲线列表</h2>
                   <span id="curveListCount" class="mono muted">0</span>
@@ -647,8 +668,9 @@
                 <input id="curveListFilter" type="search" class="compact-input" data-i18n-placeholder="filter.series" placeholder="过滤曲线..." />
                 <div id="curveMetricList" class="tree-list"></div>
               </aside>
-              <div class="v-stack-panel">
-                <section class="panel trace-panel tall">
+              <div class="splitter splitter-x" data-split-id="curve-tree-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="245" data-min="160" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
+              <div class="v-stack-panel split-y split-pane" style="flex: 1 1 0;">
+                <section class="panel trace-panel tall split-pane">
                   <div class="panel-head">
                     <div class="panel-title-inline">
                       <h2 id="curveChartTitle" data-i18n="nav.curves">曲线查询</h2>
@@ -670,10 +692,13 @@
                     </div>
                   </div>
                   <div class="chart-stage">
-                    <canvas id="curveQueryCanvas" class="chart-canvas"></canvas>
+                    <div class="chart-canvas-wrap">
+                      <canvas id="curveQueryCanvas" class="chart-canvas"></canvas>
+                    </div>
                   </div>
                 </section>
-                <section class="panel flex-grow-panel">
+                <div class="splitter splitter-y" data-split-id="curve-main-y" data-axis="y" data-target="prev" data-collapse="next" data-default="54%" data-min="180" title="拖动调整高度 · 双击复原 · 点击按钮折叠"></div>
+                <section class="panel flex-grow-panel split-pane" style="flex: 1 1 0;">
                   <div class="panel-head">
                     <h2 data-i18n="curves.tableTitle">曲线数值表</h2>
                     <span id="curveTableMeta" class="mono muted">agc.sqlite3</span>
@@ -686,8 +711,8 @@
 
           <!-- ==================== 8. 参数配置 ==================== -->
           <section class="page-section" data-page="parameters">
-            <div class="params-page-grid">
-              <section class="panel">
+            <div class="params-page-grid split-x">
+              <section class="panel split-pane">
                 <div class="panel-head">
                   <h2 data-i18n="params.backendTitle">后台运行参数</h2>
                   <div class="inline-btn-group">
@@ -742,7 +767,9 @@
                 </div>
               </section>
 
-              <section class="panel">
+              <div class="splitter splitter-x" data-split-id="params-x" data-axis="x" data-target="prev" data-collapse="next" data-default="50%" data-min="280" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
+
+              <section class="panel split-pane" style="flex: 1 1 0;">
                 <div class="panel-head">
                   <h2 data-i18n="params.webTitle">WEB 运行参数</h2>
                   <div class="inline-btn-group">
@@ -948,6 +975,23 @@
       </div>
     </dialog>
 
+    <!-- ==================== 弹窗 2.5：接线图设备详情与人工操控 ==================== -->
+    <dialog id="diagramDeviceDialog" class="modal-dialog">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2 id="diagCardTitle">--</h2>
+          <button id="diagCardClose" type="button" class="icon-close">×</button>
+        </div>
+        <div class="modal-body">
+          <dl id="diagCardMetrics" class="kv-list compact"></dl>
+        </div>
+        <div class="modal-foot">
+          <button id="diagCardCancel" type="button" class="btn" data-i18n="action.cancel">取消</button>
+          <div id="diagCardActions" class="inline-btn-group"></div>
+        </div>
+      </div>
+    </dialog>
+
     <!-- ==================== 弹窗 3：人工遥控 / 遥调 ==================== -->
     <dialog id="manualCmdDialog" class="modal-dialog">
       <div class="modal-card">
@@ -1016,11 +1060,11 @@
 
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-    <script defer src="/js/00-i18n.js"></script>
-    <script defer src="/js/01-core.js"></script>
-    <script defer src="/js/02-overview-diagram.js"></script>
-    <script defer src="/js/03-agc-control.js"></script>
-    <script defer src="/js/04-monitor-pages.js"></script>
-    <script defer src="/js/05-bootstrap.js"></script>
+    <script defer src="/js/00-i18n.js?v=20261125-fix4"></script>
+    <script defer src="/js/01-core.js?v=20261125-fix4"></script>
+    <script defer src="/js/02-overview-diagram.js?v=20261125-fix4"></script>
+    <script defer src="/js/03-agc-control.js?v=20261125-fix4"></script>
+    <script defer src="/js/04-monitor-pages.js?v=20261125-fix4"></script>
+    <script defer src="/js/05-bootstrap.js?v=20261125-fix4"></script>
   </body>
 </html>

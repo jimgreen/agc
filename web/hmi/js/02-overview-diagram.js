@@ -201,12 +201,17 @@ async function ensureDiagramLoaded() {
       const vb = (svgEl.getAttribute("viewBox") || "0 0 2518 2143").split(/[\s,]+/).map(Number);
       svgEl.setAttribute("width", String(vb[2] || 2518));
       svgEl.setAttribute("height", String(vb[3] || 2143));
-      const overlay = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      const ns = "http://www.w3.org/2000/svg";
+      const flowLayer = document.createElementNS(ns, "g");
+      flowLayer.setAttribute("id", "agcFlowAnimationLayer");
+      svgEl.appendChild(flowLayer);
+      const overlay = document.createElementNS(ns, "g");
       overlay.setAttribute("id", "agcTelemetryOverlayLayer");
       svgEl.appendChild(overlay);
       svgEl.addEventListener("click", handleDiagramElementClick);
     }
     AGCState.diagramLoaded = true;
+    AGCState._lastFlowSignature = "";
     fitDiagramToViewport();
     updateDiagramTelemetryOverlay();
   } catch (err) {
@@ -237,7 +242,361 @@ function fitDiagramToViewport() {
   applyDiagramTransform();
 }
 
+// =========================================================================
+// SVG 实时潮流与氢气流向动画引擎（按功率/流量大小与方向动态决定箭头尺寸与流速）
+// =========================================================================
+function parseSvgPolylinePoints(dText) {
+  const nums = (String(dText || "").match(/[-+]?\d*\.?\d+/g) || []).map(Number);
+  const pts = [];
+  for (let i = 0; i + 1 < nums.length; i += 2) {
+    const x = nums[i];
+    const y = nums[i + 1];
+    if (!pts.length || Math.hypot(x - pts[pts.length - 1][0], y - pts[pts.length - 1][1]) > 0.5) {
+      pts.push([x, y]);
+    }
+  }
+  return pts;
+}
+
+function pointsToPathD(pts) {
+  if (!pts.length) return "";
+  return pts.map((p, idx) => `${idx === 0 ? "M" : "L"} ${p[0]} ${p[1]}`).join(" ");
+}
+
+function polylineLength(pts) {
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) {
+    len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  }
+  return len;
+}
+
+function flowTierStyle(magnitude, isHydrogen) {
+  const absVal = Math.abs(Number(magnitude) || 0);
+  const norm = isHydrogen
+    ? Math.log10(1 + absVal / 0.5) / Math.log10(1 + 20 / 0.5)
+    : Math.log10(1 + absVal / 2.5) / Math.log10(1 + 220 / 2.5);
+  const clamped = Math.max(0, Math.min(1, norm));
+  const tier = Math.max(1, Math.min(5, Math.ceil(clamped * 5)));
+  // 5 档平滑缩放：功率越大，箭头越大、线宽越粗、行进越快
+  const table = [
+    { scale: 0.78, strokeWidth: 3.2, speedPx: 36, dashDur: 2.3 },
+    { scale: 0.96, strokeWidth: 4.0, speedPx: 58, dashDur: 1.6 },
+    { scale: 1.16, strokeWidth: 4.8, speedPx: 88, dashDur: 1.15 },
+    { scale: 1.38, strokeWidth: 5.8, speedPx: 125, dashDur: 0.8 },
+    { scale: 1.62, strokeWidth: 6.8, speedPx: 168, dashDur: 0.55 }
+  ];
+  return { tier, ...table[tier - 1] };
+}
+
+function buildDiagramFlowContext(snapshot) {
+  const devices = snapshot.devices || [];
+  const scada = (snapshot.measurements && snapshot.measurements.scada) || [];
+  const devByKey = new Map(); // "ACGenerator-1" -> dev
+  const measByDevKey = new Map(); // "ACGenerator-1" -> { P_GEN, P_LOAD, P_AC, P_DC, FLOW, ... }
+  const measByTypeName = new Map();
+
+  scada.forEach((m) => {
+    if (!m.valid || m.value === null || m.value === undefined) return;
+    const k = `${m.dev_type}|${m.dev_name}`;
+    if (!measByTypeName.has(k)) measByTypeName.set(k, {});
+    measByTypeName.get(k)[m.meas_type] = Number(m.value);
+  });
+
+  // 节点 -> 关联设备列表（用于沿断路器非母线端追溯真实电源/负荷/变流器）
+  const acNodeDevs = new Map();
+  const dcNodeDevs = new Map();
+  const pushNode = (map, nodeId, devId) => {
+    if (nodeId === undefined || nodeId === null || nodeId === "") return;
+    const k = String(nodeId);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(devId);
+  };
+
+  devices.forEach((d) => {
+    const devId = `${d.dev_type}-${d.idx}`;
+    devByKey.set(devId, d);
+    const m = measByTypeName.get(`${d.dev_type}|${d.dev_name}`) || {};
+    measByDevKey.set(devId, m);
+    const raw = d.raw || {};
+    const blk = d.dev_type;
+    if (blk.startsWith("AC") || blk === "AcE2Hydro") {
+      pushNode(acNodeDevs, raw.node, devId);
+      pushNode(acNodeDevs, raw.i_node, devId);
+      pushNode(acNodeDevs, raw.j_node, devId);
+    }
+    if (blk.startsWith("DC") || blk === "Hydro2DcE") {
+      if (blk === "DCACConverter") {
+        pushNode(acNodeDevs, raw.ac_node, devId);
+        pushNode(dcNodeDevs, raw.dc_node, devId);
+      } else {
+        pushNode(dcNodeDevs, raw.node, devId);
+        pushNode(dcNodeDevs, raw.i_node, devId);
+        pushNode(dcNodeDevs, raw.j_node, devId);
+      }
+    }
+  });
+
+  function isClosed(devId) {
+    const d = devByKey.get(devId);
+    if (!d) return true;
+    if (d.dev_type === "ACBreak" || d.dev_type === "DCBreak") {
+      const m = measByDevKey.get(devId) || {};
+      const pos = m.CLOSED_STATUS !== undefined ? m.CLOSED_STATUS : d.closed_status;
+      return Number(pos ?? 1) !== 0 && Number(d.run_stat ?? 1) !== 0;
+    }
+    return Number(d.run_stat ?? 1) !== 0;
+  }
+
+  // 解析某条 Segment 路径（sourceId -> targetId）的有功功率（kW）或氢流量（Nm³/h）
+  // 返回 { value: signedNumber, kind: "ac" | "dc" | "hydro" }，正值表示沿 source -> target 流动
+  function resolveSegmentFlow(sourceId, targetId) {
+    if (!sourceId || !targetId) return null;
+
+    // 1. 氢能管道（AcE2Hydro-1 -> HydroStorage-1, Hydro2DcE-1 -> HydroStorage-1）
+    if (sourceId.startsWith("AcE2Hydro-") || targetId.startsWith("AcE2Hydro-")) {
+      const hId = sourceId.startsWith("AcE2Hydro-") ? sourceId : targetId;
+      const m = measByDevKey.get(hId) || {};
+      const flow = Number(m.FLOW ?? 0);
+      const sign = sourceId === hId ? 1 : -1;
+      return { value: flow * sign, kind: "hydro" };
+    }
+    if (sourceId.startsWith("Hydro2DcE-") || targetId.startsWith("Hydro2DcE-")) {
+      const hId = sourceId.startsWith("Hydro2DcE-") ? sourceId : targetId;
+      const m = measByDevKey.get(hId) || {};
+      const flow = Number(m.FLOW ?? 0);
+      // 燃料电池消耗储氢罐氢气：由 HydroStorage 流向 Hydro2DcE
+      const sign = targetId === hId ? 1 : -1;
+      return { value: flow * sign, kind: "hydro" };
+    }
+
+    if (!isClosed(sourceId) || !isClosed(targetId)) {
+      return { value: 0, kind: sourceId.startsWith("DC") ? "dc" : "ac" };
+    }
+
+    const isDc = sourceId.startsWith("DC") || targetId.startsWith("DC");
+    const kind = isDc ? "dc" : "ac";
+
+    // 2. 发电机直接连断路器（如 ACGenerator-23 -> ACBreak-10）
+    if (sourceId.startsWith("ACGenerator-") || sourceId.startsWith("DCGenerator-")) {
+      const m = measByDevKey.get(sourceId) || {};
+      return { value: Number(m.P_GEN ?? 0), kind };
+    }
+
+    // 3. 断路器直接连负荷（如 DCBreak-33 -> DCLoad-1）
+    if (targetId.startsWith("DCLoad-") || targetId.startsWith("ACLoad-")) {
+      const m = measByDevKey.get(targetId) || {};
+      return { value: Number(m.P_LOAD ?? 0), kind };
+    }
+
+    // 4. 断路器连母线（DCBreak-* -> DCRealBs-1 或 ACBreak-* -> ACRealBs-1）
+    if ((sourceId.startsWith("DCBreak-") && targetId.startsWith("DCRealBs-")) ||
+        (sourceId.startsWith("ACBreak-") && targetId.startsWith("ACRealBs-"))) {
+      const brk = devByKey.get(sourceId);
+      const bus = devByKey.get(targetId);
+      if (!brk || !bus) return null;
+      const busNode = String((bus.raw || {}).node ?? "");
+      const raw = brk.raw || {};
+      const otherNode = String(raw.i_node) === busNode ? String(raw.j_node) : String(raw.i_node);
+      const nodeMap = isDc ? dcNodeDevs : acNodeDevs;
+      const neighbors = (nodeMap.get(otherNode) || []).filter((id) => id !== sourceId);
+
+      // 沿单跳（含零阻抗支路/自适应支路）查找真实功率实体
+      const visited = new Set([sourceId, targetId]);
+      const queue = [...neighbors];
+      while (queue.length) {
+        const curId = queue.shift();
+        if (visited.has(curId)) continue;
+        visited.add(curId);
+        const d = devByKey.get(curId);
+        if (!d) continue;
+        const m = measByDevKey.get(curId) || {};
+
+        if (d.dev_type === "ACGenerator" || d.dev_type === "DCGenerator") {
+          return { value: Number(m.P_GEN ?? 0), kind };
+        }
+        if (d.dev_type === "ACLoad" || d.dev_type === "DCLoad") {
+          // 负荷从母线吸收功率：流向为母线 -> 断路器（负向）
+          return { value: -Number(m.P_LOAD ?? 0), kind };
+        }
+        if (d.dev_type === "AcE2Hydro") {
+          return { value: -Number(m.P_LOAD ?? 0), kind };
+        }
+        if (d.dev_type === "Hydro2DcE") {
+          return { value: Number(m.P_GEN ?? 0), kind };
+        }
+        if (d.dev_type === "DCACConverter") {
+          if (isDc) {
+            // 直流侧：风机变流器 ac_p>0 送直流（dc_p=-3.08 流出到直流母线）；DCAC变流器 dc_p=+21.16 送直流母线
+            const pVal = String(d.device_kind) === "acdc-converter" ? -Number(m.P_DC ?? 0) : Number(m.P_DC ?? 0);
+            return { value: pVal, kind: "dc" };
+          }
+          // 交流侧：ac_p > 0 送入交流母线；ac_p < 0 从交流母线吸收
+          return { value: Number(m.P_AC ?? 0), kind: "ac" };
+        }
+        if (d.dev_type === "DCDCConverter") {
+          // 光伏变流器 j_p=-13.08（送直流母线），储能变流器 i_p=+0.12（吸收充电）或负值（放电送母线）
+          const cRaw = d.raw || {};
+          const atJ = String(cRaw.j_node) === otherNode;
+          const pTerminal = atJ ? -Number(m.P_J ?? 0) : -Number(m.P_I ?? 0);
+          return { value: pTerminal, kind: "dc" };
+        }
+        if (d.dev_type === "ACBranch" || d.dev_type === "DCBranch" || d.dev_type === "ACZeroBranch" || d.dev_type === "ACBreak" || d.dev_type === "DCBreak") {
+          const bRaw = d.raw || {};
+          const nextNode = String(bRaw.i_node) === otherNode ? String(bRaw.j_node) : String(bRaw.i_node);
+          (nodeMap.get(nextNode) || []).forEach((nid) => {
+            if (!visited.has(nid)) queue.push(nid);
+          });
+        }
+      }
+    }
+    return null;
+  }
+
+  function resolveBranchUseFlow(devId) {
+    const d = devByKey.get(devId);
+    if (!d || !isClosed(devId)) return null;
+    const m = measByDevKey.get(devId) || {};
+    const kind = d.dev_type.startsWith("DC") ? "dc" : "ac";
+    if (m.P_I !== undefined) {
+      return { value: Number(m.P_I), kind };
+    }
+    return null;
+  }
+
+  return { resolveSegmentFlow, resolveBranchUseFlow };
+}
+
+function updateDiagramFlowAnimations() {
+  const flowLayer = document.getElementById("agcFlowAnimationLayer");
+  const stage = document.getElementById("diagramStage");
+  if (!flowLayer || !stage || !AGCState.snapshot) return;
+
+  const enabled = document.getElementById("diagramShowFlow")?.checked !== false;
+  if (!enabled) {
+    if (AGCState._lastFlowSignature !== "OFF") {
+      flowLayer.innerHTML = "";
+      AGCState._lastFlowSignature = "OFF";
+    }
+    return;
+  }
+
+  const webSet = (AGCState.runtimeSettings && AGCState.runtimeSettings.web) || {};
+  const elecThreshold = Math.max(0, Number(webSet.diagram_flow_electric_threshold_kw ?? 0.1));
+  const hydroThreshold = Math.max(0, Number(webSet.diagram_flow_hydrogen_threshold_nm3_h ?? 0.1));
+  const dark = document.documentElement.dataset.colorScheme === "dark";
+
+  const colorByKind = {
+    dc: dark ? "#22D3EE" : "#0284C7",
+    ac: dark ? "#FBBF24" : "#EA580C",
+    hydro: dark ? "#34D399" : "#059669"
+  };
+
+  const ctx = buildDiagramFlowContext(AGCState.snapshot);
+  const items = [];
+
+  // 1. 收集 Segment_Layer 全部电/氢连接路径
+  stage.querySelectorAll("#Segment_Layer path[d]").forEach((pEl) => {
+    const id = pEl.getAttribute("id") || "";
+    const src = pEl.getAttribute("source-dev-id") || "";
+    const tgt = pEl.getAttribute("target-dev-id") || "";
+    const flow = ctx.resolveSegmentFlow(src, tgt);
+    if (!flow) return;
+    const thr = flow.kind === "hydro" ? hydroThreshold : elecThreshold;
+    if (Math.abs(flow.value) <= thr) return;
+
+    const rawPts = parseSvgPolylinePoints(pEl.getAttribute("d"));
+    if (rawPts.length < 2) return;
+    const pts = flow.value >= 0 ? rawPts : [...rawPts].reverse();
+    const len = polylineLength(pts);
+    if (len < 12) return;
+    const style = flowTierStyle(flow.value, flow.kind === "hydro");
+    items.push({
+      id: `seg:${id}`,
+      d: pointsToPathD(pts),
+      len,
+      dir: flow.value >= 0 ? 1 : -1,
+      kind: flow.kind,
+      color: colorByKind[flow.kind],
+      ...style
+    });
+  });
+
+  // 2. 收集自适应支路（ACBranch / DCBranch / ACZeroBranch）的水平连线
+  stage.querySelectorAll("#ACBranch_Layer use[dev-id], #DCBranch_Layer use[dev-id], #ACZeroBranch_Layer use[dev-id]").forEach((uEl) => {
+    const devId = uEl.getAttribute("dev-id") || "";
+    const flow = ctx.resolveBranchUseFlow(devId);
+    if (!flow || Math.abs(flow.value) <= elecThreshold) return;
+    const x = Number(uEl.getAttribute("x") || 0);
+    const y = Number(uEl.getAttribute("y") || 0);
+    const w = Number(uEl.getAttribute("width") || 150);
+    const h = Number(uEl.getAttribute("height") || 36);
+    const cy = y + h / 2;
+    const pts = flow.value >= 0 ? [[x + 8, cy], [x + w - 8, cy]] : [[x + w - 8, cy], [x + 8, cy]];
+    const len = Math.abs(w - 16);
+    if (len < 12) return;
+    const style = flowTierStyle(flow.value, false);
+    items.push({
+      id: `br:${devId}`,
+      d: pointsToPathD(pts),
+      len,
+      dir: flow.value >= 0 ? 1 : -1,
+      kind: flow.kind,
+      color: colorByKind[flow.kind],
+      ...style
+    });
+  });
+
+  // 仅当方向、档位、主题或边集变化时重建 SVG 动画节点，防止轮询刷新闪烁
+  const sig = `${dark ? "D" : "L"}|` + items.map((it) => `${it.id}:${it.dir}:${it.tier}`).join(",");
+  if (sig === AGCState._lastFlowSignature) return;
+  AGCState._lastFlowSignature = sig;
+
+  flowLayer.innerHTML = "";
+  const ns = "http://www.w3.org/2000/svg";
+
+  items.forEach((it) => {
+    const g = document.createElementNS(ns, "g");
+
+    // 动态流光虚线层
+    const line = document.createElementNS(ns, "path");
+    line.setAttribute("d", it.d);
+    line.setAttribute("class", "agc-flow-line");
+    line.setAttribute("stroke", it.color);
+    line.style.strokeWidth = `${it.strokeWidth}px`;
+    line.style.setProperty("--flow-dur", `${it.dashDur}s`);
+    g.appendChild(line);
+
+    // 沿路径行进的实体燕尾箭头（按路径长度动态配置 1~3 个均匀错开箭头）
+    const durSec = Math.max(0.45, it.len / it.speedPx);
+    const arrowCount = it.len > 260 ? 3 : it.len > 110 ? 2 : 1;
+    for (let k = 0; k < arrowCount; k++) {
+      const arrow = document.createElementNS(ns, "polygon");
+      // 燕尾尖头箭头，根据功率档位等比缩放
+      const s = it.scale;
+      const ptsStr = `${(-6.5 * s).toFixed(1)},${(-4.6 * s).toFixed(1)} ${(7.5 * s).toFixed(1)},0 ${(-6.5 * s).toFixed(1)},${(4.6 * s).toFixed(1)} ${(-3.2 * s).toFixed(1)},0`;
+      arrow.setAttribute("points", ptsStr);
+      arrow.setAttribute("fill", it.color);
+      arrow.setAttribute("stroke", dark ? "#040812" : "#FFFFFF");
+      arrow.setAttribute("stroke-width", "1.1");
+      arrow.setAttribute("class", "agc-flow-arrow");
+
+      const anim = document.createElementNS(ns, "animateMotion");
+      anim.setAttribute("path", it.d);
+      anim.setAttribute("dur", `${durSec.toFixed(2)}s`);
+      anim.setAttribute("rotate", "auto");
+      anim.setAttribute("repeatCount", "indefinite");
+      anim.setAttribute("begin", `${(-(durSec * k) / arrowCount).toFixed(2)}s`);
+      arrow.appendChild(anim);
+      g.appendChild(arrow);
+    }
+
+    flowLayer.appendChild(g);
+  });
+}
+
 function updateDiagramTelemetryOverlay() {
+  updateDiagramFlowAnimations();
   const overlay = document.getElementById("agcTelemetryOverlayLayer");
   const stage = document.getElementById("diagramStage");
   if (!overlay || !stage || !AGCState.snapshot) return;
@@ -303,7 +662,10 @@ function updateDiagramTelemetryOverlay() {
   });
 
   if (AGCState.diagramSelectedDev) {
-    renderDiagramDeviceCard(AGCState.diagramSelectedDev);
+    const dlg = document.getElementById("diagramDeviceDialog");
+    if (dlg && dlg.open) {
+      renderDiagramDeviceCard(AGCState.diagramSelectedDev, false);
+    }
   }
 }
 
@@ -313,15 +675,15 @@ function handleDiagramElementClick(ev) {
   const devName = target.getAttribute("name");
   if (!devName) return;
   AGCState.diagramSelectedDev = devName;
-  renderDiagramDeviceCard(devName);
+  renderDiagramDeviceCard(devName, true);
 }
 
-function renderDiagramDeviceCard(devName) {
-  const card = document.getElementById("diagramDeviceCard");
-  if (!card || !AGCState.snapshot) return;
+function renderDiagramDeviceCard(devName, openDialog = false) {
+  const dlg = document.getElementById("diagramDeviceDialog");
+  if (!dlg || !AGCState.snapshot) return;
   const dev = (AGCState.snapshot.devices || []).find((d) => d.dev_name === devName);
   const meas = ((AGCState.snapshot.measurements && AGCState.snapshot.measurements.scada) || []).filter(
-    (m) => m.dev_name === devName && m.valid
+    (m) => m.dev_name === devName && m.valid && (!dev || m.dev_type === dev.dev_type)
   );
   document.getElementById("diagCardTitle").textContent = devName;
   const kv = document.getElementById("diagCardMetrics");
@@ -346,7 +708,10 @@ function renderDiagramDeviceCard(devName) {
       btn.type = "button";
       btn.className = "btn btn-primary btn-sm";
       btn.textContent = `${t("cmd.yt")} (${setTypes[0]})`;
-      btn.onclick = () => openManualCmdModal(dev.dev_type, dev.dev_name, setTypes[0], "yt");
+      btn.onclick = () => {
+        if (dlg.open) dlg.close();
+        openManualCmdModal(dev.dev_type, dev.dev_name, setTypes[0], "yt");
+      };
       acts.appendChild(btn);
     }
     const ykType = ["ACBreak", "DCBreak"].includes(dev.dev_type) ? "closed_status" : "run_stat";
@@ -354,10 +719,15 @@ function renderDiagramDeviceCard(devName) {
     btnYk.type = "button";
     btnYk.className = "btn btn-sm";
     btnYk.textContent = t("cmd.yk");
-    btnYk.onclick = () => openManualCmdModal(dev.dev_type, dev.dev_name, ykType, "yk");
+    btnYk.onclick = () => {
+      if (dlg.open) dlg.close();
+      openManualCmdModal(dev.dev_type, dev.dev_name, ykType, "yk");
+    };
     acts.appendChild(btnYk);
   }
-  card.hidden = false;
+  if (openDialog && !dlg.open) {
+    dlg.showModal();
+  }
 }
 
 function bindDiagramInteractions() {
@@ -404,9 +774,16 @@ function bindDiagramInteractions() {
     applyDiagramTransform();
   });
   document.getElementById("diagramFitBtn")?.addEventListener("click", fitDiagramToViewport);
-  document.getElementById("diagramShowOverlay")?.addEventListener("change", updateDiagramTelemetryOverlay);
-  document.getElementById("diagCardClose")?.addEventListener("click", () => {
-    AGCState.diagramSelectedDev = null;
-    document.getElementById("diagramDeviceCard").hidden = true;
+  document.getElementById("diagramShowFlow")?.addEventListener("change", () => {
+    AGCState._lastFlowSignature = "";
+    updateDiagramFlowAnimations();
   });
+  document.getElementById("diagramShowOverlay")?.addEventListener("change", updateDiagramTelemetryOverlay);
+  const closeDiagDialog = () => {
+    AGCState.diagramSelectedDev = null;
+    const dlg = document.getElementById("diagramDeviceDialog");
+    if (dlg && dlg.open) dlg.close();
+  };
+  document.getElementById("diagCardClose")?.addEventListener("click", closeDiagDialog);
+  document.getElementById("diagCardCancel")?.addEventListener("click", closeDiagDialog);
 }

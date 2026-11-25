@@ -185,6 +185,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
@@ -632,11 +633,135 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
   white-space: nowrap;
 }
 
+/* ==================== 通用可拖拽折叠分栏容器 ==================== */
+.split-x,
+.split-y {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.split-x { flex-direction: row; }
+.split-y { flex-direction: column; }
+
+.split-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.split-pane.is-collapsed {
+  flex: 0 0 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden !important;
+}
+
+.splitter {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  user-select: none;
+  z-index: 6;
+  transition: background 140ms ease;
+}
+
+.splitter-x {
+  width: 10px;
+  cursor: col-resize;
+}
+
+.splitter-y {
+  height: 10px;
+  cursor: row-resize;
+}
+
+.splitter::before {
+  content: "";
+  border-radius: 999px;
+  background: var(--border-color);
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.splitter-x::before { width: 2px; height: 42px; }
+.splitter-y::before { height: 2px; width: 42px; }
+
+.splitter:hover::before,
+.splitter.is-dragging::before {
+  background: var(--accent);
+}
+
+.splitter-toggle {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);
+  opacity: 0.72;
+  transition: opacity 140ms ease, color 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.splitter-x .splitter-toggle {
+  width: 14px;
+  height: 28px;
+}
+
+.splitter-y .splitter-toggle {
+  width: 28px;
+  height: 14px;
+}
+
+.splitter:hover .splitter-toggle,
+.splitter.is-collapsed-host .splitter-toggle {
+  opacity: 1;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.splitter-toggle:hover {
+  background: var(--accent);
+  color: #FFFFFF;
+}
+html[data-color-scheme="dark"] .splitter-toggle:hover { color: #04101B; }
+
+body.is-resizing-x,
+body.is-resizing-x * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+body.is-resizing-y,
+body.is-resizing-y * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+
 /* ==================== 1. 主页 ==================== */
 .overview-grid {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   height: 100%;
   min-height: 0;
 }
@@ -663,10 +788,10 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
 .kpi-val small { font-size: 12px; color: var(--text-secondary); }
 
 .overview-center-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 270px;
-  gap: 12px;
-  flex: 1.35;
+  min-height: 0;
+}
+
+.overview-bottom-row {
   min-height: 0;
 }
 
@@ -799,14 +924,6 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
 .kv-list dt { color: var(--text-secondary); font-size: 12px; }
 .kv-list dd { margin: 0; font-size: 12.5px; font-weight: 600; text-align: right; }
 
-.overview-bottom-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
-  flex: 0.72;
-  min-height: 155px;
-}
-
 .decision-summary-list {
   padding: 8px 12px;
   overflow: auto;
@@ -824,23 +941,16 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
 
 /* ==================== 2. AGC 控制决策页 ==================== */
 .agc-page-layout {
-  display: grid;
-  grid-template-columns: 310px minmax(0, 1fr);
-  gap: 12px;
   height: 100%;
   min-height: 0;
 }
 
 .agc-side-col {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   min-height: 0;
 }
 
 .agc-ctrl-panel {
   padding-bottom: 10px;
-  flex-shrink: 0;
 }
 
 .agc-primary-actions {
@@ -891,21 +1001,17 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
   overflow: auto;
 }
 
-.agc-metrics-panel { flex: 1; min-height: 0; }
+.agc-metrics-panel { min-height: 0; }
 
 .agc-main-col {
-  display: grid;
-  grid-template-rows: minmax(220px, 1.05fr) minmax(240px, 1fr);
-  gap: 12px;
   min-height: 0;
   min-width: 0;
 }
 
 .agc-trend-workspace {
   flex: 1;
-  display: grid;
-  grid-template-columns: 205px minmax(0, 1fr);
   min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -916,6 +1022,8 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
   flex-direction: column;
   gap: 6px;
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .series-picker-actions {
@@ -955,19 +1063,30 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
   flex: 1;
   min-width: 0;
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   padding: 6px 10px 8px;
   position: relative;
+  overflow: hidden;
 }
 .chart-stage.small { min-height: 170px; }
+
+.chart-canvas-wrap {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 120px;
+  width: 100%;
+  overflow: hidden;
+}
 
 .chart-legend-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   font-size: 11px;
   margin-bottom: 4px;
+  flex-shrink: 0;
 }
 .legend-pill {
   display: inline-flex;
@@ -980,10 +1099,10 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
 }
 
 .chart-canvas {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  flex: 1;
-  min-height: 150px;
   display: block;
 }
 
@@ -1081,6 +1200,28 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
   pointer-events: none;
 }
 
+/* SVG 能量与氢气流动箭头动效 */
+.agc-flow-line {
+  fill: none;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 14 22;
+  opacity: 0.78;
+  pointer-events: none;
+  animation: agcFlowDash var(--flow-dur, 1.8s) linear infinite;
+}
+
+.agc-flow-arrow {
+  pointer-events: none;
+  filter: drop-shadow(0 0 2px rgba(15, 23, 42, 0.45));
+}
+
+@keyframes agcFlowDash {
+  from { stroke-dashoffset: 36; }
+  to { stroke-dashoffset: 0; }
+}
+
 .diagram-floating-card {
   position: absolute;
   top: 14px;
@@ -1107,9 +1248,6 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
 
 /* ==================== 树 + 表分屏页 ==================== */
 .split-tree-layout {
-  display: grid;
-  grid-template-columns: 245px minmax(0, 1fr);
-  gap: 12px;
   height: 100%;
   min-height: 0;
 }
@@ -1148,21 +1286,15 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
 .tree-node small { color: var(--text-secondary); font-family: var(--font-mono); }
 
 .v-stack-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   min-height: 0;
   min-width: 0;
 }
-.flex-grow-panel { flex: 1.1; min-height: 0; }
-.trace-panel { flex: 0.9; min-height: 220px; }
-.trace-panel.tall { flex: 1.15; min-height: 260px; }
+.flex-grow-panel { min-height: 0; }
+.trace-panel { min-height: 0; }
+.trace-panel.tall { min-height: 0; }
 .full-panel { flex: 1; min-height: 0; }
 
 .params-page-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
   height: 100%;
   min-height: 0;
 }
@@ -1181,10 +1313,14 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
 
 /* ==================== 模态弹窗 ==================== */
 .modal-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
   padding: 0;
   border: none;
   background: transparent;
-  max-width: 520px;
+  max-width: 480px;
   width: calc(100vw - 32px);
   color: var(--text-primary);
 }
@@ -1329,7 +1465,4 @@ html[data-color-scheme="dark"] .segmented button.is-active { color: #04101B; }
 
 @media (max-width: 1180px) {
   .overview-kpi-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .overview-center-row { grid-template-columns: 1fr; }
-  .agc-page-layout { grid-template-columns: 270px minmax(0, 1fr); }
-  .params-page-grid { grid-template-columns: 1fr; }
 }
