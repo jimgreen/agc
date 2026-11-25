@@ -1,6 +1,6 @@
 // 主页交直流+氢能全景能量流渲染 & 秦岭 SVG 接线图缩放平移与实时遥测叠加
 
-function setEfCard(id, { cur, tgt, max, meta }) {
+function setEfNode(id, { cur, sub, meta, dir, ringPct }) {
   const el = document.getElementById(id);
   if (!el) return;
   const setText = (sel, txt) => {
@@ -8,9 +8,42 @@ function setEfCard(id, { cur, tgt, max, meta }) {
     if (node) node.textContent = txt;
   };
   if (cur !== undefined) setText("[data-ef-cur]", cur);
-  if (tgt !== undefined) setText("[data-ef-tgt]", tgt);
-  if (max !== undefined) setText("[data-ef-max]", max);
+  if (sub !== undefined) setText("[data-ef-sub]", sub);
   if (meta !== undefined) setText("[data-ef-meta]", meta);
+  if (dir !== undefined) setText("[data-ef-dir]", dir);
+  if (ringPct !== undefined) {
+    const ring = el.querySelector("[data-ef-ring]");
+    if (ring) {
+      const r = Number(ring.getAttribute("r") || 20);
+      const circ = 2 * Math.PI * r;
+      const clamped = Math.max(0, Math.min(100, Number(ringPct) || 0));
+      ring.setAttribute("stroke-dasharray", circ.toFixed(2));
+      ring.setAttribute("stroke-dashoffset", (circ * (1 - clamped / 100)).toFixed(2));
+    }
+  }
+}
+
+function setEfFlow(pathId, powerKw, { reverse = false, refKw = 120 } = {}) {
+  const path = document.getElementById(pathId);
+  if (!path) return;
+  const mag = Math.abs(Number(powerKw) || 0);
+  path.classList.remove("is-forward", "is-reverse");
+  if (mag < 0.25) {
+    path.style.strokeWidth = "2";
+    return;
+  }
+  const norm = Math.max(0, Math.min(1, mag / Math.max(10, refKw)));
+  const dur = (2.1 - norm * 1.45).toFixed(2);
+  const width = (2.2 + norm * 2.4).toFixed(2);
+  path.style.setProperty("--ef-dur", `${dur}s`);
+  path.style.strokeWidth = width;
+  path.classList.add(reverse ? "is-reverse" : "is-forward");
+}
+
+function pctRatio(v) {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return 0;
+  const n = Number(v);
+  return Math.abs(n) <= 1.5 ? n * 100 : n;
 }
 
 function renderOverviewPage() {
@@ -57,74 +90,131 @@ function renderOverviewPage() {
   document.getElementById("ovMeasCount").textContent = String(validMeas);
   document.getElementById("ovAgeText").textContent = `${fmtNum(agc.age_seconds, 1)}s`;
 
-  // 能量流各节点
-  setEfCard("efDcWind", {
+  // 矢量能量流各节点、环形 SOC 与动态支路
+  const dcGenSum = Number(dcWindCur || 0) + Number(dcPvCur || 0) + Math.max(0, Number(dcStCur || 0));
+  const acGenSum = Number(acWindCur || 0) + Number(acPvCur || 0) + Math.max(0, Number(acStCur || 0)) + Math.max(0, dieselVal);
+  const dcSumEl = document.getElementById("efDcSummary");
+  if (dcSumEl) dcSumEl.textContent = `发 ${fmtNum(dcGenSum, 1)} / 荷 ${fmtNum(dcLoadKw, 1)} kW`;
+  const acSumEl = document.getElementById("efAcSummary");
+  if (acSumEl) acSumEl.textContent = `发 ${fmtNum(acGenSum, 1)} / 荷 ${fmtNum(acLoadKw, 1)} kW`;
+
+  const loadTotalSafe = Math.max(0.01, Number(loadKw || 0));
+  const dcLoadPct = `${fmtNum((Number(dcLoadKw || 0) / loadTotalSafe) * 100, 1)}%`;
+  const acLoadPct = `${fmtNum((Number(acLoadKw || 0) / loadTotalSafe) * 100, 1)}%`;
+
+  setEfNode("efDcWind", {
     cur: `${fmtNum(dcWindCur, 1)} kW`,
-    tgt: `${fmtNum(m.dcWindTargetKw, 1)} kW`,
-    max: `${fmtNum(m.dcWindMaxAvailableKw, 1)} kW`,
-    meta: "10 台"
+    sub: `目标 ${fmtNum(m.dcWindTargetKw, 1)} · 可发 ${fmtNum(m.dcWindMaxAvailableKw, 1)}`,
+    meta: " · 10台"
   });
-  setEfCard("efDcPv", {
+  setEfFlow("efFlowDcWind", dcWindCur, { refKw: 80 });
+
+  setEfNode("efDcPv", {
     cur: `${fmtNum(dcPvCur, 1)} kW`,
-    tgt: `${fmtNum(m.dcPvTargetKw, 1)} kW`,
-    max: `${fmtNum(m.dcPvMaxAvailableKw, 1)} kW`,
-    meta: "3 台"
+    sub: `目标 ${fmtNum(m.dcPvTargetKw, 1)} · 可发 ${fmtNum(m.dcPvMaxAvailableKw, 1)}`,
+    meta: " · 3台"
   });
-  setEfCard("efDcStorage", {
+  setEfFlow("efFlowDcPv", dcPvCur, { refKw: 80 });
+
+  const dcStVal = Number(dcStCur || 0);
+  setEfNode("efDcStorage", {
     cur: `${fmtNum(dcStCur, 1)} kW`,
-    tgt: `${fmtNum(m.dcStorageTargetKw, 1)} kW`,
-    meta: `SOC ${fmtPct(m.dcStorageSoc)}`
+    sub: `目标 ${fmtNum(m.dcStorageTargetKw, 1)} · ${dcStVal > 0.2 ? "放电" : dcStVal < -0.2 ? "充电" : "静置"}`,
+    meta: ` · SOC ${fmtPct(m.dcStorageSoc)}`,
+    ringPct: pctRatio(m.dcStorageSoc)
   });
-  setEfCard("efDcLoad", { cur: `${fmtNum(dcLoadKw, 1)} kW`, meta: "750V" });
+  setEfFlow("efFlowDcStorage", dcStVal, { reverse: dcStVal < 0, refKw: 120 });
 
-  setEfCard("efAcWind", {
+  setEfNode("efDcLoad", {
+    cur: `${fmtNum(dcLoadKw, 1)} kW`,
+    sub: `占总负荷 ${dcLoadPct}`,
+    meta: " · 750V"
+  });
+  setEfFlow("efFlowDcLoad", dcLoadKw, { refKw: 150 });
+
+  setEfNode("efAcWind", {
     cur: `${fmtNum(acWindCur, 1)} kW`,
-    tgt: `${fmtNum(m.acWindTargetKw, 1)} kW`,
-    max: `${fmtNum(m.acWindMaxAvailableKw, 1)} kW`,
-    meta: "1 台"
+    sub: `目标 ${fmtNum(m.acWindTargetKw, 1)} · 可发 ${fmtNum(m.acWindMaxAvailableKw, 1)}`,
+    meta: " · 1台"
   });
-  setEfCard("efAcPv", {
-    cur: `${fmtNum(acPvCur, 1)} kW`,
-    tgt: `${fmtNum(m.acPvTargetKw, 1)} kW`,
-    max: `${fmtNum(m.acPvMaxAvailableKw, 1)} kW`,
-    meta: "1 台"
-  });
-  setEfCard("efAcStorage", {
-    cur: `${fmtNum(acStCur, 1)} kW`,
-    tgt: `${fmtNum(m.acStorageTargetKw, 1)} kW`,
-    meta: `SOC ${fmtPct(m.acStorageSoc)}`
-  });
-  setEfCard("efDiesel", {
-    cur: `${fmtNum(dieselVal, 1)} kW`,
-    tgt: `${fmtNum(m.totalDieselTargetKw ?? m.dieselTargetKw, 1)} kW`,
-    meta: `下限 ${fmtNum(m.totalDieselMinKw ?? m.dieselMinKw, 0)} kW`
-  });
-  setEfCard("efAcLoad", { cur: `${fmtNum(acLoadKw, 1)} kW`, meta: "380V" });
+  setEfFlow("efFlowAcWind", acWindCur, { refKw: 60 });
 
-  setEfCard("efAcdc", {
+  setEfNode("efAcPv", {
+    cur: `${fmtNum(acPvCur, 1)} kW`,
+    sub: `目标 ${fmtNum(m.acPvTargetKw, 1)} · 可发 ${fmtNum(m.acPvMaxAvailableKw, 1)}`,
+    meta: " · 1台"
+  });
+  setEfFlow("efFlowAcPv", acPvCur, { refKw: 60 });
+
+  const acStVal = Number(acStCur || 0);
+  setEfNode("efAcStorage", {
+    cur: `${fmtNum(acStCur, 1)} kW`,
+    sub: `目标 ${fmtNum(m.acStorageTargetKw, 1)} · ${acStVal > 0.2 ? "放电" : acStVal < -0.2 ? "充电" : "静置"}`,
+    meta: ` · SOC ${fmtPct(m.acStorageSoc)}`,
+    ringPct: pctRatio(m.acStorageSoc)
+  });
+  setEfFlow("efFlowAcStorage", acStVal, { reverse: acStVal < 0, refKw: 150 });
+
+  setEfNode("efDiesel", {
+    cur: `${fmtNum(dieselVal, 1)} kW`,
+    sub: `目标 ${fmtNum(m.totalDieselTargetKw ?? m.dieselTargetKw, 1)} kW`,
+    meta: ` · 下限 ${fmtNum(m.totalDieselMinKw ?? m.dieselMinKw, 0)}`
+  });
+  setEfFlow("efFlowDiesel", dieselVal, { refKw: 260 });
+
+  setEfNode("efAcLoad", {
+    cur: `${fmtNum(acLoadKw, 1)} kW`,
+    sub: `占总负荷 ${acLoadPct}`,
+    meta: " · 380V"
+  });
+  setEfFlow("efFlowAcLoad", acLoadKw, { refKw: 300 });
+
+  const acdcNum = Number(acdcCur || 0);
+  const acdcDirTxt = acdcNum > 0.2 ? "DC → AC" : acdcNum < -0.2 ? "AC → DC" : "平衡";
+  setEfNode("efAcdc", {
     cur: `${fmtNum(acdcCur, 1)} kW`,
-    tgt: `${fmtNum(m.acdcTargetKw, 1)} kW`,
-    meta: "2×300 kW"
+    sub: `${acdcDirTxt} · 目标 ${fmtNum(m.acdcTargetKw, 1)}`,
+    meta: " · 2×300 kW",
+    dir: acdcNum > 0.2 ? "━━▶" : acdcNum < -0.2 ? "◀━━" : "◀━▶"
   });
-  setEfCard("efFuelCell", {
-    cur: `${fmtNum(m.fuelCellCurrentKw, 1)} kW`,
-    meta: `${fmtNum(m.fuelCellFlowCurrentNm3h, 2)} Nm³/h`
-  });
-  setEfCard("efHydroTank", {
-    cur: `SOC ${fmtPct(m.hydrogenStorageSoc)}`,
-    meta: `${fmtNum(m.hydrogenStoragePressureMpa, 2)} MPa`
-  });
-  setEfCard("efElectrolyzer", {
-    cur: `${fmtNum(m.electrolyzerCurrentKw, 1)} kW`,
+  setEfFlow("efFlowAcdcL", acdcNum, { reverse: acdcNum < 0, refKw: 120 });
+  setEfFlow("efFlowAcdcR", acdcNum, { reverse: acdcNum < 0, refKw: 120 });
+
+  const elzVal = Number(m.electrolyzerCurrentKw || 0);
+  const fcVal = Number(m.fuelCellCurrentKw || 0);
+  setEfNode("efElectrolyzer", {
+    cur: `${fmtNum(elzVal, 1)} kW`,
     meta: `${fmtNum(m.electrolyzerFlowCurrentNm3h, 2)} Nm³/h`
   });
+  setEfFlow("efFlowElzIn", elzVal, { refKw: 100 });
+  setEfFlow("efFlowElzH2", elzVal, { refKw: 100 });
+
+  setEfNode("efHydroTank", {
+    cur: fmtPct(m.hydrogenStorageSoc),
+    meta: `${fmtNum(m.hydrogenStoragePressureMpa, 2)} MPa`,
+    ringPct: pctRatio(m.hydrogenStorageSoc)
+  });
+
+  setEfNode("efFuelCell", {
+    cur: `${fmtNum(fcVal, 1)} kW`,
+    meta: `${fmtNum(m.fuelCellFlowCurrentNm3h, 2)} Nm³/h`
+  });
+  setEfFlow("efFlowFcH2", fcVal, { refKw: 80 });
+  setEfFlow("efFlowFcOut", fcVal, { refKw: 80 });
 
   document.getElementById("efGreenPower").textContent = `${fmtNum(renTotal, 1)} kW`;
   document.getElementById("efGreenShare").textContent = `${fmtNum(greenShare, 1)}%`;
-  const dqBadge = document.getElementById("efDataQualityBadge");
   const dqOk = !latest || latest.data_quality === "ok";
-  dqBadge.className = `badge ${dqOk ? "badge-ok" : "badge-warn"}`;
-  dqBadge.textContent = dqOk ? "OK" : String(latest.data_quality || "DEGRADED").toUpperCase();
+  const dqDot = document.getElementById("efQualityDot");
+  if (dqDot) {
+    dqDot.classList.toggle("is-ok", dqOk);
+    dqDot.classList.toggle("is-warn", !dqOk);
+  }
+  const dqBadge = document.getElementById("efDataQualityBadge");
+  if (dqBadge) {
+    dqBadge.classList.toggle("is-warn", !dqOk);
+    dqBadge.textContent = dqOk ? "OK" : String(latest.data_quality || "DEGRADED").toUpperCase();
+  }
 
   // 环境与数据源
   document.getElementById("ovSampleTime").textContent = (env.sample_timestamp || "").replace("T", " ").slice(11) || "--";
@@ -160,20 +250,24 @@ function renderOverviewPage() {
     tblWrap.innerHTML = `
       <table class="data-table">
         <thead><tr>
+          <th>分类</th>
           <th>${t("col.device")}</th>
           <th class="num">${t("lbl.current")} (kW)</th>
           <th class="num">${t("lbl.target")} (kW)</th>
           <th class="num">ΔP (kW)</th>
           <th>状态</th>
+          <th>策略说明</th>
         </tr></thead>
         <tbody>
           ${changedRows.map((r) => `
             <tr>
-              <td>${escapeHtml(r.dev_name)}</td>
+              <td>${escapeHtml(r.category || "--")}</td>
+              <td><strong>${escapeHtml(r.dev_name)}</strong></td>
               <td class="num">${fmtNum(r.current_kw, 2)}</td>
               <td class="num">${fmtNum(r.target_kw, 2)}</td>
               <td class="num ${Number(r.delta_kw) >= 0 ? "val-pos" : "val-neg"}">${Number(r.delta_kw) >= 0 ? "+" : ""}${fmtNum(r.delta_kw, 2)}</td>
               <td><span class="badge ${r.dispatch_status === "dispatched" ? "badge-ok" : "badge-info"}">${escapeHtml(r.dispatch_status)}</span></td>
+              <td class="ellipsis" title="${escapeHtml(r.status_label || "")}">${escapeHtml(r.status_label || "--")}</td>
             </tr>
           `).join("")}
         </tbody>

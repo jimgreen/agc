@@ -841,117 +841,193 @@ body.is-resizing-y * {
   min-height: 0;
 }
 
-.overview-bottom-row {
+.overview-bottom-panel {
   min-height: 0;
-}
-
-.energy-flow-board {
-  flex: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px minmax(220px, 0.95fr) 30px minmax(0, 1fr);
-  gap: 10px;
-  padding: 12px;
-  align-items: stretch;
-  overflow: auto;
-}
-
-.ef-column {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   min-width: 0;
 }
 
-.ef-col-title {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+.ov-tab-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.ef-bus {
-  border-radius: 6px;
+.energy-flow-stage {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  writing-mode: vertical-rl;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  border: var(--border);
+  padding: 6px 10px 8px;
+  overflow: hidden;
 }
 
-.ef-bus.dc-bus { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
-.ef-bus.ac-bus { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
-
-.ef-card {
-  background: var(--bg-subtle);
-  border: var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 8px;
-  padding: 7px 10px;
+.ef-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  user-select: none;
 }
-.ef-card.wind { border-left-color: #0EA5E9; }
-.ef-card.solar { border-left-color: #F59E0B; }
-.ef-card.storage { border-left-color: #10B981; }
-.ef-card.diesel { border-left-color: #EF4444; }
-.ef-card.load { border-left-color: #8B5CF6; }
-.ef-card.converter { border-left-color: var(--accent); }
-.ef-card.green-box { border-left-color: var(--ok); }
 
-.ef-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+.ef-zone-title {
+  fill: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
-  margin-bottom: 4px;
-}
-.ef-card-head small { color: var(--text-secondary); font-weight: 500; }
-
-.ef-readings {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.ef-readings > div {
-  display: flex;
-  flex-direction: column;
-  min-width: 62px;
-}
-.ef-readings span { font-size: 10.5px; color: var(--text-secondary); }
-.ef-readings strong { font-size: 13px; }
-
-.ef-hydrogen-box {
-  background: var(--bg-subtle);
-  border: var(--border);
-  border-radius: 8px;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  letter-spacing: 0.03em;
 }
 
-.ef-hydrogen-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+.ef-zone-sub {
+  fill: var(--text-secondary);
+  font-size: 11px;
+  opacity: 0.85;
 }
 
-.ef-mini-card {
-  background: var(--bg-surface);
-  border: var(--border);
-  border-radius: 6px;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.ef-green-line {
+  font-size: 12px;
 }
-.ef-mini-card span { font-size: 11px; color: var(--text-secondary); }
-.ef-mini-card strong { font-size: 12.5px; }
-.ef-mini-card small { font-size: 10.5px; color: var(--text-secondary); }
+
+.ef-muted-t { fill: var(--text-secondary); }
+.ef-strong-t { fill: var(--text-primary); font-weight: 700; }
+.ef-ok-t { fill: var(--ok); font-weight: 700; }
+
+.ef-q-dot.is-ok { fill: var(--ok); }
+.ef-q-dot.is-warn { fill: var(--warn); }
+.ef-q-text {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--ok);
+}
+.ef-q-text.is-warn { fill: var(--warn); }
+
+.ef-bus-cap {
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.ef-bus-foot {
+  fill: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ef-rail {
+  fill: none;
+  stroke: var(--border-color);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.65;
+}
+
+.ef-flow {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 8 10;
+  opacity: 0;
+  transition: opacity 220ms ease, stroke-width 220ms ease;
+}
+
+.ef-flow.is-forward {
+  opacity: 0.95;
+  animation: efDashForward var(--ef-dur, 1.4s) linear infinite;
+}
+
+.ef-flow.is-reverse {
+  opacity: 0.95;
+  animation: efDashReverse var(--ef-dur, 1.4s) linear infinite;
+}
+
+@keyframes efDashForward {
+  from { stroke-dashoffset: 36; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes efDashReverse {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: 36; }
+}
+
+.ef-node-disc {
+  fill: var(--bg-subtle);
+  stroke-width: 1.75;
+  transition: fill 180ms ease;
+}
+
+.ef-node-hub {
+  fill: var(--bg-surface);
+  stroke-width: 2;
+}
+
+.ef-soc-ring {
+  fill: none;
+  stroke-width: 2.8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 320ms ease;
+}
+
+.ef-icon {
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ef-hub-tag {
+  fill: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ef-hub-dir {
+  fill: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ef-tank-pct {
+  fill: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ef-tank-sub {
+  fill: var(--text-secondary);
+  font-size: 9.5px;
+}
+
+.ef-n-title {
+  fill: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.ef-n-meta {
+  fill: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.ef-n-val {
+  fill: var(--text-primary);
+  font-size: 16.5px;
+  font-weight: 700;
+}
+
+.ef-n-val-sm {
+  fill: var(--text-primary);
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.ef-n-sub {
+  fill: var(--text-secondary);
+  font-size: 10.5px;
+}
 
 .kv-list {
   margin: 0;

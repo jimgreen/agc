@@ -115,8 +115,20 @@ function bindGlobalShellEvents() {
     btn.addEventListener("click", () => switchPage(btn.dataset.navPage));
   });
 
-  // 主页快捷按钮
+  // 主页快捷按钮与底部多标签分页切换
   document.getElementById("ovGoAgcBtn")?.addEventListener("click", () => switchPage("agc-control"));
+  document.querySelectorAll("#ovBottomTabs button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.ovTab || "summary";
+      document.querySelectorAll("#ovBottomTabs button").forEach((b) => {
+        b.classList.toggle("is-active", b === btn);
+      });
+      const sumPane = document.getElementById("ovPaneSummary");
+      const cmdPane = document.getElementById("ovPaneCommands");
+      if (sumPane) sumPane.hidden = tab !== "summary";
+      if (cmdPane) cmdPane.hidden = tab !== "commands";
+    });
+  });
   document.getElementById("ovQuickCalcBtn")?.addEventListener("click", async () => {
     try {
       const res = await apiPost("/api/agc/control", { action: "calculate_once" });
