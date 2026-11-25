@@ -793,6 +793,20 @@ function renderDiagramDeviceCard(devName, openDialog = false) {
     rows.push(["控制模式", dev.mode || "--"]);
     rows.push(["运行状态", dev.run_stat ? "运行" : "停运"]);
   }
+  // 融合展示该设备最新的 AGC 控制状态与策略目标
+  const latestRows = (AGCState.control && AGCState.control.latest && AGCState.control.latest.command_rows) || [];
+  const stratRow = latestRows.find(
+    (r) => r.dev_name === devName && (!dev || r.dev_type === dev.dev_type)
+  );
+  if (stratRow) {
+    const dcMeta = typeof devCfgControlStateMeta === "function"
+      ? devCfgControlStateMeta(stratRow.device_control_state)
+      : { label: "闭环" };
+    rows.push(["AGC 状态", dcMeta.label]);
+    if (stratRow.target_kw !== null && stratRow.target_kw !== undefined) {
+      rows.push(["AGC 目标", `${fmtNum(stratRow.target_kw, 2)} kW`]);
+    }
+  }
   meas.forEach((m) => {
     const valStr = m.meas_type === "SOC" ? fmtPct(m.value) : `${fmtNum(m.value, 2)} ${m.unit || ""}`.trim();
     rows.push([m.meas_type, valStr]);
@@ -802,6 +816,19 @@ function renderDiagramDeviceCard(devName, openDialog = false) {
   const acts = document.getElementById("diagCardActions");
   acts.innerHTML = "";
   if (dev) {
+    const agcConfigurable = stratRow || ["ACGenerator", "DCGenerator", "AcE2Hydro", "Hydro2DcE"].includes(dev.dev_type) || (dev.dev_type === "DCACConverter" && String(dev.dev_name || "").includes("DCAC"));
+    if (agcConfigurable && typeof openDeviceConfigForTarget === "function") {
+      const btnCfg = document.createElement("button");
+      btnCfg.type = "button";
+      btnCfg.className = "btn btn-sm";
+      btnCfg.textContent = t("nav.deviceConfig");
+      btnCfg.onclick = () => {
+        if (dlg.open) dlg.close();
+        const st = (stratRow && stratRow.set_type) || (dev.dev_type === "DCACConverter" ? "p_ac_set" : "p_set");
+        openDeviceConfigForTarget(dev.dev_type, dev.dev_name, st);
+      };
+      acts.appendChild(btnCfg);
+    }
     const setTypes = dev.set_types || [];
     if (setTypes.length) {
       const btn = document.createElement("button");
@@ -831,6 +858,35 @@ function renderDiagramDeviceCard(devName, openDialog = false) {
 }
 
 function bindDiagramInteractions() {
+  // 主页全景能量流 SVG 节点点击下钻至对应 AGC 策略分类或实时量测
+  const efNodeMap = {
+    efDcWind: { page: "agc-control", tab: "dc-wind" },
+    efDcPv: { page: "agc-control", tab: "dc-pv" },
+    efDcStorage: { page: "agc-control", tab: "dc-grid-storage" },
+    efAcWind: { page: "agc-control", tab: "ac-wind" },
+    efAcPv: { page: "agc-control", tab: "ac-pv" },
+    efAcStorage: { page: "agc-control", tab: "ac-grid-storage" },
+    efDiesel: { page: "agc-control", tab: "diesel" },
+    efAcdc: { page: "agc-control", tab: "converter" },
+    efElectrolyzer: { page: "agc-control", tab: "hydrogen" },
+    efHydroTank: { page: "agc-control", tab: "hydrogen" },
+    efFuelCell: { page: "agc-control", tab: "hydrogen" },
+    efDcLoad: { page: "measurements" },
+    efAcLoad: { page: "measurements" }
+  };
+  Object.entries(efNodeMap).forEach(([id, dest]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.add("is-clickable");
+    el.addEventListener("click", () => {
+      if (dest.page === "agc-control" && typeof jumpToAgcStrategyTab === "function") {
+        jumpToAgcStrategyTab(dest.tab);
+      } else {
+        switchPage(dest.page);
+      }
+    });
+  });
+
   const vp = document.getElementById("diagramViewport");
   if (!vp) return;
   let dragging = false;

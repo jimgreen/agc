@@ -954,6 +954,80 @@ class AGCRealtimeService:
                 }
         return payload
 
+    def _extract_island_diagnostics(self, strategy: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+        """提取拓扑孤岛优化与功率平衡诊断摘要，供人机状态灯展示。"""
+        if not strategy:
+            return {
+                "island_count": 0,
+                "all_success": True,
+                "max_balance_delta_kw": 0.0,
+                "solve_ms": 0.0,
+                "status": "idle",
+                "summary": "尚未计算",
+                "islands": [],
+            }
+        metrics = strategy.get("metrics") if isinstance(strategy.get("metrics"), Mapping) else {}
+        raw_islands = metrics.get("optimizationIslands")
+        islands_out: List[Dict[str, Any]] = []
+        max_delta = _finite(metrics.get("optimizationMaxBalanceResidualKw")) or 0.0
+        all_ok = bool(metrics.get("optimizationAllSuccess", True))
+        any_override = False
+        if isinstance(raw_islands, list):
+            for idx, isl in enumerate(raw_islands):
+                if not isinstance(isl, Mapping):
+                    continue
+                st = str(isl.get("status") or "optimal")
+                ok = bool(isl.get("success", True))
+                d_kw = _finite(isl.get("maxBalanceDeltaKw", isl.get("max_balance_delta_kw"))) or 0.0
+                max_delta = max(max_delta, abs(d_kw))
+                if not ok:
+                    all_ok = False
+                if "override" in st or "safety" in st:
+                    any_override = True
+                islands_out.append(
+                    {
+                        "id": str(isl.get("islandId") or isl.get("island_id") or f"I{idx + 1}"),
+                        "status": st,
+                        "success": ok,
+                        "device_count": int(isl.get("variableCount") or isl.get("variable_count") or 0),
+                        "max_balance_delta_kw": round(abs(d_kw), 3),
+                        "message": str(isl.get("message") or ""),
+                    }
+                )
+        dq = str(strategy.get("data_quality") or "ok").lower()
+        dispatch_ok = bool(strategy.get("dispatch_allowed", True))
+        solve_sec = _finite(metrics.get("optimizationSolveSeconds")) or 0.0
+        if dq != "ok" or not dispatch_ok or not all_ok:
+            status = "danger"
+        elif any_override or max_delta > 0.5:
+            status = "warn"
+        else:
+            status = "ok"
+        island_cnt = len(islands_out) or int(metrics.get("optimizationIslandCount") or 1)
+        summary = f"{island_cnt} 岛 · 平衡偏差 {max_delta:.2f} kW"
+        if dq != "ok" or not dispatch_ok:
+            summary = f"闭锁 ({dq}) · {summary}"
+        elif any_override:
+            summary = f"安全放开 · {summary}"
+        return {
+            "island_count": island_cnt,
+            "all_success": all_ok,
+            "max_balance_delta_kw": round(max_delta, 3),
+            "solve_ms": round(solve_sec * 1000.0, 1),
+            "status": status,
+            "summary": summary,
+            "islands": islands_out,
+        }
+
+    def get_strategy_cycle_payload(self, cycle: Optional[int] = None) -> Dict[str, Any]:
+        """查询指定历史周期（或最新周期）的控制策略快照与拓扑孤岛诊断。"""
+        strategy = self.store.get_strategy_by_cycle(cycle)
+        return {
+            "ok": strategy is not None,
+            "strategy": strategy,
+            "island_diagnostics": self._extract_island_diagnostics(strategy),
+        }
+
     def get_agc_control_payload(self) -> Dict[str, Any]:
         latest = self.store.get_latest_strategy()
         with self.lock:
@@ -974,6 +1048,7 @@ class AGCRealtimeService:
                 "agc_db": str(self.store.path),
                 "command_channel": "scdfe_d",
                 "pending_ack_count": len(self._pending_acks),
+                "island_diagnostics": self._extract_island_diagnostics(latest),
                 "latest": latest,
             }
 
@@ -1597,3 +1672,52 @@ class AGCRealtimeService:
         res = self.get_device_curve_payload(dev_type=dev_type, dev_name=dev_name, set_type=set_type)
         res["updated_at"] = ts
         return res
+
+    def copy_device_curve_to_targets(
+        self,
+        *,
+        source_name: str = "",
+        points: Sequence[Any],
+        curve_interp: Optional[str] = None,
+        targets: Sequence[Mapping[str, Any]],
+    ) -> Dict[str, Any]:
+        """将 96 点预设曲线批量复制应用至多台同类受控设备并记录审计日志。"""
+        if not isinstance(targets, Sequence) or not targets:
+            raise ValueError("目标设备列表不能为空")
+        copied_names: List[str] = []
+        last_ts = ""
+        for tgt in targets:
+            dt = str(tgt.get("dev_type") or "").strip()
+            dn = str(tgt.get("dev_name") or "").strip()
+            st = str(tgt.get("set_type") or "p_set").strip()
+            if not dt or not dn:
+                continue
+            last_ts = self.store.save_device_curve(
+                dev_type=dt,
+                dev_name=dn,
+                set_type=st,
+                points=points,
+                curve_interp=curve_interp,
+            )
+            copied_names.append(dn)
+        if not copied_names:
+            raise ValueError("未找到有效的目标设备")
+        src_lbl = source_name or "当前曲线"
+        self.store.append_control_log(
+            level="info",
+            event_type="device_curve",
+            cycle=self._last_cycle,
+            subject=f"批量复制预设曲线（{len(copied_names)} 台）",
+            summary=f"已将 {src_lbl} 的 96 点曲线复制至：{', '.join(copied_names[:6])}{' 等' if len(copied_names) > 6 else ''}",
+        )
+        self.store.append_runtime_log(
+            level="info",
+            log_type="parameters",
+            target=f"同类设备 ({len(copied_names)} 台)",
+            result="已批量复制",
+            summary=f"由 {src_lbl} 复制 96 点预设曲线",
+        )
+        payload = self.get_device_configs_payload()
+        payload["copied_count"] = len(copied_names)
+        payload["updated_at"] = last_ts
+        return payload

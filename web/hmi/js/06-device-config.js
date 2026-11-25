@@ -13,6 +13,7 @@ const DevCfgState = {
   keyword: "",
   selectedKey: null,
   curve: null,      // { dev_type, dev_name, set_type, points: number[96], labels: string[96], curve_interp, effective_min, effective_max, current_kw, current_slot_index }
+  curveUndoStack: [],
   curveDirty: false,
   curveHoverIdx: -1,
   curveDragging: false,
@@ -349,11 +350,117 @@ async function loadDeviceCurveEditor(item, forceReload = true) {
   data.curve_interp = draft.curve_interp || data.curve_interp || "step";
 
   DevCfgState.curve = data;
+  DevCfgState.curveUndoStack = [];
   DevCfgState.curveDirty = false;
   DevCfgState.dragLockedRange = null;
   renderDeviceCurveHeader();
   drawDeviceCurveCanvas();
   renderDeviceCurveGrid();
+}
+
+function _pushCurveUndoSnapshot() {
+  const c = DevCfgState.curve;
+  if (!c || !Array.isArray(c.points)) return;
+  DevCfgState.curveUndoStack.push([...c.points]);
+  if (DevCfgState.curveUndoStack.length > 30) {
+    DevCfgState.curveUndoStack.shift();
+  }
+  const undoBtn = document.getElementById("dcCurveUndoBtn");
+  if (undoBtn) undoBtn.disabled = DevCfgState.curveUndoStack.length === 0;
+}
+
+function undoDeviceCurveEdit() {
+  const c = DevCfgState.curve;
+  if (!c || DevCfgState.curveUndoStack.length === 0) return;
+  c.points = DevCfgState.curveUndoStack.pop();
+  DevCfgState.curveDirty = true;
+  renderDeviceCurveHeader();
+  drawDeviceCurveCanvas();
+  renderDeviceCurveGrid();
+}
+
+function scaleCurrentCurve(factor) {
+  const c = DevCfgState.curve;
+  if (!c || !Array.isArray(c.points)) return;
+  _pushCurveUndoSnapshot();
+  const hasMin = c.effective_min !== null && c.effective_min !== undefined && Number.isFinite(Number(c.effective_min));
+  const hasMax = c.effective_max !== null && c.effective_max !== undefined && Number.isFinite(Number(c.effective_max));
+  const validBounds = hasMin && hasMax && Number(c.effective_min) < Number(c.effective_max);
+  c.points = c.points.map((v) => {
+    let nv = Number(v || 0) * factor;
+    if (validBounds) nv = Math.min(Number(c.effective_max), Math.max(Number(c.effective_min), nv));
+    else if (!c.allow_negative) nv = Math.max(0, nv);
+    return Math.round(nv * 10) / 10;
+  });
+  DevCfgState.curveDirty = true;
+  renderDeviceCurveHeader();
+  drawDeviceCurveCanvas();
+  renderDeviceCurveGrid();
+}
+
+async function copyCurrentCurveToSameCategory() {
+  const c = DevCfgState.curve;
+  if (!c) return;
+  const srcItem = DevCfgState.items.find((it) => devCfgKey(it) === devCfgKey(c));
+  if (!srcItem) return;
+  const peers = DevCfgState.items.filter(
+    (it) => it.category === srcItem.category && devCfgKey(it) !== devCfgKey(c)
+  );
+  if (!peers.length) {
+    showToast(`${srcItem.category} 仅此 1 台设备`, "info");
+    return;
+  }
+  const ok = await confirmDanger({
+    title: t("devcfg.copySameTitle"),
+    target: `${srcItem.category}（共 ${peers.length} 台同类设备）`,
+    message: `将「${c.dev_name}」当前的 96 点预设曲线覆盖应用到同类别其他 ${peers.length} 台设备。`,
+    confirmText: t("devcfg.copySame")
+  });
+  if (!ok) return;
+  const interp = document.getElementById("dcCurveInterpSelect")?.value || c.curve_interp || "step";
+  try {
+    const targets = [
+      { dev_type: c.dev_type, dev_name: c.dev_name, set_type: c.set_type },
+      ...peers.map((p) => ({ dev_type: p.dev_type, dev_name: p.dev_name, set_type: p.set_type }))
+    ];
+    const res = await apiPost("/api/device-configs/curve/copy", {
+      source_name: c.dev_name,
+      points: c.points,
+      curve_interp: interp,
+      targets
+    });
+    DevCfgState.items = res.items || DevCfgState.items;
+    DevCfgState.curveDirty = false;
+    renderDeviceConfigsToolbar();
+    renderDeviceConfigsTable();
+    renderDeviceCurveHeader();
+    showToast(`已将曲线批量复制至 ${res.copied_count || targets.length} 台 ${srcItem.category}`, "ok");
+  } catch (err) {
+    showToast(err.message, "danger");
+  }
+}
+
+async function openDeviceConfigForTarget(devType, devName, setType = "p_set") {
+  DevCfgState.groupFilter = "all";
+  DevCfgState.stateFilter = "all";
+  DevCfgState.keyword = "";
+  const stateSel = document.getElementById("dcStateFilter");
+  if (stateSel) stateSel.value = "all";
+  const searchInp = document.getElementById("dcSearchInput");
+  if (searchInp) searchInp.value = "";
+  document.querySelectorAll("#dcGroupTabs button").forEach((b) => {
+    b.classList.toggle("is-active", b.dataset.dcGroup === "all");
+  });
+  await switchPage("device-config");
+  const match = DevCfgState.items.find(
+    (it) => it.dev_type === devType && it.dev_name === devName && (!setType || it.set_type === setType)
+  ) || DevCfgState.items.find((it) => it.dev_name === devName);
+  if (match) {
+    const key = devCfgKey(match);
+    await selectDeviceForCurve(key);
+    const tr = document.querySelector(`#devCfgTableWrap tr[data-devcfg-row="${CSS.escape(key)}"]`);
+    tr?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
 }
 
 function renderDeviceCurveHeader() {
@@ -379,6 +486,8 @@ function renderDeviceCurveHeader() {
     saveBtn.disabled = false;
     saveBtn.textContent = DevCfgState.curveDirty ? `${t("devcfg.saveCurve")} *` : t("devcfg.saveCurve");
   }
+  const undoBtn = document.getElementById("dcCurveUndoBtn");
+  if (undoBtn) undoBtn.disabled = DevCfgState.curveUndoStack.length === 0;
 }
 
 function _computeCurveYRange(c) {
@@ -712,6 +821,7 @@ function _applyCurveCanvasPointer(ev, isStart = false) {
 function applyCurveTemplate(tpl) {
   const c = DevCfgState.curve;
   if (!c || !tpl) return;
+  _pushCurveUndoSnapshot();
   const lo = c.effective_min !== null && c.effective_min !== undefined ? Number(c.effective_min) : 0;
   const hi = c.effective_max !== null && c.effective_max !== undefined ? Number(c.effective_max) : 100;
   const span = Math.max(0, hi - lo);
@@ -934,6 +1044,10 @@ function bindDeviceConfigEvents() {
 
   document.getElementById("dcSaveCurveBtn")?.addEventListener("click", saveCurrentDeviceCurve);
   document.getElementById("dcExportCurveBtn")?.addEventListener("click", exportCurrentCurveCsv);
+  document.getElementById("dcCurveUndoBtn")?.addEventListener("click", undoDeviceCurveEdit);
+  document.getElementById("dcCurveScaleDownBtn")?.addEventListener("click", () => scaleCurrentCurve(0.95));
+  document.getElementById("dcCurveScaleUpBtn")?.addEventListener("click", () => scaleCurrentCurve(1.05));
+  document.getElementById("dcCopyCurveSameBtn")?.addEventListener("click", copyCurrentCurveToSameCategory);
 
   const fileInput = document.getElementById("dcImportCurveFile");
   document.getElementById("dcImportCurveBtn")?.addEventListener("click", () => fileInput?.click());
@@ -964,6 +1078,7 @@ function bindDeviceConfigEvents() {
     canvas.addEventListener("pointerdown", (ev) => {
       if (ev.button !== 0 || !DevCfgState.curve) return;
       ev.preventDefault();
+      _pushCurveUndoSnapshot();
       DevCfgState.dragLockedRange = _computeCurveYRange(DevCfgState.curve);
       DevCfgState.curveDragging = true;
       DevCfgState.lastDragIdx = -1;

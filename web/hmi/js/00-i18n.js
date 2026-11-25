@@ -233,7 +233,11 @@ const I18N_DICT = {
     "devcfg.grpStorage": "储能",
     "devcfg.grpDiesel": "柴发",
     "devcfg.grpConverter": "变流器",
-    "devcfg.grpHydrogen": "氢能"
+    "devcfg.grpHydrogen": "氢能",
+    "devcfg.undo": "撤销",
+    "devcfg.copySame": "复制同类",
+    "devcfg.copySameTitle": "批量复制 96 点预设曲线？",
+    "agc.latestCycle": "最新"
   },
   "en-US": {
     "app.title": "Qinling Microgrid AGC Console",
@@ -468,7 +472,11 @@ const I18N_DICT = {
     "devcfg.grpStorage": "BESS",
     "devcfg.grpDiesel": "Diesel",
     "devcfg.grpConverter": "ACDC",
-    "devcfg.grpHydrogen": "H2"
+    "devcfg.grpHydrogen": "H2",
+    "devcfg.undo": "Undo",
+    "devcfg.copySame": "Copy Peers",
+    "devcfg.copySameTitle": "Copy 96-pt curve to peer devices?",
+    "agc.latestCycle": "Latest"
   },
   "ru-RU": {
     "app.title": "Консоль АРЧМ Циньлин",
@@ -703,7 +711,11 @@ const I18N_DICT = {
     "devcfg.grpStorage": "СНЭ",
     "devcfg.grpDiesel": "ДГУ",
     "devcfg.grpConverter": "ACDC",
-    "devcfg.grpHydrogen": "H2"
+    "devcfg.grpHydrogen": "H2",
+    "devcfg.undo": "Отмена",
+    "devcfg.copySame": "Копия",
+    "devcfg.copySameTitle": "Копировать кривую на однотипные?",
+    "agc.latestCycle": "Свежий"
   }
 };
 

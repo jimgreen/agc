@@ -1906,3 +1906,42 @@ tr.is-dirty-row > td:first-child {
   color: var(--warn);
   font-weight: 700;
 }
+
+/* 跨页直达设备按钮、周期回放条、可点击日志与能量流节点反馈 */
+.link-dev-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline dotted transparent;
+  text-underline-offset: 3px;
+}
+
+.link-dev-btn:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
+.cycle-nav-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.data-table tbody tr.is-clickable-row {
+  cursor: pointer;
+}
+
+.ef-node.is-clickable {
+  cursor: pointer;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.ef-node.is-clickable:hover {
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.55));
+}

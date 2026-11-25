@@ -862,7 +862,32 @@ class AGCRealtimeSystemTests(unittest.TestCase):
         self.assertEqual(int(scada_rows[1]["p_set_cmd_status"]), 1)
         self.assertIsNone(scada_rows[3]["p_set"])
 
-        # 4. 重置配置验证
+        # 4. 验证历史周期回放 API 与拓扑孤岛诊断 + 批量复制曲线 API
+        st_res = get_json("/api/agc/strategy?cycle=1")
+        self.assertTrue(st_res["ok"])
+        self.assertEqual(st_res["strategy"]["cycle"], 1)
+        self.assertIn("island_diagnostics", st_res)
+        self.assertIn("status", st_res["island_diagnostics"])
+
+        cp_res = post_json(
+            "/api/device-configs/curve/copy",
+            {
+                "source_name": "交流风电-1",
+                "points": [42.0] * 96,
+                "curve_interp": "step",
+                "targets": [
+                    {"dev_type": "ACGenerator", "dev_name": "交流风电-1", "set_type": "p_set"},
+                    {"dev_type": "ACGenerator", "dev_name": "交流储能-1", "set_type": "p_set"},
+                ],
+            },
+        )
+        self.assertTrue(cp_res["ok"])
+        self.assertEqual(cp_res["copied_count"], 2)
+        c_peer = get_json("/api/device-configs/curve?dev_type=ACGenerator&dev_name=%E4%BA%A4%E6%B5%81%E5%82%A8%E8%83%BD-1&set_type=p_set")
+        self.assertTrue(c_peer["has_saved"])
+        self.assertAlmostEqual(c_peer["points"][0], 42.0, places=3)
+
+        # 5. 重置配置验证
         rst = post_json("/api/device-configs/reset", {"reset_curves": False})
         self.assertTrue(rst["ok"])
         self.assertEqual(rst["counts"]["track"], 0)
@@ -870,7 +895,7 @@ class AGCRealtimeSystemTests(unittest.TestCase):
         # 曲线仍保留
         c_after = get_json("/api/device-configs/curve?dev_type=ACGenerator&dev_name=%E4%BA%A4%E6%B5%81%E9%A3%8E%E7%94%B5-1&set_type=p_set")
         self.assertTrue(c_after["has_saved"])
-        self.assertAlmostEqual(c_after["points"][0], 35.0, places=3)
+        self.assertAlmostEqual(c_after["points"][0], 42.0, places=3)
 
     def test_multi_device_coordination_deadband_rebalance_and_hydrogen_track(self) -> None:
         """验证多设备协同：闭环死区重平衡、跟踪功率电侧精确配平、氢能跟踪电侧协同与指标一致性。"""

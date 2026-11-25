@@ -220,6 +220,13 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
                     self._send_json(service.get_agc_control_payload())
                     return
 
+                if path == "/api/agc/strategy":
+                    raw_cycle = (qs.get("cycle") or [""])[0].strip()
+                    cycle_no = int(float(raw_cycle)) if raw_cycle else None
+                    res = service.get_strategy_cycle_payload(cycle_no)
+                    self._send_json(res, HTTPStatus.OK if res.get("ok") else HTTPStatus.NOT_FOUND)
+                    return
+
                 if path == "/api/agc/presets":
                     self._send_json({"presets": STRATEGY_PRESETS})
                     return
@@ -381,6 +388,16 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
                         set_type=str(body.get("set_type") or "p_set"),
                         points=body.get("points") or [],
                         curve_interp=body.get("curve_interp"),
+                    )
+                    self._send_json({"ok": True, **res})
+                    return
+
+                if path == "/api/device-configs/curve/copy":
+                    res = service.copy_device_curve_to_targets(
+                        source_name=str(body.get("source_name") or ""),
+                        points=body.get("points") or [],
+                        curve_interp=body.get("curve_interp"),
+                        targets=body.get("targets") or [],
                     )
                     self._send_json({"ok": True, **res})
                     return

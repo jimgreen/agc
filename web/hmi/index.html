@@ -30,7 +30,7 @@
         } catch (_e) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20261125-fix16" />
+    <link rel="stylesheet" href="/styles.css?v=20261125-fix17" />
   </head>
   <body>
     <div class="app-shell">
@@ -503,11 +503,20 @@
                     <div class="panel-title-inline">
                       <h2 data-i18n="agc.strategyTitle">控制策略</h2>
                       <span id="agcStrategySummary" class="muted mono">0 条</span>
+                      <span id="agcIslandDiagBadge" class="badge badge-neutral" title="">--</span>
                     </div>
-                    <label class="inline-check">
-                      <input id="agcChangedOnlyCheck" type="checkbox" />
-                      <span data-i18n="agc.onlyChanged">仅看变动</span>
-                    </label>
+                    <div class="inline-btn-group">
+                      <div class="cycle-nav-group" role="group" aria-label="Cycle Replay">
+                        <button id="agcCyclePrevBtn" type="button" class="btn btn-xs" title="上一周期">&#8592;</button>
+                        <span id="agcCycleReplayTag" class="badge badge-neutral mono">#0</span>
+                        <button id="agcCycleNextBtn" type="button" class="btn btn-xs" title="下一周期">&#8594;</button>
+                        <button id="agcCycleLatestBtn" type="button" class="btn btn-xs btn-primary" hidden data-i18n="agc.latestCycle">最新</button>
+                      </div>
+                      <label class="inline-check">
+                        <input id="agcChangedOnlyCheck" type="checkbox" />
+                        <span data-i18n="agc.onlyChanged">仅看变动</span>
+                      </label>
+                    </div>
                   </div>
                   <div class="tab-bar scrollable-tabs" id="agcStrategyTabs" role="tablist">
                     <button type="button" class="is-active" data-strategy-tab="all" data-i18n="cat.all">全部</button>
@@ -681,6 +690,10 @@
                       </select>
                     </div>
                     <div class="inline-btn-group">
+                      <button id="dcCurveUndoBtn" type="button" class="btn btn-xs" disabled title="撤销上一步修改" data-i18n="devcfg.undo">撤销</button>
+                      <button id="dcCurveScaleDownBtn" type="button" class="btn btn-xs" title="整体下调 5%">-5%</button>
+                      <button id="dcCurveScaleUpBtn" type="button" class="btn btn-xs" title="整体上调 5%">+5%</button>
+                      <button id="dcCopyCurveSameBtn" type="button" class="btn btn-xs" title="将当前曲线复制到同类设备" data-i18n="devcfg.copySame">复制同类</button>
                       <input id="dcImportCurveFile" type="file" accept=".csv,.txt" hidden />
                       <button id="dcImportCurveBtn" type="button" class="btn btn-xs" data-i18n="devcfg.importCsv">导入 CSV</button>
                       <button id="dcExportCurveBtn" type="button" class="btn btn-xs" data-i18n="action.exportCsv">导出 CSV</button>
@@ -1259,12 +1272,12 @@
 
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-    <script defer src="/js/00-i18n.js?v=20261125-fix16"></script>
-    <script defer src="/js/01-core.js?v=20261125-fix16"></script>
-    <script defer src="/js/02-overview-diagram.js?v=20261125-fix16"></script>
-    <script defer src="/js/03-agc-control.js?v=20261125-fix16"></script>
-    <script defer src="/js/04-monitor-pages.js?v=20261125-fix16"></script>
-    <script defer src="/js/06-device-config.js?v=20261125-fix16"></script>
-    <script defer src="/js/05-bootstrap.js?v=20261125-fix16"></script>
+    <script defer src="/js/00-i18n.js?v=20261125-fix17"></script>
+    <script defer src="/js/01-core.js?v=20261125-fix17"></script>
+    <script defer src="/js/02-overview-diagram.js?v=20261125-fix17"></script>
+    <script defer src="/js/03-agc-control.js?v=20261125-fix17"></script>
+    <script defer src="/js/04-monitor-pages.js?v=20261125-fix17"></script>
+    <script defer src="/js/06-device-config.js?v=20261125-fix17"></script>
+    <script defer src="/js/05-bootstrap.js?v=20261125-fix17"></script>
   </body>
 </html>

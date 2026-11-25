@@ -600,20 +600,41 @@ class AGCRealtimeStore:
     # 查询接口（面向 Web HMI 曲线、日志、历史策略、指令追踪）
     # ------------------------------------------------------------------
 
-    def get_latest_strategy(self) -> Optional[Dict[str, Any]]:
+    def get_strategy_by_cycle(self, cycle: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """按周期号读取控制策略快照与逐台设备明细（cycle=None 时返回最新周期，附带前后周期导航）。"""
         with self.lock:
-            snap = self.conn.execute(
-                "SELECT * FROM agc_strategy_snapshots ORDER BY cycle DESC LIMIT 1"
-            ).fetchone()
+            if cycle is None or int(cycle) <= 0:
+                snap = self.conn.execute(
+                    "SELECT * FROM agc_strategy_snapshots ORDER BY cycle DESC LIMIT 1"
+                ).fetchone()
+            else:
+                snap = self.conn.execute(
+                    "SELECT * FROM agc_strategy_snapshots WHERE cycle=?",
+                    (int(cycle),),
+                ).fetchone()
             if snap is None:
                 return None
-            cycle = int(snap["cycle"])
+            cur_cycle = int(snap["cycle"])
             cmd_rows = self.conn.execute(
                 "SELECT * FROM agc_strategy_commands WHERE cycle=? ORDER BY id ASC",
-                (cycle,),
+                (cur_cycle,),
             ).fetchall()
+            prev_row = self.conn.execute(
+                "SELECT MAX(cycle) AS c FROM agc_strategy_snapshots WHERE cycle < ?",
+                (cur_cycle,),
+            ).fetchone()
+            next_row = self.conn.execute(
+                "SELECT MIN(cycle) AS c FROM agc_strategy_snapshots WHERE cycle > ?",
+                (cur_cycle,),
+            ).fetchone()
+            latest_row = self.conn.execute(
+                "SELECT MAX(cycle) AS c FROM agc_strategy_snapshots"
+            ).fetchone()
         return {
-            "cycle": cycle,
+            "cycle": cur_cycle,
+            "prev_cycle": int(prev_row["c"]) if (prev_row and prev_row["c"] is not None) else None,
+            "next_cycle": int(next_row["c"]) if (next_row and next_row["c"] is not None) else None,
+            "latest_cycle": int(latest_row["c"]) if (latest_row and latest_row["c"] is not None) else cur_cycle,
             "recorded_at": snap["recorded_at"],
             "sample_timestamp": snap["sample_timestamp"],
             "loop_mode": snap["loop_mode"],
@@ -655,6 +676,9 @@ class AGCRealtimeStore:
                 for r in cmd_rows
             ],
         }
+
+    def get_latest_strategy(self) -> Optional[Dict[str, Any]]:
+        return self.get_strategy_by_cycle(None)
 
     def query_trend(
         self,

@@ -90,6 +90,99 @@ const PARAM_FIELDS = [
 ];
 
 let agcPresetsCache = null;
+let agcReplayStrategy = null;
+let agcReplayIslandDiag = null;
+
+function activeAgcStrategy() {
+  return agcReplayStrategy || (AGCState.control && AGCState.control.latest) || null;
+}
+
+function activeAgcIslandDiag() {
+  return agcReplayIslandDiag || (AGCState.control && AGCState.control.island_diagnostics) || null;
+}
+
+async function loadAgcStrategyCycle(cycleNo) {
+  try {
+    const res = await apiGet(`/api/agc/strategy?cycle=${encodeURIComponent(String(cycleNo))}`);
+    if (!res || !res.strategy) {
+      showToast(`未找到周期 #${cycleNo} 的策略快照`, "warn");
+      return;
+    }
+    const latestNo = Number(res.strategy.latest_cycle || (AGCState.control && AGCState.control.cycle) || 0);
+    if (latestNo > 0 && Number(res.strategy.cycle) >= latestNo) {
+      agcReplayStrategy = null;
+      agcReplayIslandDiag = null;
+      if (AGCState.control) AGCState.control.latest = res.strategy;
+    } else {
+      agcReplayStrategy = res.strategy;
+      agcReplayIslandDiag = res.island_diagnostics || null;
+    }
+    renderAgcControlPage();
+  } catch (err) {
+    showToast(err.message, "danger");
+  }
+}
+
+function exitAgcStrategyReplay() {
+  agcReplayStrategy = null;
+  agcReplayIslandDiag = null;
+  renderAgcControlPage();
+}
+
+async function jumpToAgcStrategyTab(tabKey) {
+  if (tabKey && STRATEGY_TAB_CATEGORY_MAP[tabKey] !== undefined) {
+    AGCState.strategyTab = tabKey;
+    document.querySelectorAll("#agcStrategyTabs button").forEach((b) => {
+      b.classList.toggle("is-active", b.dataset.strategyTab === tabKey);
+    });
+  }
+  await switchPage("agc-control");
+}
+
+function renderAgcIslandBadge() {
+  const badge = document.getElementById("agcIslandDiagBadge");
+  if (!badge) return;
+  const diag = activeAgcIslandDiag();
+  if (!diag || diag.status === "idle") {
+    badge.className = "badge badge-neutral";
+    badge.textContent = "--";
+    badge.title = "";
+    return;
+  }
+  const clsMap = { ok: "badge-ok", warn: "badge-warn", danger: "badge-danger" };
+  badge.className = `badge ${clsMap[diag.status] || "badge-neutral"}`;
+  badge.textContent = diag.summary || "--";
+  const detailLines = (diag.islands || []).map(
+    (isl) => `${isl.id}: ${isl.status} | ${isl.device_count}台 | 残差 ${fmtNum(isl.max_balance_delta_kw, 2)} kW${isl.message ? ` (${isl.message})` : ""}`
+  );
+  if (diag.solve_ms) detailLines.push(`求解耗时 ${diag.solve_ms} ms`);
+  badge.title = detailLines.join("\n");
+}
+
+function renderAgcCycleReplayNav() {
+  const strat = activeAgcStrategy();
+  const prevBtn = document.getElementById("agcCyclePrevBtn");
+  const nextBtn = document.getElementById("agcCycleNextBtn");
+  const tagEl = document.getElementById("agcCycleReplayTag");
+  const latestBtn = document.getElementById("agcCycleLatestBtn");
+  const isReplay = Boolean(agcReplayStrategy);
+
+  if (!strat) {
+    if (tagEl) { tagEl.textContent = "#0"; tagEl.className = "badge badge-neutral mono"; }
+    if (prevBtn) prevBtn.disabled = true;
+    if (nextBtn) nextBtn.disabled = true;
+    if (latestBtn) latestBtn.hidden = true;
+    return;
+  }
+  if (tagEl) {
+    tagEl.textContent = isReplay ? `回放 #${strat.cycle}` : `#${strat.cycle}`;
+    tagEl.className = `badge ${isReplay ? "badge-warn" : "badge-info"} mono`;
+    tagEl.title = (strat.recorded_at || "").replace("T", " ");
+  }
+  if (prevBtn) prevBtn.disabled = !strat.prev_cycle;
+  if (nextBtn) nextBtn.disabled = !strat.next_cycle;
+  if (latestBtn) latestBtn.hidden = !isReplay;
+}
 
 async function refreshAgcControlData() {
   const data = await apiGet("/api/agc/control");
@@ -150,8 +243,10 @@ function renderAgcControlPage() {
   document.getElementById("agcEnvWind").textContent = fmtNum(env.wind_speed, 2);
   document.getElementById("agcEnvSolar").textContent = fmtNum(env.solar_irradiance, 1);
   document.getElementById("agcLastCalc").textContent = (c.last_calculated_at || "--").replace("T", " ");
-  document.getElementById("agcStatusLine").textContent = c.status_text || "--";
+  document.getElementById("agcStatusLine").textContent = (agcReplayStrategy && agcReplayStrategy.summary_text) || c.status_text || "--";
 
+  renderAgcIslandBadge();
+  renderAgcCycleReplayNav();
   renderAgcMetricsTable();
   renderAgcStrategyTable();
 }
@@ -239,7 +334,8 @@ function updateMetricTabBadges() {
 function renderAgcMetricsTable() {
   const wrap = document.getElementById("agcMetricTableWrap");
   if (!wrap) return;
-  const m = (AGCState.control && AGCState.control.latest && AGCState.control.latest.metrics) || {};
+  const strat = activeAgcStrategy();
+  const m = (strat && strat.metrics) || {};
   const rows = getMetricRowsForScope(AGCState.metricTab, m);
   updateMetricTabBadges();
 
@@ -335,7 +431,9 @@ function renderAgcMetricsTable() {
 function renderAgcStrategyTable() {
   const wrap = document.getElementById("agcStrategyTableWrap");
   if (!wrap) return;
-  const allRows = (AGCState.control && AGCState.control.latest && AGCState.control.latest.command_rows) || [];
+  const strat = activeAgcStrategy();
+  const isReplay = Boolean(agcReplayStrategy);
+  const allRows = (strat && strat.command_rows) || [];
   const catMatch = STRATEGY_TAB_CATEGORY_MAP[AGCState.strategyTab];
   const changedOnly = document.getElementById("agcChangedOnlyCheck")?.checked;
 
@@ -349,7 +447,7 @@ function renderAgcStrategyTable() {
 
   document.getElementById("agcStrategySummary").textContent = `${filtered.length} / ${allRows.length}`;
   if (!filtered.length) {
-    wrap.innerHTML = `<table class="data-table"><tbody><tr><td class="empty-cell">暂无匹配的策略明细</td></tr></tbody></table>`;
+    wrap.innerHTML = `<table class="data-table"><tbody><tr><td class="empty-cell">—</td></tr></tbody></table>`;
     return;
   }
   wrap.innerHTML = `
@@ -358,7 +456,7 @@ function renderAgcStrategyTable() {
         <tr>
           <th>分类</th>
           <th>${t("col.device")}</th>
-          <th>${t("devcfg.ctrlState")}</th>
+          <th style="width:82px;">${t("devcfg.ctrlState")}</th>
           <th>模式</th>
           <th class="num">${t("lbl.current")} (kW)</th>
           <th class="num">${t("lbl.maxAvail")} (kW)</th>
@@ -373,14 +471,24 @@ function renderAgcStrategyTable() {
         ${filtered.map((r) => {
           const deltaCls = r.changed ? (Number(r.delta_kw) >= 0 ? "val-pos" : "val-neg") : "";
           const st = cmdStatusMeta(r.dispatch_status);
-          const dcMeta = typeof devCfgControlStateMeta === "function"
-            ? devCfgControlStateMeta(r.device_control_state)
-            : { cls: "badge-ok", label: "闭环" };
+          const dcState = String(r.device_control_state || "closed").toLowerCase();
+          const stCls = dcState === "track" ? "state-track" : (dcState === "open" ? "state-open" : "state-closed");
+          const setType = r.set_type || (r.dev_type === "DCACConverter" ? "p_ac_set" : "p_set");
           return `
             <tr class="${r.changed ? "is-selected" : ""}">
               <td>${escapeHtml(r.category)}</td>
-              <td><strong>${escapeHtml(r.dev_name)}</strong></td>
-              <td><span class="badge ${dcMeta.cls}">${escapeHtml(dcMeta.label)}</span></td>
+              <td>
+                <button type="button" class="link-dev-btn" data-jump-dev-type="${escapeHtml(r.dev_type)}" data-jump-dev-name="${escapeHtml(r.dev_name)}" data-jump-set-type="${escapeHtml(setType)}" title="打开设备配置与96点曲线">
+                  ${escapeHtml(r.dev_name)}
+                </button>
+              </td>
+              <td class="cell-edit">
+                <select class="grid-control ${stCls}" data-inline-dev-type="${escapeHtml(r.dev_type)}" data-inline-dev-name="${escapeHtml(r.dev_name)}" data-inline-set-type="${escapeHtml(setType)}" ${isReplay ? "disabled" : ""}>
+                  <option value="closed" ${dcState === "closed" ? "selected" : ""}>${t("devcfg.stateClosed")}</option>
+                  <option value="track" ${dcState === "track" ? "selected" : ""}>${t("devcfg.stateTrack")}</option>
+                  <option value="open" ${dcState === "open" ? "selected" : ""}>${t("devcfg.stateOpen")}</option>
+                </select>
+              </td>
               <td class="mono">${escapeHtml(r.control_mode || "--")}</td>
               <td class="num">${fmtNum(r.current_kw, 2)}</td>
               <td class="num">${fmtNum(r.available_kw, 2)}</td>
@@ -393,6 +501,60 @@ function renderAgcStrategyTable() {
         }).join("")}
       </tbody>
     </table>`;
+
+  // 点击设备名称直达设备配置并定位展开其 96 点预设曲线
+  wrap.querySelectorAll("button[data-jump-dev-name]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (typeof openDeviceConfigForTarget === "function") {
+        openDeviceConfigForTarget(
+          btn.dataset.jumpDevType,
+          btn.dataset.jumpDevName,
+          btn.dataset.jumpSetType
+        );
+      }
+    });
+  });
+
+  // 策略表内原地快速切换单台设备控制状态（保留该设备已有的上下限/步长/死区，仅变更状态并立即落盘）
+  wrap.querySelectorAll("select[data-inline-dev-name]").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const dt = sel.dataset.inlineDevType;
+      const dn = sel.dataset.inlineDevName;
+      const st = sel.dataset.inlineSetType || "p_set";
+      const nextState = sel.value;
+      sel.disabled = true;
+      try {
+        // 先读取已有配置避免覆盖用户设过的上下限/步长/死区
+        const cfgs = await apiGet("/api/device-configs");
+        const existing = (cfgs.items || []).find(
+          (it) => it.dev_type === dt && it.dev_name === dn && it.set_type === st
+        );
+        await apiPost("/api/device-configs", {
+          items: [
+            {
+              dev_type: dt,
+              dev_name: dn,
+              set_type: st,
+              control_state: nextState,
+              p_min: existing ? existing.p_min : null,
+              p_max: existing ? existing.p_max : null,
+              control_step: existing ? existing.control_step : null,
+              control_deadband: existing ? existing.control_deadband : 0,
+              curve_interp: existing ? existing.curve_interp : "step"
+            }
+          ]
+        });
+        sel.classList.remove("state-closed", "state-track", "state-open");
+        sel.classList.add(nextState === "track" ? "state-track" : (nextState === "open" ? "state-open" : "state-closed"));
+        const stateLbl = devCfgControlStateMeta(nextState).label;
+        showToast(`${dn} 已切换为「${stateLbl}」（下一周期生效）`, "ok");
+      } catch (err) {
+        showToast(err.message, "danger");
+      } finally {
+        sel.disabled = false;
+      }
+    });
+  });
 }
 
 function renderAgcTrendChart() {
@@ -472,8 +634,10 @@ function renderAgcControlLogTable(data) {
         <tbody>
           ${items.map((it) => {
             const cls = it.level === "error" ? "badge-danger" : it.level === "warn" ? "badge-warn" : "badge-info";
+            const cyc = Number(it.cycle || 0);
+            const clickable = cyc > 0;
             return `
-              <tr title="${escapeHtml(it.detail || it.summary)}">
+              <tr class="${clickable ? "is-clickable-row" : ""}" ${clickable ? `data-replay-cycle="${cyc}"` : ""} title="${escapeHtml(it.detail || it.summary)}">
                 <td class="mono">${escapeHtml((it.logged_at || "").replace("T", " "))}</td>
                 <td><span class="badge ${cls}">${escapeHtml(String(it.level || "info").toUpperCase())}</span></td>
                 <td>${escapeHtml(it.subject)}</td>
@@ -482,6 +646,12 @@ function renderAgcControlLogTable(data) {
           }).join("")}
         </tbody>
       </table>`;
+    wrap.querySelectorAll("tr[data-replay-cycle]").forEach((tr) => {
+      tr.addEventListener("click", () => {
+        const cyc = Number(tr.dataset.replayCycle || 0);
+        if (cyc > 0) loadAgcStrategyCycle(cyc);
+      });
+    });
   }
   if (pager) {
     pager.innerHTML = `
@@ -575,6 +745,8 @@ function bindAgcControlEvents() {
   document.getElementById("agcCalcOnceBtn")?.addEventListener("click", async () => {
     try {
       const res = await apiPost("/api/agc/control", { action: "calculate_once" });
+      agcReplayStrategy = null;
+      agcReplayIslandDiag = null;
       AGCState.control = res.control;
       renderAgcControlPage();
       await Promise.all([refreshAgcTrendData(), refreshAgcControlLogs(), refreshSnapshot()]);
@@ -822,4 +994,15 @@ function bindAgcControlEvents() {
     openDeratingDialog();
     showToast("已恢复默认降额曲线", "ok");
   });
+
+  // 历史周期翻页按钮
+  document.getElementById("agcCyclePrevBtn")?.addEventListener("click", () => {
+    const strat = activeAgcStrategy();
+    if (strat && strat.prev_cycle) loadAgcStrategyCycle(strat.prev_cycle);
+  });
+  document.getElementById("agcCycleNextBtn")?.addEventListener("click", () => {
+    const strat = activeAgcStrategy();
+    if (strat && strat.next_cycle) loadAgcStrategyCycle(strat.next_cycle);
+  });
+  document.getElementById("agcCycleLatestBtn")?.addEventListener("click", exitAgcStrategyReplay);
 }
