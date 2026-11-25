@@ -16,6 +16,9 @@ const DevCfgState = {
   curveDirty: false,
   curveHoverIdx: -1,
   curveDragging: false,
+  lastDragIdx: -1,
+  lastDragVal: null,
+  dragLockedRange: null, // 拖拽期间锁定 Y 轴视窗，避免边拖边缩放导致指针漂移
   curveBounds: null // 供画布指针反算 Y 值使用 { minY, maxY, padL, padR, padT, padB, w, h }
 };
 
@@ -342,10 +345,12 @@ async function loadDeviceCurveEditor(item, forceReload = true) {
   const maxP = _parseOptNum(draft.p_max);
   data.effective_min = !minP.empty && minP.ok ? minP.value : item.default_min;
   data.effective_max = !maxP.empty && maxP.ok ? maxP.value : item.default_max;
+  data.allow_negative = Boolean(item.allow_negative);
   data.curve_interp = draft.curve_interp || data.curve_interp || "step";
 
   DevCfgState.curve = data;
   DevCfgState.curveDirty = false;
+  DevCfgState.dragLockedRange = null;
   renderDeviceCurveHeader();
   drawDeviceCurveCanvas();
   renderDeviceCurveGrid();
@@ -376,6 +381,41 @@ function renderDeviceCurveHeader() {
   }
 }
 
+function _computeCurveYRange(c) {
+  const vals = (c.points || []).map((v) => Number(v) || 0);
+  const hasMin = c.effective_min !== null && c.effective_min !== undefined && Number.isFinite(Number(c.effective_min));
+  const hasMax = c.effective_max !== null && c.effective_max !== undefined && Number.isFinite(Number(c.effective_max));
+  const validBounds = hasMin && hasMax && Number(c.effective_min) < Number(c.effective_max);
+
+  let minY = vals.length ? Math.min(...vals) : 0;
+  let maxY = vals.length ? Math.max(...vals) : 10;
+  if (validBounds) {
+    minY = Math.min(minY, Number(c.effective_min));
+    maxY = Math.max(maxY, Number(c.effective_max));
+  } else {
+    if (hasMin) minY = Math.min(minY, Number(c.effective_min));
+    if (hasMax && Number(c.effective_max) > minY) maxY = Math.max(maxY, Number(c.effective_max));
+  }
+  if (c.current_kw !== null && c.current_kw !== undefined && Number.isFinite(Number(c.current_kw))) {
+    minY = Math.min(minY, Number(c.current_kw));
+    maxY = Math.max(maxY, Number(c.current_kw));
+  }
+  if (Math.abs(maxY - minY) < 1e-3) {
+    if (c.allow_negative) {
+      minY -= 10;
+      maxY += 10;
+    } else {
+      minY = Math.max(0, minY - 2);
+      maxY = minY + 20;
+    }
+  } else {
+    const pad = (maxY - minY) * 0.12;
+    minY = c.allow_negative ? minY - pad : Math.max(0, minY - pad);
+    maxY += pad;
+  }
+  return { minY, maxY, validBounds };
+}
+
 function drawDeviceCurveCanvas() {
   const canvas = document.getElementById("dcCurveCanvas");
   const c = DevCfgState.curve;
@@ -383,7 +423,7 @@ function drawDeviceCurveCanvas() {
 
   const rect = canvas.parentElement.getBoundingClientRect();
   const w = Math.max(240, Math.floor(rect.width));
-  const h = Math.max(150, Math.floor(rect.height));
+  const h = Math.max(170, Math.floor(rect.height));
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.floor(w * dpr);
   canvas.height = Math.floor(h * dpr);
@@ -395,30 +435,17 @@ function drawDeviceCurveCanvas() {
   const pal = chartThemePalette();
   ctx.clearRect(0, 0, w, h);
 
-  const padL = 48;
+  const padL = 46;
   const padR = 14;
-  const padT = 14;
-  const padB = 24;
+  const padT = 16;
+  const padB = 26;
   const plotW = Math.max(40, w - padL - padR);
   const plotH = Math.max(40, h - padT - padB);
 
   const vals = c.points.map((v) => Number(v) || 0);
-  let minY = Math.min(...vals);
-  let maxY = Math.max(...vals);
-  if (c.effective_min !== null && c.effective_min !== undefined) minY = Math.min(minY, Number(c.effective_min));
-  if (c.effective_max !== null && c.effective_max !== undefined) maxY = Math.max(maxY, Number(c.effective_max));
-  if (c.current_kw !== null && c.current_kw !== undefined) {
-    minY = Math.min(minY, Number(c.current_kw));
-    maxY = Math.max(maxY, Number(c.current_kw));
-  }
-  if (Math.abs(maxY - minY) < 1e-3) {
-    minY -= 10;
-    maxY += 10;
-  } else {
-    const pad = (maxY - minY) * 0.1;
-    minY -= pad;
-    maxY += pad;
-  }
+  const range = DevCfgState.dragLockedRange || _computeCurveYRange(c);
+  const minY = range.minY;
+  const maxY = range.maxY;
   DevCfgState.curveBounds = { minY, maxY, padL, padR, padT, padB, w, h, plotW, plotH };
 
   const xOf = (idx) => padL + (idx / 95) * plotW;
@@ -452,13 +479,15 @@ function drawDeviceCurveCanvas() {
     ctx.fillStyle = pal.text;
     ctx.textAlign = idx === 95 ? "right" : (idx === 0 ? "left" : "center");
     ctx.textBaseline = "top";
-    ctx.fillText(idx === 95 ? "23:45" : `${String((idx * 15) / 60).padStart(2, "0")}:00`, x, h - padB + 5);
+    ctx.fillText(idx === 95 ? "23:45" : `${String((idx * 15) / 60).padStart(2, "0")}:00`, x, h - padB + 6);
   });
 
-  // 上下限安全带虚线
-  const drawLimitLine = (val, color, label) => {
+  // 上下限与当前实时值参考线（错开标签水平位置，彻底避免重叠）
+  const drawLimitLine = (val, color, label, alignMode) => {
     if (val === null || val === undefined || !Number.isFinite(Number(val))) return;
-    const y = yOf(Number(val));
+    const numV = Number(val);
+    if (numV < minY - (maxY - minY) * 0.05 || numV > maxY + (maxY - minY) * 0.05) return;
+    const y = Math.max(padT, Math.min(h - padB, yOf(numV)));
     ctx.save();
     ctx.strokeStyle = color;
     ctx.setLineDash([4, 4]);
@@ -467,26 +496,35 @@ function drawDeviceCurveCanvas() {
     ctx.moveTo(padL, y);
     ctx.lineTo(w - padR, y);
     ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = "10px var(--font-mono), Consolas, monospace";
+    const tw = ctx.measureText(label).width + 8;
+    let bx = w - padR - tw - 2;
+    if (alignMode === "left") bx = padL + 4;
+    else if (alignMode === "center") bx = padL + (plotW - tw) / 2;
+    const by = y - 14 < padT ? y + 2 : y - 14;
+    ctx.fillStyle = pal.bg || "rgba(15, 23, 42, 0.82)";
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(bx, by, tw, 13);
+    ctx.globalAlpha = 1;
     ctx.fillStyle = color;
-    ctx.textAlign = "right";
-    ctx.textBaseline = "bottom";
-    ctx.fillText(label, w - padR - 2, y - 2);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, bx + 4, by + 6.5);
     ctx.restore();
   };
-  drawLimitLine(c.effective_max, "#D97706", `MAX ${fmtNum(c.effective_max, 0)}`);
-  drawLimitLine(c.effective_min, "#D97706", `MIN ${fmtNum(c.effective_min, 0)}`);
-
-  // 当前实时值虚线
+  if (range.validBounds) {
+    drawLimitLine(c.effective_max, "#D97706", `MAX ${fmtNum(c.effective_max, 1)}`, "right");
+    drawLimitLine(c.effective_min, "#D97706", `MIN ${fmtNum(c.effective_min, 1)}`, "left");
+  }
   if (c.current_kw !== null && c.current_kw !== undefined) {
-    drawLimitLine(c.current_kw, "#0D9488", `NOW ${fmtNum(c.current_kw, 1)}`);
+    drawLimitLine(c.current_kw, "#0D9488", `NOW ${fmtNum(c.current_kw, 1)}`, "center");
   }
 
-  // 96 点预设曲线折线/阶梯 + 渐变填充
+  // 96 点预设曲线折线/阶梯 + 柔和面积填充
   const isStep = (c.curve_interp || "step") === "step";
   const accent = pal.colors[0] || "#2563EB";
   ctx.save();
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = 2;
   ctx.beginPath();
   for (let i = 0; i < 96; i++) {
     const x = xOf(i);
@@ -500,6 +538,8 @@ function drawDeviceCurveCanvas() {
       ctx.lineTo(x, y);
     }
   }
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = DevCfgState.curveDragging ? 2.5 : 2;
   ctx.stroke();
 
   // 当前时刻竖向指示线与圆点
@@ -519,13 +559,13 @@ function drawDeviceCurveCanvas() {
   ctx.arc(nowX, nowY, 3.8, 0, Math.PI * 2);
   ctx.fill();
 
-  // 悬停高亮十字与浮标
+  // 悬停/拖拽高亮十字与浮标
   const hIdx = DevCfgState.curveHoverIdx;
   if (hIdx >= 0 && hIdx < 96) {
     const hx = xOf(hIdx);
     const hy = yOf(vals[hIdx]);
-    ctx.strokeStyle = pal.text;
-    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = DevCfgState.curveDragging ? accent : pal.text;
+    ctx.globalAlpha = DevCfgState.curveDragging ? 0.7 : 0.4;
     ctx.beginPath();
     ctx.moveTo(hx, padT);
     ctx.lineTo(hx, h - padB);
@@ -533,14 +573,19 @@ function drawDeviceCurveCanvas() {
     ctx.globalAlpha = 1;
     ctx.fillStyle = accent;
     ctx.beginPath();
-    ctx.arc(hx, hy, 4.2, 0, Math.PI * 2);
+    ctx.arc(hx, hy, DevCfgState.curveDragging ? 5.2 : 4.2, 0, Math.PI * 2);
     ctx.fill();
+    if (DevCfgState.curveDragging) {
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
 
     const tip = `${c.labels[hIdx]}  ${fmtNum(vals[hIdx], 1)} ${c.unit || "kW"}`;
     ctx.font = "11px var(--font-mono), Consolas, monospace";
     const tw = ctx.measureText(tip).width + 12;
     const bx = Math.min(w - padR - tw, Math.max(padL, hx - tw / 2));
-    const by = Math.max(padT + 2, hy - 26);
+    const by = hy - 26 < padT ? Math.min(h - padB - 22, hy + 10) : hy - 26;
     ctx.fillStyle = pal.bg || "#0F172A";
     ctx.strokeStyle = accent;
     ctx.lineWidth = 1;
@@ -608,7 +653,26 @@ function renderDeviceCurveGrid() {
   });
 }
 
-function _applyCurveCanvasPointer(ev) {
+function _clampDraggedCurveValue(c, rawVal, b) {
+  let val = Number(rawVal);
+  const hasMin = c.effective_min !== null && c.effective_min !== undefined && Number.isFinite(Number(c.effective_min));
+  const hasMax = c.effective_max !== null && c.effective_max !== undefined && Number.isFinite(Number(c.effective_max));
+  if (hasMin && hasMax && Number(c.effective_min) < Number(c.effective_max)) {
+    val = Math.min(Number(c.effective_max), Math.max(Number(c.effective_min), val));
+  } else {
+    val = Math.min(b.maxY, Math.max(b.minY, val));
+    if (!c.allow_negative) val = Math.max(0, val);
+    if (hasMin && (!hasMax || Number(c.effective_min) < Number(c.effective_max))) {
+      val = Math.max(Number(c.effective_min), val);
+    }
+    if (hasMax && (!hasMin || Number(c.effective_max) > Number(c.effective_min))) {
+      val = Math.min(Number(c.effective_max), val);
+    }
+  }
+  return Math.round(val * 10) / 10;
+}
+
+function _applyCurveCanvasPointer(ev, isStart = false) {
   const c = DevCfgState.curve;
   const b = DevCfgState.curveBounds;
   const canvas = document.getElementById("dcCurveCanvas");
@@ -618,15 +682,28 @@ function _applyCurveCanvasPointer(ev) {
   const y = ev.clientY - rect.top;
   const idx = Math.max(0, Math.min(95, Math.round(((x - b.padL) / b.plotW) * 95)));
   DevCfgState.curveHoverIdx = idx;
+
   if (DevCfgState.curveDragging) {
-    let val = b.maxY - ((y - b.padT) / b.plotH) * (b.maxY - b.minY);
-    if (c.effective_min !== null && c.effective_min !== undefined) val = Math.max(Number(c.effective_min), val);
-    if (c.effective_max !== null && c.effective_max !== undefined) val = Math.min(Number(c.effective_max), val);
-    val = Math.round(val * 10) / 10;
-    c.points[idx] = val;
+    const rawVal = b.maxY - ((y - b.padT) / b.plotH) * (b.maxY - b.minY);
+    const val = _clampDraggedCurveValue(c, rawVal, b);
+
+    // 连续拖拽线性插值填充：快速拖动跨越多个 15min 槽位时平滑连接不跳点
+    const prevIdx = isStart ? idx : DevCfgState.lastDragIdx;
+    const prevVal = isStart || DevCfgState.lastDragVal === null ? val : DevCfgState.lastDragVal;
+    const startIdx = Math.min(prevIdx, idx);
+    const endIdx = Math.max(prevIdx, idx);
+    const span = idx - prevIdx;
+    for (let i = startIdx; i <= endIdx; i++) {
+      const interpVal = span === 0
+        ? val
+        : Math.round((prevVal + ((val - prevVal) * (i - prevIdx)) / span) * 10) / 10;
+      c.points[i] = interpVal;
+      const inp = document.querySelector(`#dcCurveGridWrap input[data-curve-idx="${i}"]`);
+      if (inp) inp.value = String(interpVal);
+    }
+    DevCfgState.lastDragIdx = idx;
+    DevCfgState.lastDragVal = val;
     DevCfgState.curveDirty = true;
-    const inp = document.querySelector(`#dcCurveGridWrap input[data-curve-idx="${idx}"]`);
-    if (inp) inp.value = String(val);
     renderDeviceCurveHeader();
   }
   drawDeviceCurveCanvas();
@@ -868,23 +945,44 @@ function bindDeviceConfigEvents() {
     importCurveCsvText(text);
   });
 
-  // 画布鼠标交互（点击/拖拽绘制 96 点曲线）
+  // 画布连续拖拽绘制（Pointer Events + 指针捕获 + 拖拽期间锁定 Y 轴视窗）
   const canvas = document.getElementById("dcCurveCanvas");
   if (canvas) {
-    canvas.addEventListener("mousedown", (ev) => {
-      if (ev.button !== 0) return;
-      DevCfgState.curveDragging = true;
-      _applyCurveCanvasPointer(ev);
-    });
-    canvas.addEventListener("mousemove", (ev) => {
-      _applyCurveCanvasPointer(ev);
-    });
-    window.addEventListener("mouseup", () => {
+    const finishDrag = (ev) => {
+      if (!DevCfgState.curveDragging) return;
       DevCfgState.curveDragging = false;
-    });
-    canvas.addEventListener("mouseleave", () => {
-      DevCfgState.curveHoverIdx = -1;
+      DevCfgState.lastDragIdx = -1;
+      DevCfgState.lastDragVal = null;
+      DevCfgState.dragLockedRange = null;
+      try {
+        if (ev && ev.pointerId !== undefined && canvas.hasPointerCapture(ev.pointerId)) {
+          canvas.releasePointerCapture(ev.pointerId);
+        }
+      } catch (_e) {}
       drawDeviceCurveCanvas();
+    };
+    canvas.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0 || !DevCfgState.curve) return;
+      ev.preventDefault();
+      DevCfgState.dragLockedRange = _computeCurveYRange(DevCfgState.curve);
+      DevCfgState.curveDragging = true;
+      DevCfgState.lastDragIdx = -1;
+      DevCfgState.lastDragVal = null;
+      try { canvas.setPointerCapture(ev.pointerId); } catch (_e) {}
+      drawDeviceCurveCanvas();
+      _applyCurveCanvasPointer(ev, true);
+    });
+    canvas.addEventListener("pointermove", (ev) => {
+      if (DevCfgState.curveDragging) ev.preventDefault();
+      _applyCurveCanvasPointer(ev, false);
+    });
+    canvas.addEventListener("pointerup", finishDrag);
+    canvas.addEventListener("pointercancel", finishDrag);
+    canvas.addEventListener("pointerleave", () => {
+      if (!DevCfgState.curveDragging) {
+        DevCfgState.curveHoverIdx = -1;
+        drawDeviceCurveCanvas();
+      }
     });
   }
 

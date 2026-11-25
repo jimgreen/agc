@@ -872,6 +872,136 @@ class AGCRealtimeSystemTests(unittest.TestCase):
         self.assertTrue(c_after["has_saved"])
         self.assertAlmostEqual(c_after["points"][0], 35.0, places=3)
 
+    def test_multi_device_coordination_deadband_rebalance_and_hydrogen_track(self) -> None:
+        """验证多设备协同：闭环死区重平衡、跟踪功率电侧精确配平、氢能跟踪电侧协同与指标一致性。"""
+        from agc_engine import RenewableControlSettings, calculate_renewable_control_plan
+
+        service = AGCRealtimeService(
+            model_db=self.env["model_db"],
+            scada_db=self.env["scada_db"],
+            svg_path=self.env["svg_path"],
+            agc_db=self.env["agc_db"],
+            start_background=False,
+        )
+        self.addCleanup(service.close)
+        snap = service.refresh_telemetry()
+        snap["clock"] = {"time": "12:00:00", "minute": 720}
+        settings = RenewableControlSettings(step_coefficient=0.05, storage_step_ratio=0.10)
+
+        # 1. 闭环死区重平衡：交流风电-1 设 deadband=6.0 kW (> 步长 5 kW) 被吸附保持 20 kW；
+        #    同岛其余闭环设备（储能/柴发）必须重平衡，保持全岛净功率变动之和 = 0（无死区冲击）！
+        plan_db = calculate_renewable_control_plan(
+            snap,
+            settings,
+            data_source="remote",
+            device_configs={
+                ("ACGenerator", "交流风电-1", "p_set"): {
+                    "control_state": "closed",
+                    "p_min": 0.0,
+                    "p_max": 100.0,
+                    "control_step": 3.0,
+                    "control_deadband": 6.0,
+                }
+            },
+        )
+        rows_db = plan_db["commandRows"]
+        wind_db = next(r for r in rows_db if r["dev_name"] == "交流风电-1")
+        self.assertAlmostEqual(float(wind_db["commandKw"]), 20.0, places=3)
+        self.assertFalse(bool(wind_db["strategyTargetChanged"]))
+        net_delta_db = sum(
+            float(r["commandKw"]) - float(r["currentKw"])
+            for r in rows_db
+            if r.get("online") and r.get("currentKw") is not None and r.get("commandKw") is not None
+        )
+        self.assertAlmostEqual(net_delta_db, 0.0, places=2)
+        # 校验指标与策略明细表 100% 口径一致
+        self.assertAlmostEqual(
+            float(plan_db["metrics"]["renewableTarget"]),
+            sum(float(r["commandKw"]) for r in rows_db if r.get("technology") in {"wind", "pv"}),
+            places=3,
+        )
+        self.assertAlmostEqual(
+            float(plan_db["metrics"]["storageTarget"]),
+            sum(float(r["commandKw"]) for r in rows_db if r.get("technology") == "storage"),
+            places=3,
+        )
+
+        # 2. 跟踪设备与其余闭环设备协同平衡：交流风电-1 跟踪 +5 kW (20 -> 25)，其余闭环设备同步减发 -5 kW，全岛净变动 = 0
+        curve = [0.0] * 96
+        curve[48] = 40.0
+        plan_trk = calculate_renewable_control_plan(
+            snap,
+            settings,
+            data_source="remote",
+            device_configs={
+                ("ACGenerator", "交流风电-1", "p_set"): {
+                    "control_state": "track",
+                    "p_min": 0.0,
+                    "p_max": 100.0,
+                    "control_step": 5.0,
+                    "control_deadband": 0.0,
+                    "curve_interp": "step",
+                    "curve": curve,
+                }
+            },
+        )
+        rows_trk = plan_trk["commandRows"]
+        wind_trk = next(r for r in rows_trk if r["dev_name"] == "交流风电-1")
+        self.assertAlmostEqual(float(wind_trk["commandKw"]), 25.0, places=3)
+        net_delta_trk = sum(
+            float(r["commandKw"]) - float(r["currentKw"])
+            for r in rows_trk
+            if r.get("online") and r.get("currentKw") is not None and r.get("commandKw") is not None
+        )
+        self.assertAlmostEqual(net_delta_trk, 0.0, places=2)
+        self.assertAlmostEqual(float(plan_trk["metrics"]["renewableTarget"]), 25.0, places=3)
+
+        # 3. 氢能跟踪 + 电侧闭环单拍协同：给快照注入一台在线电制氢 AcE2Hydro（当前 0 kW），
+        #    即使全局 hydrogen_closed_loop_enabled=False，设为 track 目标 6 kW -> 步长 4 kW -> 下发 4 kW，
+        #    同时电侧电源净增 +4 kW 精确平抑新增制氢负荷，且 metrics["electrolyzerTargetKw"] == 4.0。
+        snap_h2 = json.loads(json.dumps(snap))
+        snap_h2.setdefault("device_parameters", {})["AcE2Hydro"] = [
+            {"idx": 1, "name": "交流电制氢-1", "run_stat": 1, "e2h_coeff": 0.2, "p_max": 10.0}
+        ]
+        snap_h2.setdefault("devices", []).append(
+            {"dev_type": "AcE2Hydro", "dev_name": "交流电制氢-1", "type": "AcE2Hydro", "name": "交流电制氢-1"}
+        )
+        snap_h2.setdefault("measurements", {}).setdefault("scada", []).extend(
+            [
+                {"dev_type": "AcE2Hydro", "dev_name": "交流电制氢-1", "meas_type": "RUN_STAT", "value": 1.0, "valid": 1},
+                {"dev_type": "AcE2Hydro", "dev_name": "交流电制氢-1", "meas_type": "P_LOAD", "value": 0.0, "valid": 1},
+            ]
+        )
+        h2_curve = [6.0] * 96
+        plan_h2 = calculate_renewable_control_plan(
+            snap_h2,
+            RenewableControlSettings(hydrogen_closed_loop_enabled=False, step_coefficient=0.10, storage_step_ratio=0.10),
+            data_source="remote",
+            device_configs={
+                ("AcE2Hydro", "交流电制氢-1", "p_set"): {
+                    "control_state": "track",
+                    "p_min": 0.0,
+                    "p_max": 10.0,
+                    "control_step": 4.0,
+                    "control_deadband": 0.0,
+                    "curve_interp": "step",
+                    "curve": h2_curve,
+                }
+            },
+        )
+        h2_row = next(r for r in plan_h2["commandRows"] if r["dev_name"] == "交流电制氢-1")
+        self.assertEqual(h2_row["deviceControlState"], "track")
+        self.assertAlmostEqual(float(h2_row["commandKw"]), 4.0, places=3)
+        self.assertAlmostEqual(float(plan_h2["metrics"]["electrolyzerTargetKw"]), 4.0, places=3)
+        self.assertTrue(any(c["dev_name"] == "交流电制氢-1" and abs(c["set_value"] - 4.0) < 1e-3 for c in plan_h2["commands"]))
+        # 电侧电源净增发量应精确等于新增制氢负荷 +4.0 kW
+        elec_net_delta = sum(
+            float(r["commandKw"]) - float(r["currentKw"])
+            for r in plan_h2["commandRows"]
+            if r.get("category") != "氢能" and r.get("online") and r.get("currentKw") is not None and r.get("commandKw") is not None
+        )
+        self.assertAlmostEqual(elec_net_delta, 4.0, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()

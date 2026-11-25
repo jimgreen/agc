@@ -809,7 +809,36 @@ def _apply_device_configs_to_rows(
             row["curveInterp"] = interp
 
             if state == "open":
-                row["deviceOpenLoop"] = True
+                if kind == "storage" and row.get("role") == "balance":
+                    # 构网平衡储能设为开环时：绝不下发任何指令；但若同电气分量不存在其他非开环平衡节点，
+                    # 保留其物理被动平衡监测（不设 deviceOpenLoop），防止同侧闭环设备因缺少松弛支路而卡死。
+                    comp_id = str(
+                        row.get("dcTransferGroupId") or row.get("gridComponentId") or ""
+                    ).strip()
+                    has_other_balance = any(
+                        (
+                            other is not row
+                            and other.get("online")
+                            and str(other.get("dcTransferGroupId") or other.get("gridComponentId") or "").strip() == comp_id
+                            and str(
+                                (_lookup_device_config(
+                                    device_configs,
+                                    str(other.get("dev_type", "")),
+                                    str(other.get("dev_name", "")),
+                                    str(other.get("set_type") or "p_set"),
+                                ) or {}).get("control_state")
+                                or "closed"
+                            ).strip().lower()
+                            != "open"
+                        )
+                        for other in list(diesel_rows) + [
+                            s for s in storage_rows if s.get("role") == "balance"
+                        ]
+                    )
+                    row["balancePassiveOpen"] = not has_other_balance
+                    row["deviceOpenLoop"] = has_other_balance
+                else:
+                    row["deviceOpenLoop"] = True
                 row["commandable"] = False
                 continue
 
@@ -856,6 +885,278 @@ def _apply_device_configs_to_rows(
                 # 若设备存在有效控调点，跟踪态允许直接下发
                 if row.get("online") and row.get("set_type"):
                     row["commandable"] = True
+
+
+def _resolve_hydrogen_coupling_electric_component(
+    coupling_type: str,
+    coupling_name: str,
+    *,
+    snapshot: Mapping[str, Any],
+    resource_topology: ResourceTopology,
+    side: str,
+) -> Tuple[str, str]:
+    """解析氢能耦合设备关联的电侧分量 ID（AC: gridComponentId, DC: dcTransferGroupId / gridComponentId）。"""
+    bindings = energy_coupling_control_bindings(snapshot).get((coupling_type, coupling_name), ())
+    power_binding = next((b for b in bindings if b.get("set_type") == "p_set"), None)
+    power_key = (
+        (str(power_binding.get("target_dev_type", "")), str(power_binding.get("target_dev_name", "")))
+        if power_binding
+        else (coupling_type, coupling_name)
+    )
+    comp_id = str(resource_topology.device_component_ids.get(power_key, "") or "").strip()
+    if not comp_id:
+        comp_id = str(resource_topology.device_component_ids.get((coupling_type, coupling_name), "") or "").strip()
+    dc_group_id = ""
+    if side == "DC":
+        for gid, grp in resource_topology.dc_transfer_groups.items():
+            if comp_id and comp_id in getattr(grp, "component_ids", ()):
+                dc_group_id = str(gid)
+                break
+        if not dc_group_id and comp_id:
+            dc_group_id = comp_id
+        if not dc_group_id and resource_topology.dc_transfer_groups:
+            dc_group_id = next(iter(resource_topology.dc_transfer_groups.keys()))
+    if not comp_id:
+        # 兜底：取拓扑中同侧首个已知电气分量
+        for (_dk, cid) in resource_topology.device_component_ids.items():
+            cid_s = str(cid or "").strip()
+            if side == "AC" and cid_s.startswith("AC"):
+                comp_id = cid_s
+                break
+            if side == "DC" and cid_s.startswith("DC"):
+                comp_id = cid_s
+                break
+    return comp_id, dc_group_id
+
+
+def _apply_device_configs_to_hydrogen_plan(
+    hydrogen_plan: MutableMapping[str, Any],
+    command_rows: List[MutableMapping[str, Any]],
+    *,
+    device_configs: Optional[Mapping[Any, Mapping[str, Any]]],
+    snapshot: Mapping[str, Any],
+    measurements: Mapping[Tuple[str, str, str], Any],
+    resource_topology: ResourceTopology,
+    minute_of_day: float,
+) -> bool:
+    """将氢能设备（电制氢/燃料电池）的闭环自定义参数、跟踪曲线与开环设置前置生效，
+    使电-氢单拍协同重算能够准确感知氢能真实功率变动（返回是否存在氢能跟踪设备）。"""
+    if not device_configs:
+        return False
+
+    has_hydrogen_track = False
+    existing_cmds: List[Dict[str, Any]] = list(hydrogen_plan.get("commands") or [])
+    kept_cmds: List[Dict[str, Any]] = []
+    handled_couplings: set[Tuple[str, str]] = set()
+    open_couplings: set[Tuple[str, str]] = set()
+
+    # 1. 先过滤/约束 hydrogen_plan 已生成的命令
+    for h_cmd in existing_cmds:
+        c_type = str(h_cmd.get("couplingType") or "").strip()
+        c_name = str(h_cmd.get("couplingName") or "").strip()
+        cfg = _lookup_device_config(device_configs, c_type, c_name, "p_set")
+        if cfg is None:
+            kept_cmds.append(h_cmd)
+            continue
+        state = str(cfg.get("control_state") or "closed").strip().lower()
+        if state == "open":
+            open_couplings.add((c_type, c_name))
+            handled_couplings.add((c_type, c_name))
+            continue
+        if state == "track":
+            # 跟踪态统一由下方 96 点曲线逻辑生成，避免重复
+            continue
+        # 闭环态（closed）：应用设备自定义上下限、步长、死区并同步 electricDeltaKw
+        cur_p = _number(h_cmd.get("currentElectricPowerKw"))
+        tgt_p = _number(h_cmd.get("electricPowerKw"))
+        if tgt_p is not None:
+            cfg_min = _number(cfg.get("p_min"))
+            cfg_max = _number(cfg.get("p_max"))
+            cfg_step = _number(cfg.get("control_step"))
+            cfg_dead = max(0.0, _number(cfg.get("control_deadband"), 0.0) or 0.0)
+            adj = float(tgt_p)
+            if cfg_min is not None:
+                adj = max(float(cfg_min), adj)
+            if cfg_max is not None:
+                adj = min(float(cfg_max), adj)
+            if cur_p is not None and cfg_step is not None and cfg_step > EPSILON:
+                adj = _move_toward(float(cur_p), adj, float(cfg_step))
+            if cur_p is not None and cfg_dead > EPSILON and abs(adj - float(cur_p)) <= cfg_dead + EPSILON:
+                adj = float(cur_p)
+            h_cmd["electricPowerKw"] = float(adj)
+            if cur_p is not None:
+                h_cmd["electricDeltaKw"] = float(adj) - float(cur_p)
+            # 同步更新 command_rows 中对应氢能功率行
+            for row in command_rows:
+                if (
+                    row.get("category") == "氢能"
+                    and str(row.get("dev_type", "")) == c_type
+                    and str(row.get("dev_name", "")) == c_name
+                    and row.get("commandKind") != "run_status"
+                ):
+                    row["deviceControlState"] = "closed"
+                    row["configMinKw"] = cfg_min
+                    row["configMaxKw"] = cfg_max
+                    row["configStepKw"] = cfg_step
+                    row["configDeadbandKw"] = cfg_dead
+                    row["commandKw"] = float(adj)
+                    row["targetKw"] = float(adj)
+                    row["strategyTargetChanged"] = bool(
+                        cur_p is None or abs(float(adj) - float(cur_p)) > max(cfg_dead, 1e-4)
+                    )
+        kept_cmds.append(h_cmd)
+        handled_couplings.add((c_type, c_name))
+
+    # 清除已设为开环的氢能设备启停行并锁定其功率行
+    if open_couplings:
+        for row in list(command_rows):
+            if row.get("category") != "氢能":
+                continue
+            r_key = (str(row.get("dev_type", "")), str(row.get("dev_name", "")))
+            if r_key not in open_couplings:
+                continue
+            if row.get("commandKind") == "run_status":
+                command_rows.remove(row)
+            else:
+                cur_val = _number(row.get("currentKw"), 0.0) or 0.0
+                row["deviceControlState"] = "open"
+                row["commandKw"] = float(cur_val)
+                row["targetKw"] = float(cur_val)
+                row["strategyCommand"] = False
+                row["dispatchEnabled"] = False
+                row["strategyTargetChanged"] = False
+                row["statusLabel"] = "开环（不参与决策/不下发）"
+
+    # 2. 为设为跟踪态（track）的氢能设备计算 96 点曲线目标，并写入 command_rows 与 hydrogen_plan["commands"]
+    devices_map = _device_by_model_key(snapshot)
+    for coupling_type, mode_name, side in (
+        ("AcE2Hydro", "electrolyzer", "AC"),
+        ("Hydro2DcE", "fuelCell", "DC"),
+    ):
+        for param_row in _parameter_rows(snapshot, coupling_type):
+            cname = _parameter_name(param_row).strip()
+            if not cname:
+                continue
+            cfg = _lookup_device_config(device_configs, coupling_type, cname, "p_set")
+            if cfg is None:
+                continue
+            state = str(cfg.get("control_state") or "closed").strip().lower()
+            if state != "track":
+                continue
+            has_hydrogen_track = True
+            dev_obj = devices_map.get((coupling_type, cname))
+            online = bool(_is_online(dev_obj, measurements)) if dev_obj else True
+            cur_meas = (
+                measurements.get((coupling_type, cname, "P_LOAD"))
+                or measurements.get((coupling_type, cname, "P_GEN"))
+            )
+            current = _number(getattr(cur_meas, "value", None)) if cur_meas is not None else 0.0
+            if current is None:
+                current = 0.0
+            rated = max(
+                0.0,
+                _number(param_row.get("p_rated"), _number(param_row.get("p_max"), 0.0) or 0.0) or 0.0,
+            )
+            curve = cfg.get("curve") if isinstance(cfg.get("curve"), Sequence) else None
+            interp = str(cfg.get("curve_interp") or "step").strip().lower()
+            raw_c = evaluate_device_curve(curve, minute_of_day, interp)
+            if raw_c is None:
+                raw_c = float(current)
+            cfg_min = _number(cfg.get("p_min"))
+            cfg_max = _number(cfg.get("p_max"))
+            lo = max(0.0, float(cfg_min)) if cfg_min is not None else 0.0
+            hi = float(cfg_max) if cfg_max is not None else (rated if rated > 0 else max(lo, float(raw_c)))
+            if lo > hi + EPSILON:
+                lo = hi
+            bounded = _clamp(float(raw_c), lo, hi)
+            cfg_dead = max(0.0, _number(cfg.get("control_deadband"), 0.0) or 0.0)
+            cfg_step = _number(cfg.get("control_step"))
+            deadband_hold = abs(bounded - float(current)) <= cfg_dead + EPSILON
+            if deadband_hold:
+                track_target = float(current)
+            elif cfg_step is not None and cfg_step > EPSILON:
+                track_target = _move_toward(float(current), bounded, float(cfg_step))
+            else:
+                track_target = bounded
+            delta_kw = float(track_target) - float(current)
+            changed = bool(online and not deadband_hold and abs(delta_kw) > max(cfg_dead, 1e-4))
+            comp_id, dc_group_id = _resolve_hydrogen_coupling_electric_component(
+                coupling_type,
+                cname,
+                snapshot=snapshot,
+                resource_topology=resource_topology,
+                side=side,
+            )
+
+            # 移除该耦合设备可能已存在的旧氢能行（含自动启停）
+            for row in list(command_rows):
+                if (
+                    row.get("category") == "氢能"
+                    and str(row.get("dev_type", "")) == coupling_type
+                    and str(row.get("dev_name", "")) == cname
+                ):
+                    command_rows.remove(row)
+
+            command_rows.append(
+                {
+                    "category": "氢能",
+                    "dev_type": coupling_type,
+                    "dev_name": cname,
+                    "connectionSide": side,
+                    "controlMode": "track",
+                    "deviceControlState": "track",
+                    "online": online,
+                    "commandable": online,
+                    "set_type": "p_set",
+                    "currentKw": float(current),
+                    "availableKw": float(hi),
+                    "commandKw": float(track_target),
+                    "targetKw": float(track_target),
+                    "trackBoundedKw": float(bounded),
+                    "trackTargetKw": float(track_target),
+                    "trackDeadbandHold": deadband_hold,
+                    "configMinKw": cfg_min,
+                    "configMaxKw": cfg_max,
+                    "configStepKw": cfg_step,
+                    "configDeadbandKw": cfg_dead,
+                    "strategyCommand": online,
+                    "dispatchEnabled": online,
+                    "strategyTargetChanged": changed,
+                    "statusLabel": (
+                        f"跟踪曲线·死区内保持（曲线 {bounded:.1f} kW）"
+                        if deadband_hold
+                        else f"跟踪曲线（目标 {bounded:.1f} kW）"
+                    ),
+                }
+            )
+            if online:
+                kept_cmds.append(
+                    {
+                        "couplingType": coupling_type,
+                        "couplingName": cname,
+                        "mode": mode_name,
+                        "electricSide": side,
+                        "electricComponentId": comp_id,
+                        "dcTransferGroupId": dc_group_id,
+                        "currentElectricPowerKw": float(current),
+                        "electricPowerKw": float(track_target),
+                        "electricDeltaKw": float(delta_kw),
+                        "activeDevType": coupling_type,
+                        "activeDevName": cname,
+                        "activeSetType": "p_set",
+                        "hardSafetyStop": True,  # 跟踪指令不被经济性回滚撤回
+                        "trackControlled": True,
+                    }
+                )
+
+    hydrogen_plan["commands"] = kept_cmds
+    hydrogen_plan["electricPowerAdjustmentKw"] = sum(
+        float(_number(r.get("electricDeltaKw"), 0.0) or 0.0) for r in kept_cmds
+    )
+    hydrogen_plan["targetElectricPowerKw"] = sum(
+        float(_number(r.get("electricPowerKw"), 0.0) or 0.0) for r in kept_cmds
+    )
+    return has_hydrogen_track
 
 
 def _finalize_device_configs_on_command_rows(
@@ -1213,10 +1514,29 @@ def calculate_renewable_control_plan(
         if measured_diesel
         else None
     )
-    diesel_min = sum(max(0.0, _finite_number(row.get("minKw"))) for row in online_diesel)
-    diesel_capacity = sum(
-        max(0.0, _finite_number(row.get("capacityKw"))) for row in online_diesel
-    )
+    def _effective_diesel_bounds(row: Mapping[str, Any]) -> Tuple[float, float]:
+        st = str(row.get("deviceControlState") or "closed").strip().lower()
+        cur = _number(row.get("currentKw"))
+        if st == "open" and cur is not None:
+            v = max(0.0, float(cur))
+            return v, v
+        if st == "track" and _number(row.get("trackTargetKw")) is not None:
+            v = max(0.0, float(row["trackTargetKw"]))
+            return v, v
+        lo = max(0.0, _finite_number(row.get("minKw")))
+        hi = max(lo, _finite_number(row.get("capacityKw")))
+        c_lo = _number(row.get("configMinKw"))
+        c_hi = _number(row.get("configMaxKw"))
+        if c_lo is not None:
+            lo = max(lo, float(c_lo))
+        if c_hi is not None:
+            hi = min(hi, float(c_hi))
+        if lo > hi + EPSILON:
+            lo = hi
+        return lo, hi
+
+    diesel_min = sum(_effective_diesel_bounds(row)[0] for row in online_diesel)
+    diesel_capacity = sum(_effective_diesel_bounds(row)[1] for row in online_diesel)
     diesel_deadband_kw = (
         settings.diesel_power_protection_ratio * diesel_capacity
     )
@@ -3035,20 +3355,24 @@ def calculate_renewable_control_plan(
         converter_inventory_rows,
         quality,
     )
-    # 单一事实来源：将 command_rows 最终的 commandable 标志同步给优化器输入，彻底消除优化器与下发层的剪刀差。
+    # 单一事实来源：将 command_rows 最终的 commandable 标志同步给优化器输入，同时严格守护 track/open 设备状态。
     effective_commandable_by_key = {
         (str(r.get("dev_type", "")), str(r.get("dev_name", ""))): bool(r.get("commandable"))
         for r in command_rows
         if r.get("technology") in {"wind", "pv", "storage"}
     }
-    opt_renewable_rows = [
-        {**r, "commandable": effective_commandable_by_key.get((str(r.get("dev_type", "")), str(r.get("dev_name", ""))), bool(r.get("commandable")))}
-        for r in renewable_rows
-    ]
-    opt_storage_rows = [
-        {**r, "commandable": effective_commandable_by_key.get((str(r.get("dev_type", "")), str(r.get("dev_name", ""))), bool(r.get("commandable")))}
-        for r in storage_rows
-    ]
+
+    def _sync_opt_row_commandable(r: Mapping[str, Any]) -> Dict[str, Any]:
+        st = str(r.get("deviceControlState") or "closed").strip().lower()
+        if st == "open":
+            return {**r, "commandable": False}
+        if st == "track" and r.get("online"):
+            return {**r, "commandable": True}
+        key = (str(r.get("dev_type", "")), str(r.get("dev_name", "")))
+        return {**r, "commandable": effective_commandable_by_key.get(key, bool(r.get("commandable")))}
+
+    opt_renewable_rows = [_sync_opt_row_commandable(r) for r in renewable_rows]
+    opt_storage_rows = [_sync_opt_row_commandable(r) for r in storage_rows]
     optimization_started = time.perf_counter()
     strategy_preparation_seconds = optimization_started - topology_finished
     optimization_result = optimize_topology_islands(
@@ -3133,13 +3457,38 @@ def calculate_renewable_control_plan(
                 comp_ids_for_row.intersection(blocked_optimization_component_ids)
             ):
                 continue
-            target = _number(component_plan.get("renewableTargets", {}).get(key))
+            dev_state = str(row.get("deviceControlState") or "closed").strip().lower()
             current = _number(row.get("planningCurrentKw", row.get("currentKw")))
+            if dev_state == "open":
+                if current is not None:
+                    row["commandKw"] = float(current)
+                    row["targetKw"] = float(current)
+                row["strategyCommand"] = False
+                row["dispatchEnabled"] = False
+                row["strategyTargetChanged"] = False
+                continue
+            if dev_state == "track":
+                t_val = _number(row.get("trackTargetKw"))
+                if t_val is not None:
+                    row["commandKw"] = float(t_val)
+                    row["targetKw"] = float(t_val)
+                    row["optimizationSuggestedKw"] = float(t_val)
+                continue
+            target = _number(component_plan.get("renewableTargets", {}).get(key))
             if target is None:
                 continue
             nat_upper = _number(row.get("naturalUpperKw"))
             if nat_upper is not None:
                 target = min(target, nat_upper)
+            cfg_min = _number(row.get("configMinKw"))
+            cfg_max = _number(row.get("configMaxKw"))
+            cfg_step = _number(row.get("configStepKw"))
+            if cfg_min is not None:
+                target = max(float(cfg_min), float(target))
+            if cfg_max is not None:
+                target = min(float(cfg_max), float(target))
+            if current is not None and cfg_step is not None and cfg_step > EPSILON:
+                target = _move_toward(float(current), float(target), float(cfg_step))
             row["commandKw"] = target
             row["targetKw"] = target
             row["optimizationSuggestedKw"] = target
@@ -3421,11 +3770,21 @@ def calculate_renewable_control_plan(
         ),
         defer_dwell_commit=True,
     )
-    # 氢能与主优化器单拍协同：氢能闭环发生非零电功率调节时，将氢能净电注入变更量回代重算主优化器，
+    # 前置生效氢能设备配置（开环退出协同、跟踪曲线注入电侧平衡增量、闭环自定义限幅/步长/死区）
+    has_hydrogen_track = _apply_device_configs_to_hydrogen_plan(
+        hydrogen_plan,
+        command_rows,
+        device_configs=device_configs,
+        snapshot=snapshot,
+        measurements=measurements,
+        resource_topology=resource_topology,
+        minute_of_day=minute_of_day,
+    )
+    # 氢能与主优化器单拍协同：氢能闭环或氢能曲线跟踪发生非零电功率调节时，将氢能净电注入变更量回代重算主优化器，
     # 使新能源恢复、柴发出力、储能充放与变流器并联均流在同一控制周期内满足精确功率平衡。
     hydrogen_external_injection: Dict[Tuple[str, str], float] = {}
     hydrogen_external_cmds: List[Dict[str, Any]] = []
-    if settings.hydrogen_closed_loop_enabled and not renewable_storage_island:
+    if (settings.hydrogen_closed_loop_enabled or has_hydrogen_track) and not renewable_storage_island:
         for h_cmd in hydrogen_plan.get("commands", []) or []:
             h_delta = _number(h_cmd.get("electricDeltaKw"))
             h_side = str(h_cmd.get("electricSide", "") or "").strip().upper()
@@ -3726,6 +4085,117 @@ def calculate_renewable_control_plan(
     strategy_boundary_warnings = _clamp_final_command_rows_to_boundaries(
         command_rows
     )
+
+    # 闭环设备命中自定义控制死区后，锁定死区设备为当前值并轻量重平衡同岛其余闭环设备，
+    # 避免仅单机吸附保持而导致同岛产生未配平功率冲击。
+    if device_configs and not renewable_storage_island:
+        deadband_frozen_map: Dict[Tuple[str, str], float] = {}
+        for row in command_rows:
+            if (
+                row.get("category") == "氢能"
+                or not row.get("online")
+                or not row.get("commandable")
+                or row.get("boundaryCorrection")
+                or str(row.get("deviceControlState") or "closed").strip().lower() != "closed"
+            ):
+                continue
+            cfg_dead = max(0.0, _number(row.get("configDeadbandKw"), 0.0) or 0.0)
+            if cfg_dead <= EPSILON:
+                continue
+            cur_kw = _number(row.get("planningCurrentKw", row.get("currentKw")))
+            tgt_kw = _number(row.get("commandKw"))
+            if (
+                cur_kw is not None
+                and tgt_kw is not None
+                and EPSILON < abs(float(tgt_kw) - float(cur_kw)) <= cfg_dead + EPSILON
+            ):
+                deadband_frozen_map[(str(row.get("dev_type", "")), str(row.get("dev_name", "")))] = float(cur_kw)
+        if deadband_frozen_map:
+            def _freeze_deadband_rows(rows_in: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+                out_rows: List[Dict[str, Any]] = []
+                for r in rows_in:
+                    rk = (str(r.get("dev_type", "")), str(r.get("dev_name", "")))
+                    if rk in deadband_frozen_map:
+                        out_rows.append(
+                            {
+                                **r,
+                                "deviceControlState": "track",
+                                "trackTargetKw": deadband_frozen_map[rk],
+                            }
+                        )
+                    else:
+                        out_rows.append(dict(r))
+                return out_rows
+
+            rebal_ren_rows = _freeze_deadband_rows(
+                coordinated_renewable_rows if hydrogen_external_injection and hydrogen_plan.get("singleCycleCoordinated") else opt_renewable_rows
+            )
+            rebal_diesel_rows = _freeze_deadband_rows(diesel_rows)
+            rebal_storage_rows = _freeze_deadband_rows(opt_storage_rows)
+            rebal_conv_rows = _freeze_deadband_rows(all_converter_rows)
+            rebal_ext = hydrogen_external_injection if hydrogen_plan.get("singleCycleCoordinated") else None
+            rebal_opt = optimize_topology_islands(
+                resource_topology,
+                renewable_rows=rebal_ren_rows,
+                diesel_rows=rebal_diesel_rows,
+                storage_rows=rebal_storage_rows,
+                converter_rows=rebal_conv_rows,
+                step_coefficient=settings.step_coefficient,
+                diesel_step_ratio=settings.diesel_step_ratio,
+                converter_step_ratio=settings.converter_step_ratio,
+                converter_ramp_step_ratio=settings.converter_ramp_step_ratio,
+                converter_efficiency=settings.converter_efficiency,
+                storage_step_ratio=settings.storage_step_ratio,
+                storage_soc_rebalance_deadband=settings.storage_soc_rebalance_deadband,
+                storage_soc_correction_step_scale=settings.storage_soc_correction_step_scale,
+                diesel_power_protection_ratio=settings.diesel_power_protection_ratio,
+                grid_forming_storage_protection_ratio=settings.grid_forming_storage_protection_ratio,
+                soc_deadband=settings.soc_deadband,
+                renewable_curtailment_weight=settings.optimization_renewable_curtailment_weight,
+                diesel_output_weight=settings.optimization_diesel_output_weight,
+                curtailment_square_weight=settings.optimization_curtailment_square_weight,
+                source_storage_adjustment_square_weight=settings.optimization_source_storage_adjustment_square_weight,
+                balance_delta_square_weight=settings.optimization_balance_delta_square_weight,
+                balance_delta_warning_kw=settings.optimization_balance_delta_warning_kw,
+                balance_tolerance_kw=settings.optimization_balance_tolerance_kw,
+                bound_tolerance_kw=settings.optimization_bound_tolerance_kw,
+                optimization_ftol=settings.optimization_ftol,
+                optimization_max_iterations=settings.optimization_max_iterations,
+                blocked_component_ids=blocked_optimization_component_ids,
+                external_injection_delta_by_component=rebal_ext,
+            )
+            orig_max_delta = max(
+                (isl.max_balance_delta_kw for isl in optimization_result.islands),
+                default=0.0,
+            )
+            rebal_max_delta = max(
+                (isl.max_balance_delta_kw for isl in rebal_opt.islands),
+                default=0.0,
+            )
+            if rebal_opt.all_success and rebal_max_delta <= max(
+                orig_max_delta + 0.05,
+                settings.optimization_balance_tolerance_kw,
+                settings.optimization_balance_delta_warning_kw,
+            ):
+                optimization_result = rebal_opt
+                non_hydrogen_rows = [row for row in command_rows if row.get("category") != "氢能"]
+                _apply_optimization_targets(
+                    non_hydrogen_rows,
+                    optimization_result,
+                    apply_targets=True,
+                )
+                for row in non_hydrogen_rows:
+                    rk = (str(row.get("dev_type", "")), str(row.get("dev_name", "")))
+                    if rk in deadband_frozen_map:
+                        row["deviceControlState"] = "closed"
+                        row["commandKw"] = deadband_frozen_map[rk]
+                        if "targetKw" in row:
+                            row["targetKw"] = deadband_frozen_map[rk]
+                        row["strategyTargetChanged"] = False
+                        old_lbl = str(row.get("statusLabel") or "").strip()
+                        if "死区内保持" not in old_lbl:
+                            row["statusLabel"] = f"{old_lbl}·死区内保持" if old_lbl else "死区内保持"
+
     _finalize_device_configs_on_command_rows(
         command_rows,
         device_configs=device_configs,
@@ -3734,6 +4204,46 @@ def calculate_renewable_control_plan(
         settings=settings,
         minute_of_day=minute_of_day,
     )
+    # 最终设备配置收口后，统一按最终 command_rows 重刷全部汇总目标，保证策略表、统计指标与趋势曲线口径 100% 一致
+    renewable_target_by_device = {
+        (str(row.get("dev_type", "")), str(row.get("dev_name", ""))): float(row["commandKw"])
+        for row in command_rows
+        if row.get("technology") in {"wind", "pv"}
+        and row.get("online")
+        and _number(row.get("commandKw")) is not None
+    }
+    renewable_target = sum(renewable_target_by_device.values())
+    renewable_delta = renewable_target - renewable_current
+    storage_target = sum(
+        float(row["commandKw"])
+        for row in command_rows
+        if row.get("technology") == "storage"
+        and row.get("online")
+        and _number(row.get("commandKw")) is not None
+    )
+    h2_el_targets = [
+        float(row["commandKw"])
+        for row in command_rows
+        if row.get("category") == "氢能"
+        and str(row.get("dev_type", "")) == "AcE2Hydro"
+        and row.get("commandKind") != "run_status"
+        and row.get("online")
+        and _number(row.get("commandKw")) is not None
+    ]
+    h2_fc_targets = [
+        float(row["commandKw"])
+        for row in command_rows
+        if row.get("category") == "氢能"
+        and str(row.get("dev_type", "")) == "Hydro2DcE"
+        and row.get("commandKind") != "run_status"
+        and row.get("online")
+        and _number(row.get("commandKw")) is not None
+    ]
+    if h2_el_targets:
+        hydrogen_plan["electrolyzerTargetKw"] = sum(h2_el_targets)
+    if h2_fc_targets:
+        hydrogen_plan["fuelCellTargetKw"] = sum(h2_fc_targets)
+
     _finalize_renewable_saturation_memory(
         command_rows,
         runtime_memory=runtime_memory,

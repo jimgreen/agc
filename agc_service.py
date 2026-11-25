@@ -1310,31 +1310,48 @@ class AGCRealtimeService:
                 )
                 default_step = round(max(0.0, ratio * cap) if 0.0 < ratio < 1.0 else 0.0, 3)
             elif group == "hydrogen":
-                # 从关联的电侧端口设备读取氢能耦合设备额定功率
+                # 从关联的电侧/氢侧端口设备读取氢能耦合设备额定功率；若模型未定义则返回 None，避免生成虚假 [0, 0] 上限
                 linked_row: Dict[str, Any] = {}
-                if dt == "AcE2Hydro" and _finite(prow.get("idx_ac_load_t1")) is not None:
-                    linked_row = param_by_idx.get(("ACLoad", int(round(float(prow["idx_ac_load_t1"])))), {})
-                elif dt == "Hydro2DcE" and _finite(prow.get("idx_dc_unit_t1")) is not None:
-                    linked_row = param_by_idx.get(("DCGenerator", int(round(float(prow["idx_dc_unit_t1"])))), {})
-                cap = max(
-                    0.0,
-                    _pos_num(
-                        p_max_raw,
-                        linked_row.get("rated_capacity"),
-                        linked_row.get("p_max"),
-                        linked_row.get("p_load"),
-                        ctrl_pt.get("max") if ctrl_pt else None,
-                    )
-                    or 0.0,
-                )
+                flow_power_cap: Optional[float] = None
                 if dt == "AcE2Hydro":
-                    default_min = round(cap * settings.electrolyzer_power_min_ratio, 3)
-                    default_max = round(cap * settings.electrolyzer_power_max_ratio, 3)
-                    default_step = round(cap * settings.electrolyzer_power_step_ratio, 3)
+                    if _finite(prow.get("idx_ac_load_t1")) is not None:
+                        linked_row = param_by_idx.get(("ACLoad", int(round(float(prow["idx_ac_load_t1"])))), {})
+                    if _finite(prow.get("idx_h2_unit_t2")) is not None:
+                        h2_row = param_by_idx.get(("HydroSource", int(round(float(prow["idx_h2_unit_t2"])))), {})
+                        f_max = _pos_num(h2_row.get("flow_max"))
+                        coeff = _pos_num(prow.get("e2h_coeff"))
+                        if f_max is not None and coeff is not None:
+                            flow_power_cap = f_max / coeff
+                elif dt == "Hydro2DcE":
+                    if _finite(prow.get("idx_dc_unit_t1")) is not None:
+                        linked_row = param_by_idx.get(("DCGenerator", int(round(float(prow["idx_dc_unit_t1"])))), {})
+                    if _finite(prow.get("idx_h2_load_t2")) is not None:
+                        h2_row = param_by_idx.get(("HydroLoad", int(round(float(prow["idx_h2_load_t2"])))), {})
+                        f_max = _pos_num(h2_row.get("flow_max"))
+                        coeff = _pos_num(prow.get("h2e_coeff"))
+                        if f_max is not None and coeff is not None:
+                            flow_power_cap = f_max * coeff
+                cap = _pos_num(
+                    p_max_raw,
+                    linked_row.get("rated_capacity"),
+                    linked_row.get("p_max"),
+                    linked_row.get("p_load"),
+                    flow_power_cap,
+                    ctrl_pt.get("max") if ctrl_pt else None,
+                )
+                if cap is not None:
+                    if dt == "AcE2Hydro":
+                        default_min = round(cap * settings.electrolyzer_power_min_ratio, 3)
+                        default_max = round(cap * settings.electrolyzer_power_max_ratio, 3)
+                        default_step = round(cap * settings.electrolyzer_power_step_ratio, 3)
+                    else:
+                        default_min = round(cap * settings.fuel_cell_power_min_ratio, 3)
+                        default_max = round(cap * settings.fuel_cell_power_max_ratio, 3)
+                        default_step = round(cap * settings.fuel_cell_power_step_ratio, 3)
                 else:
-                    default_min = round(cap * settings.fuel_cell_power_min_ratio, 3)
-                    default_max = round(cap * settings.fuel_cell_power_max_ratio, 3)
-                    default_step = round(cap * settings.fuel_cell_power_step_ratio, 3)
+                    default_min = 0.0
+                    default_max = None
+                    default_step = None
             else:
                 default_min = round(p_min_raw, 3) if p_min_raw is not None else 0.0
                 default_max = round(p_max_raw, 3) if p_max_raw is not None else 0.0

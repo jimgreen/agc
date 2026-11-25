@@ -30,7 +30,7 @@
         } catch (_e) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20261125-fix15" />
+    <link rel="stylesheet" href="/styles.css?v=20261125-fix16" />
   </head>
   <body>
     <div class="app-shell">
@@ -653,25 +653,12 @@
                 <div class="splitter splitter-x" data-split-id="devcfg-x" data-axis="x" data-target="next" data-collapse="next" data-default="470" data-min="340" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
 
                 <section class="panel devcfg-curve-panel split-pane">
-                  <div class="panel-head">
-                    <div class="panel-title-inline">
+                  <div class="panel-head devcfg-curve-head">
+                    <div class="panel-title-inline devcfg-curve-title-row">
                       <h2 id="dcCurveTitle" data-i18n="devcfg.curveEditor">96 点预设曲线</h2>
                       <span id="dcCurveMeta" class="mono muted">—</span>
                     </div>
-                    <div class="inline-btn-group">
-                      <select id="dcCurveInterpSelect" class="compact-select">
-                        <option value="step" data-i18n="devcfg.interpStep">阶梯 (15min)</option>
-                        <option value="linear" data-i18n="devcfg.interpLinear">线性插值</option>
-                      </select>
-                      <select id="dcCurveTemplateSelect" class="compact-select">
-                        <option value="" data-i18n="devcfg.template">快速填充</option>
-                        <option value="current" data-i18n="devcfg.tplCurrent">当前值平直</option>
-                        <option value="zero" data-i18n="devcfg.tplZero">零值平直</option>
-                        <option value="half" data-i18n="devcfg.tplHalf">半额平直</option>
-                        <option value="pv_bell" data-i18n="devcfg.tplPvBell">典型光伏钟形</option>
-                        <option value="double_peak" data-i18n="devcfg.tplDoublePeak">典型双峰曲线</option>
-                      </select>
-                    </div>
+                    <button id="dcSaveCurveBtn" type="button" class="btn btn-primary btn-xs" disabled data-i18n="devcfg.saveCurve">保存曲线</button>
                   </div>
                   <div class="devcfg-curve-stage">
                     <div class="chart-canvas-wrap">
@@ -680,11 +667,24 @@
                   </div>
                   <div class="devcfg-curve-actions">
                     <div class="inline-btn-group">
+                      <select id="dcCurveInterpSelect" class="compact-select compact-select-xs">
+                        <option value="step" data-i18n="devcfg.interpStep">阶梯 (15min)</option>
+                        <option value="linear" data-i18n="devcfg.interpLinear">线性插值</option>
+                      </select>
+                      <select id="dcCurveTemplateSelect" class="compact-select compact-select-xs">
+                        <option value="" data-i18n="devcfg.template">快速填充</option>
+                        <option value="current" data-i18n="devcfg.tplCurrent">当前值平直</option>
+                        <option value="zero" data-i18n="devcfg.tplZero">零值平直</option>
+                        <option value="half" data-i18n="devcfg.tplHalf">半额平直</option>
+                        <option value="pv_bell" data-i18n="devcfg.tplPvBell">典型光伏钟形</option>
+                        <option value="double_peak" data-i18n="devcfg.tplDoublePeak">典型双峰曲线</option>
+                      </select>
+                    </div>
+                    <div class="inline-btn-group">
                       <input id="dcImportCurveFile" type="file" accept=".csv,.txt" hidden />
                       <button id="dcImportCurveBtn" type="button" class="btn btn-xs" data-i18n="devcfg.importCsv">导入 CSV</button>
                       <button id="dcExportCurveBtn" type="button" class="btn btn-xs" data-i18n="action.exportCsv">导出 CSV</button>
                     </div>
-                    <button id="dcSaveCurveBtn" type="button" class="btn btn-primary btn-xs" disabled data-i18n="devcfg.saveCurve">保存曲线</button>
                   </div>
                   <div id="dcCurveGridWrap" class="table-scroll devcfg-curve-grid-wrap"></div>
                 </section>
@@ -1259,12 +1259,12 @@
 
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-    <script defer src="/js/00-i18n.js?v=20261125-fix15"></script>
-    <script defer src="/js/01-core.js?v=20261125-fix15"></script>
-    <script defer src="/js/02-overview-diagram.js?v=20261125-fix15"></script>
-    <script defer src="/js/03-agc-control.js?v=20261125-fix15"></script>
-    <script defer src="/js/04-monitor-pages.js?v=20261125-fix15"></script>
-    <script defer src="/js/06-device-config.js?v=20261125-fix15"></script>
-    <script defer src="/js/05-bootstrap.js?v=20261125-fix15"></script>
+    <script defer src="/js/00-i18n.js?v=20261125-fix16"></script>
+    <script defer src="/js/01-core.js?v=20261125-fix16"></script>
+    <script defer src="/js/02-overview-diagram.js?v=20261125-fix16"></script>
+    <script defer src="/js/03-agc-control.js?v=20261125-fix16"></script>
+    <script defer src="/js/04-monitor-pages.js?v=20261125-fix16"></script>
+    <script defer src="/js/06-device-config.js?v=20261125-fix16"></script>
+    <script defer src="/js/05-bootstrap.js?v=20261125-fix16"></script>
   </body>
 </html>

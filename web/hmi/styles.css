@@ -1814,23 +1814,60 @@ tr.is-dirty-row > td:first-child {
   min-width: 0;
 }
 
+.devcfg-curve-head {
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.devcfg-curve-title-row {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.devcfg-curve-title-row h2,
+.devcfg-curve-title-row span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .devcfg-curve-stage {
-  height: 200px;
+  height: 224px;
   flex-shrink: 0;
-  padding: 6px 8px 4px;
+  padding: 6px 8px;
   border-bottom: var(--border);
+  display: flex;
+}
+
+.devcfg-curve-stage .chart-canvas-wrap {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: visible;
 }
 
 .dc-curve-canvas {
   cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.compact-select-xs {
+  padding: 2px 6px;
+  font-size: 11.5px;
+  height: 24px;
 }
 
 .devcfg-curve-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 5px 10px;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px 8px;
   border-bottom: var(--border);
   background: var(--bg-subtle);
   flex-shrink: 0;
