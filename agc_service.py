@@ -35,7 +35,9 @@ from agc_datasources import (
 from agc_engine import (
     RenewableControlSettings,
     calculate_renewable_control_plan,
+    evaluate_device_curve,
     prepare_resource_topology_static_context,
+    resolve_snapshot_minute_of_day,
 )
 from agc_store import (
     AGCRealtimeStore,
@@ -486,6 +488,7 @@ class AGCRealtimeService:
             runtime_memory = self._runtime_memory
 
         self._last_control_monotonic = time.monotonic()
+        device_configs_map = self._load_effective_device_configs_map()
 
         plan = calculate_renewable_control_plan(
             snapshot,
@@ -494,6 +497,7 @@ class AGCRealtimeService:
             snapshot_age_seconds=age_seconds,
             topology_static_context=topo_ctx,
             runtime_memory=runtime_memory,
+            device_configs=device_configs_map,
         )
 
         dq = plan.get("dataQuality") if isinstance(plan.get("dataQuality"), Mapping) else {}
@@ -1060,3 +1064,519 @@ class AGCRealtimeService:
             "yt": yt_rows,
             "recent_records": recent_records[:100],
         }
+
+    # ------------------------------------------------------------------
+    # 受控设备控制配置（上下限/步长/死区/闭环-跟踪-开环）与 96 点预设曲线
+    # ------------------------------------------------------------------
+
+    def _load_effective_device_configs_map(self) -> Dict[Tuple[str, str, str], Dict[str, Any]]:
+        """加载并合并全部受控设备配置与 96 点预设曲线，供控制引擎消费。"""
+        cfgs = self.store.load_device_configs()
+        curves = self.store.load_all_device_curves()
+        merged: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        all_keys = set(cfgs.keys()) | set(curves.keys())
+        for key in all_keys:
+            base = dict(
+                cfgs.get(
+                    key,
+                    {
+                        "dev_type": key[0],
+                        "dev_name": key[1],
+                        "set_type": key[2],
+                        "control_state": "closed",
+                        "p_min": None,
+                        "p_max": None,
+                        "control_step": None,
+                        "control_deadband": 0.0,
+                        "curve_interp": "step",
+                        "updated_at": "",
+                    },
+                )
+            )
+            if key in curves:
+                base["curve"] = curves[key]
+            merged[key] = base
+        return merged
+
+    def _build_controlled_device_inventory(self) -> List[Dict[str, Any]]:
+        """聚合模型、四遥点表与最近策略，列出全部 AGC 受控设备及模型默认边界/步长。"""
+        with self.lock:
+            snap = self._last_snapshot or {}
+            settings = self.settings
+        latest = self.store.get_latest_strategy()
+        strat_by_key: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        if latest:
+            for r in latest.get("command_rows") or []:
+                strat_by_key[(str(r.get("dev_type", "")), str(r.get("dev_name", "")))] = r
+
+        meas_map: Dict[Tuple[str, str, str], float] = {}
+        for m in snap.get("measurements", {}).get("scada", []):
+            if int(m.get("valid", 0)) == 1 and m.get("value") is not None:
+                meas_map[(str(m["dev_type"]), str(m["dev_name"]), str(m["meas_type"]))] = float(m["value"])
+
+        ctrl_by_dev: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        for item in (snap.get("definitions") or {}).get("control_list") or []:
+            if item.get("kind") == "yt":
+                ctrl_by_dev[(str(item["dev_type"]), str(item["dev_name"]), str(item["set_type"]))] = item
+
+        dev_params = snap.get("device_parameters") or {}
+        param_by_key: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        param_by_idx: Dict[Tuple[str, int], Dict[str, Any]] = {}
+        storage_ext_by_gen: Dict[Tuple[str, int], Dict[str, Any]] = {}
+        internal_coupling_gen_idxs: set[Tuple[str, int]] = set()
+        for blk, rows in dev_params.items():
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, Mapping):
+                    continue
+                nm = str(row.get("name") or row.get("dev_name") or "").strip()
+                r_idx = _finite(row.get("idx"))
+                if nm:
+                    param_by_key[(str(blk), nm)] = dict(row)
+                if r_idx is not None:
+                    param_by_idx[(str(blk), int(round(r_idx)))] = dict(row)
+                if blk == "ACStorageGen" and _finite(row.get("idx_acgenerator")) is not None:
+                    storage_ext_by_gen[("ACGenerator", int(round(float(row["idx_acgenerator"]))))] = dict(row)
+                elif blk == "DCStorageGen" and _finite(row.get("idx_dcgenerator")) is not None:
+                    storage_ext_by_gen[("DCGenerator", int(round(float(row["idx_dcgenerator"]))))] = dict(row)
+                elif blk == "Hydro2DcE" and _finite(row.get("idx_dc_unit_t1")) is not None:
+                    internal_coupling_gen_idxs.add(("DCGenerator", int(round(float(row["idx_dc_unit_t1"])))))
+                elif blk == "Hydro2AcE" and _finite(row.get("idx_ac_unit_t1")) is not None:
+                    internal_coupling_gen_idxs.add(("ACGenerator", int(round(float(row["idx_ac_unit_t1"])))))
+
+        def _classify(dev_type: str, dev_name: str, sub_type: str, srow: Optional[Mapping[str, Any]]) -> Tuple[str, str]:
+            if srow and srow.get("category"):
+                cat = str(srow["category"])
+                if "风" in cat:
+                    return "wind", cat
+                if "光" in cat:
+                    return "pv", cat
+                if "储" in cat:
+                    return "storage", cat
+                if "柴" in cat:
+                    return "diesel", cat
+                if "变流" in cat:
+                    return "converter", cat
+                if "氢" in cat or "燃" in cat:
+                    return "hydrogen", cat
+            st = (sub_type or "").lower()
+            nm = dev_name
+            if dev_type == "AcE2Hydro":
+                return "hydrogen", "电制氢"
+            if dev_type == "Hydro2DcE":
+                return "hydrogen", "燃料电池"
+            if dev_type == "DCACConverter":
+                return "converter", "交直流变流器"
+            if "wind" in st or "风" in nm:
+                return "wind", "交流风电" if dev_type == "ACGenerator" else "直流风电"
+            if "pv" in st or "光" in nm:
+                return "pv", "交流光伏" if dev_type == "ACGenerator" else "直流光伏"
+            if "storage" in st or "储" in nm:
+                return "storage", "交流储能" if dev_type == "ACGenerator" else "直流储能"
+            if "diesel" in st or "柴" in nm:
+                return "diesel", "柴油发电"
+            return "other", dev_type
+
+        inventory: List[Dict[str, Any]] = []
+        seen: set[Tuple[str, str, str]] = set()
+        devices_list = snap.get("devices") or []
+        dev_meta_map: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for d in devices_list:
+            if not isinstance(d, Mapping):
+                continue
+            dt = str(d.get("dev_type") or d.get("type") or "").strip()
+            dn = str(d.get("dev_name") or d.get("name") or "").strip()
+            if dt and dn:
+                dev_meta_map[(dt, dn)] = dict(d)
+
+        # 收集候选受控设备：优先覆盖策略全量设备 + 模型中所有发电/储能/网侧变流器/氢能耦合设备
+        candidate_keys: List[Tuple[str, str, str]] = []
+        if latest:
+            for r in latest.get("command_rows") or []:
+                dt = str(r.get("dev_type") or "").strip()
+                dn = str(r.get("dev_name") or "").strip()
+                st = str(r.get("set_type") or ("p_ac_set" if dt == "DCACConverter" else "p_set")).strip()
+                if dt and dn and st:
+                    candidate_keys.append((dt, dn, st))
+
+        for (dt, dn), meta in dev_meta_map.items():
+            if dt in {"ACGenerator", "DCGenerator"}:
+                prow_chk = param_by_key.get((dt, dn), {})
+                chk_idx = _finite(prow_chk.get("idx"))
+                if chk_idx is not None and (dt, int(round(chk_idx))) in internal_coupling_gen_idxs:
+                    continue
+                if "_直流设备端" in dn or "_交流设备端" in dn:
+                    continue
+                candidate_keys.append((dt, dn, "p_set"))
+            elif dt == "DCACConverter" and ("DCAC" in dn or (dt, dn) in strat_by_key):
+                candidate_keys.append((dt, dn, "p_ac_set"))
+            elif dt in {"AcE2Hydro", "Hydro2DcE"}:
+                candidate_keys.append((dt, dn, "p_set"))
+
+        for dt, dn, st in candidate_keys:
+            if (dt, dn, st) in seen:
+                continue
+            seen.add((dt, dn, st))
+            srow = strat_by_key.get((dt, dn))
+            meta = dev_meta_map.get((dt, dn), {})
+            prow = param_by_key.get((dt, dn), {})
+            ctrl_pt = ctrl_by_dev.get((dt, dn, st))
+            sub_type = str(meta.get("sub_type") or meta.get("role") or "")
+            group, category = _classify(dt, dn, sub_type, srow)
+
+            # 实时量测值
+            if dt == "DCACConverter":
+                cur_val = meas_map.get((dt, dn, "P_AC" if st == "p_ac_set" else "P_DC"))
+            elif dt == "AcE2Hydro":
+                cur_val = meas_map.get((dt, dn, "P_LOAD"))
+                if cur_val is None:
+                    cur_val = meas_map.get((dt, dn, "P_GEN"))
+            else:
+                cur_val = meas_map.get((dt, dn, "P_GEN"))
+                if cur_val is None:
+                    cur_val = meas_map.get((dt, dn, "P_LOAD"))
+            if cur_val is None and srow is not None:
+                cur_val = _finite(srow.get("current_kw"))
+
+            run_val = meas_map.get((dt, dn, "RUN_STAT"))
+            online = bool(srow.get("online")) if srow is not None else (run_val is None or run_val > 0.5)
+
+            # 推导模型默认上下限与默认步长（严格使用铭牌/模型额定参数，绝不混用瞬时气象估算值）
+            def _pos_num(*vals: Any) -> Optional[float]:
+                for v in vals:
+                    fv = _finite(v)
+                    if fv is not None and fv > 1e-9:
+                        return fv
+                return None
+
+            r_idx_val = _finite(prow.get("idx"))
+            ext_row = storage_ext_by_gen.get((dt, int(round(r_idx_val))), {}) if r_idx_val is not None else {}
+            p_max_raw = _pos_num(
+                prow.get("rated_capacity"),
+                prow.get("p_max"),
+                prow.get("ac_p_max"),
+                prow.get("p_rated"),
+                prow.get("sn"),
+                ctrl_pt.get("max") if ctrl_pt else None,
+            )
+            p_min_raw = _finite(prow.get("p_min"))
+            if p_min_raw is None:
+                p_min_raw = _finite(prow.get("ac_p_min"))
+
+            default_min: Optional[float] = None
+            default_max: Optional[float] = None
+            default_step: Optional[float] = None
+
+            if group in {"wind", "pv"}:
+                cap = max(0.0, p_max_raw or 0.0)
+                default_min = 0.0
+                default_max = round(cap, 3)
+                default_step = round(max(0.0, settings.step_coefficient * cap), 3)
+            elif group == "storage":
+                max_dis = _pos_num(
+                    ext_row.get("max_discharge_power"),
+                    prow.get("p_dis_max"),
+                    prow.get("p_max"),
+                    prow.get("rated_capacity"),
+                    p_max_raw,
+                ) or 0.0
+                max_ch = _pos_num(
+                    ext_row.get("max_charge_power"),
+                    prow.get("p_ch_max"),
+                    abs(p_min_raw) if (p_min_raw is not None and p_min_raw < -1e-9) else None,
+                    max_dis,
+                ) or max_dis
+                default_min = round(-abs(max_ch), 3)
+                default_max = round(abs(max_dis), 3)
+                default_step = round(max(0.0, settings.storage_step_ratio * max(abs(max_ch), abs(max_dis))), 3)
+            elif group == "diesel":
+                cap = max(0.0, _pos_num(prow.get("p_max"), prow.get("rated_capacity"), p_max_raw) or 0.0)
+                lo = max(0.0, p_min_raw if p_min_raw is not None else 0.0)
+                default_min = round(lo, 3)
+                default_max = round(cap, 3)
+                default_step = round(
+                    max(0.0, settings.diesel_step_ratio * cap) if 0.0 < settings.diesel_step_ratio < 1.0 else 0.0,
+                    3,
+                )
+            elif group == "converter":
+                cap = abs(_pos_num(prow.get("ac_p_max"), prow.get("rated_capacity"), p_max_raw) or 0.0)
+                default_min = round(-cap, 3)
+                default_max = round(cap, 3)
+                ratio = (
+                    settings.converter_ramp_step_ratio
+                    if settings.converter_ramp_step_ratio > 1e-9
+                    else settings.converter_step_ratio
+                )
+                default_step = round(max(0.0, ratio * cap) if 0.0 < ratio < 1.0 else 0.0, 3)
+            elif group == "hydrogen":
+                # 从关联的电侧端口设备读取氢能耦合设备额定功率
+                linked_row: Dict[str, Any] = {}
+                if dt == "AcE2Hydro" and _finite(prow.get("idx_ac_load_t1")) is not None:
+                    linked_row = param_by_idx.get(("ACLoad", int(round(float(prow["idx_ac_load_t1"])))), {})
+                elif dt == "Hydro2DcE" and _finite(prow.get("idx_dc_unit_t1")) is not None:
+                    linked_row = param_by_idx.get(("DCGenerator", int(round(float(prow["idx_dc_unit_t1"])))), {})
+                cap = max(
+                    0.0,
+                    _pos_num(
+                        p_max_raw,
+                        linked_row.get("rated_capacity"),
+                        linked_row.get("p_max"),
+                        linked_row.get("p_load"),
+                        ctrl_pt.get("max") if ctrl_pt else None,
+                    )
+                    or 0.0,
+                )
+                if dt == "AcE2Hydro":
+                    default_min = round(cap * settings.electrolyzer_power_min_ratio, 3)
+                    default_max = round(cap * settings.electrolyzer_power_max_ratio, 3)
+                    default_step = round(cap * settings.electrolyzer_power_step_ratio, 3)
+                else:
+                    default_min = round(cap * settings.fuel_cell_power_min_ratio, 3)
+                    default_max = round(cap * settings.fuel_cell_power_max_ratio, 3)
+                    default_step = round(cap * settings.fuel_cell_power_step_ratio, 3)
+            else:
+                default_min = round(p_min_raw, 3) if p_min_raw is not None else 0.0
+                default_max = round(p_max_raw, 3) if p_max_raw is not None else 0.0
+                default_step = 0.0
+
+            inventory.append(
+                {
+                    "group": group,
+                    "category": category,
+                    "dev_type": dt,
+                    "dev_name": dn,
+                    "set_type": st,
+                    "unit": (ctrl_pt.get("unit") if ctrl_pt else "") or "kW",
+                    "online": online,
+                    "scada_mapped": bool(ctrl_pt and ctrl_pt.get("scada_mapped")),
+                    "current_kw": round(cur_val, 3) if cur_val is not None else None,
+                    "default_min": default_min,
+                    "default_max": default_max,
+                    "default_step": default_step,
+                    "allow_negative": group in {"storage", "converter"},
+                }
+            )
+
+        group_order = {"wind": 0, "pv": 1, "storage": 2, "diesel": 3, "converter": 4, "hydrogen": 5, "other": 6}
+        inventory.sort(key=lambda r: (group_order.get(r["group"], 9), r["category"], r["dev_name"]))
+        return inventory
+
+    def get_device_configs_payload(self) -> Dict[str, Any]:
+        """返回全部受控设备的当前配置、默认限值、当前时刻曲线现值及状态汇总。"""
+        inventory = self._build_controlled_device_inventory()
+        saved_cfgs = self.store.load_device_configs()
+        saved_curves = self.store.load_all_device_curves()
+        with self.lock:
+            snap = self._last_snapshot or {}
+        minute_of_day = resolve_snapshot_minute_of_day(snap)
+        now_idx = int(minute_of_day // 15.0) % 96
+        items: List[Dict[str, Any]] = []
+        counts = {"total": 0, "closed": 0, "track": 0, "open": 0}
+
+        for dev in inventory:
+            key = (dev["dev_type"], dev["dev_name"], dev["set_type"])
+            cfg = saved_cfgs.get(key)
+            curve = saved_curves.get(key)
+            state = str((cfg or {}).get("control_state") or "closed")
+            interp = str((cfg or {}).get("curve_interp") or "step")
+            curve_now = evaluate_device_curve(curve, minute_of_day, interp) if curve else None
+            counts["total"] += 1
+            counts[state] = counts.get(state, 0) + 1
+            items.append(
+                {
+                    **dev,
+                    "control_state": state,
+                    "p_min": cfg["p_min"] if cfg else None,
+                    "p_max": cfg["p_max"] if cfg else None,
+                    "control_step": cfg["control_step"] if cfg else None,
+                    "control_deadband": cfg["control_deadband"] if cfg else 0.0,
+                    "curve_interp": interp,
+                    "has_curve": curve is not None,
+                    "curve_now_kw": round(curve_now, 3) if curve_now is not None else None,
+                    "updated_at": cfg["updated_at"] if cfg else "",
+                }
+            )
+        return {
+            "items": items,
+            "counts": counts,
+            "minute_of_day": round(minute_of_day, 2),
+            "current_slot_index": now_idx,
+            "current_slot_label": f"{(now_idx * 15) // 60:02d}:{(now_idx * 15) % 60:02d}",
+        }
+
+    def save_device_configs(self, items: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+        """校验并批量保存受控设备控制配置，同时写入审计日志。"""
+        if not isinstance(items, Sequence) or not items:
+            raise ValueError("待保存的设备配置列表不能为空")
+        inv_map = {
+            (d["dev_type"], d["dev_name"], d["set_type"]): d
+            for d in self._build_controlled_device_inventory()
+        }
+        for raw in items:
+            d_type = str(raw.get("dev_type") or "").strip()
+            d_name = str(raw.get("dev_name") or "").strip()
+            s_type = str(raw.get("set_type") or "p_set").strip()
+            dev_info = inv_map.get((d_type, d_name, s_type))
+            p_min = _finite(raw.get("p_min")) if raw.get("p_min") not in (None, "") else None
+            p_max = _finite(raw.get("p_max")) if raw.get("p_max") not in (None, "") else None
+            if dev_info and not dev_info.get("allow_negative"):
+                if p_min is not None and p_min < -1e-9:
+                    raise ValueError(f"{d_name} 下限不能为负值 ({p_min})")
+                if p_max is not None and p_max < -1e-9:
+                    raise ValueError(f"{d_name} 上限不能为负值 ({p_max})")
+            if p_min is not None and p_max is not None and p_min > p_max + 1e-9:
+                raise ValueError(f"{d_name} 下限 ({p_min}) 不能大于上限 ({p_max})")
+        saved_count, ts = self.store.save_device_configs(items)
+        self.store.append_control_log(
+            level="info",
+            event_type="device_config",
+            cycle=self._last_cycle,
+            subject="受控设备参数更新",
+            summary=f"已保存 {saved_count} 台受控设备控制配置",
+        )
+        self.store.append_runtime_log(
+            level="info",
+            log_type="parameters",
+            target="受控设备控制配置",
+            result="已保存",
+            summary=f"批量保存 {saved_count} 台设备上下限/步长/死区/控制状态",
+        )
+        payload = self.get_device_configs_payload()
+        payload["saved_count"] = saved_count
+        payload["updated_at"] = ts
+        return payload
+
+    def reset_device_configs(
+        self,
+        *,
+        dev_type: str = "",
+        dev_name: str = "",
+        set_type: str = "",
+        reset_curves: bool = False,
+    ) -> Dict[str, Any]:
+        """恢复单台或全部受控设备配置为默认闭环与模型默认边界。"""
+        removed = self.store.reset_device_configs(
+            dev_type=dev_type,
+            dev_name=dev_name,
+            set_type=set_type,
+            reset_curves=reset_curves,
+        )
+        target_label = f"{dev_name} ({set_type})" if dev_name else "全部受控设备"
+        self.store.append_control_log(
+            level="warn",
+            event_type="device_config",
+            cycle=self._last_cycle,
+            subject="受控设备配置恢复默认",
+            summary=f"已重置 {target_label}（影响 {removed} 项，{'含曲线' if reset_curves else '保留曲线'}）",
+        )
+        self.store.append_runtime_log(
+            level="warn",
+            log_type="parameters",
+            target=target_label,
+            result="已恢复默认",
+            summary=f"重置受控设备控制配置（{removed} 项）",
+        )
+        payload = self.get_device_configs_payload()
+        payload["reset_count"] = removed
+        return payload
+
+    def get_device_curve_payload(
+        self,
+        *,
+        dev_type: str,
+        dev_name: str,
+        set_type: str = "p_set",
+    ) -> Dict[str, Any]:
+        """读取单台受控设备的 96 点预设曲线（未配置时自动返回合理基线曲线）。"""
+        d_type = str(dev_type or "").strip()
+        d_name = str(dev_name or "").strip()
+        s_type = str(set_type or "p_set").strip()
+        if not d_type or not d_name:
+            raise ValueError("缺少 dev_type 或 dev_name")
+        all_cfgs = self.get_device_configs_payload()
+        dev_info = next(
+            (
+                item
+                for item in all_cfgs["items"]
+                if item["dev_type"] == d_type and item["dev_name"] == d_name and item["set_type"] == s_type
+            ),
+            None,
+        )
+        saved = self.store.load_device_curve(d_type, d_name, s_type)
+        has_saved = saved is not None
+        if saved is None:
+            # 未曾保存过曲线时：以当前实时值（或默认下限与上限中值）生成平滑基线
+            base_val = 0.0
+            if dev_info is not None:
+                if dev_info.get("current_kw") is not None:
+                    base_val = float(dev_info["current_kw"])
+                elif dev_info.get("default_min") is not None and dev_info.get("default_max") is not None:
+                    base_val = max(float(dev_info["default_min"]), 0.0)
+                lo = dev_info.get("p_min") if dev_info.get("p_min") is not None else dev_info.get("default_min")
+                hi = dev_info.get("p_max") if dev_info.get("p_max") is not None else dev_info.get("default_max")
+                if lo is not None:
+                    base_val = max(float(lo), base_val)
+                if hi is not None:
+                    base_val = min(float(hi), base_val)
+            saved = [round(base_val, 3)] * 96
+
+        labels = [f"{(i * 15) // 60:02d}:{(i * 15) % 60:02d}" for i in range(96)]
+        return {
+            "dev_type": d_type,
+            "dev_name": d_name,
+            "set_type": s_type,
+            "has_saved": has_saved,
+            "curve_interp": (dev_info or {}).get("curve_interp", "step"),
+            "control_state": (dev_info or {}).get("control_state", "closed"),
+            "current_kw": (dev_info or {}).get("current_kw"),
+            "effective_min": (
+                dev_info["p_min"]
+                if (dev_info and dev_info.get("p_min") is not None)
+                else (dev_info.get("default_min") if dev_info else None)
+            ),
+            "effective_max": (
+                dev_info["p_max"]
+                if (dev_info and dev_info.get("p_max") is not None)
+                else (dev_info.get("default_max") if dev_info else None)
+            ),
+            "unit": (dev_info or {}).get("unit", "kW"),
+            "current_slot_index": all_cfgs["current_slot_index"],
+            "labels": labels,
+            "points": saved,
+        }
+
+    def save_device_curve(
+        self,
+        *,
+        dev_type: str,
+        dev_name: str,
+        set_type: str = "p_set",
+        points: Sequence[Any],
+        curve_interp: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """保存受控设备 96 点预设曲线并记录审计日志。"""
+        ts = self.store.save_device_curve(
+            dev_type=dev_type,
+            dev_name=dev_name,
+            set_type=set_type,
+            points=points,
+            curve_interp=curve_interp,
+        )
+        self.store.append_control_log(
+            level="info",
+            event_type="device_curve",
+            cycle=self._last_cycle,
+            subject=f"预设曲线更新：{dev_name}",
+            summary=f"已保存 {dev_name} ({set_type}) 96 点预设曲线（取点：{curve_interp or '保持原方式'}）",
+        )
+        self.store.append_runtime_log(
+            level="info",
+            log_type="parameters",
+            target=f"{dev_name} ({set_type})",
+            result="已保存",
+            summary="更新 96 点预设跟踪曲线",
+        )
+        res = self.get_device_curve_payload(dev_type=dev_type, dev_name=dev_name, set_type=set_type)
+        res["updated_at"] = ts
+        return res

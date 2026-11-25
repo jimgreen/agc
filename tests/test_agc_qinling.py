@@ -168,6 +168,8 @@ class AGCRealtimeSystemTests(unittest.TestCase):
                 "agc_command_records",
                 "agc_control_logs",
                 "agc_control_settings",
+                "agc_device_configs",
+                "agc_device_curves",
                 "agc_runtime_logs",
                 "agc_strategy_commands",
                 "agc_strategy_snapshots",
@@ -613,6 +615,262 @@ class AGCRealtimeSystemTests(unittest.TestCase):
                 break
             time.sleep(0.05)
         self.assertEqual(st_to, "timeout")
+
+    def test_device_configs_closed_track_open_decision_effects(self) -> None:
+        """验证受控设备闭环(上下限/步长/死区)、跟踪(96点预设曲线取点/步长/死区)、开环(不参与决策不下发)全量生效。"""
+        from agc_engine import RenewableControlSettings, calculate_renewable_control_plan, evaluate_device_curve
+
+        # 1. 验证 96 点曲线阶梯与线性插值取点
+        curve_96 = [float(i * 1.0) for i in range(96)]
+        # 12:07:30 -> minute_of_day = 727.5 -> 槽位 48 (48.0) 与 49 (49.0) 的正中
+        self.assertAlmostEqual(evaluate_device_curve(curve_96, 727.5, "step"), 48.0, places=6)
+        self.assertAlmostEqual(evaluate_device_curve(curve_96, 727.5, "linear"), 48.5, places=6)
+
+        # 2. 基于沙箱微电网读取真实快照（交流风电-1 当前 20 kW, 上限 100 kW; 交流储能-1 当前 -10 kW; 交流柴发-1 当前 100 kW）
+        service = AGCRealtimeService(
+            model_db=self.env["model_db"],
+            scada_db=self.env["scada_db"],
+            svg_path=self.env["svg_path"],
+            agc_db=self.env["agc_db"],
+            start_background=False,
+        )
+        self.addCleanup(service.close)
+        snap = service.refresh_telemetry()
+        snap["clock"] = {"time": "12:00:00", "minute": 720}
+        settings = RenewableControlSettings(step_coefficient=0.10, storage_step_ratio=0.10)
+
+        # 2A. 闭环自定义上限与步长：交流风电-1 实发 20 kW，设 p_max=22 kW, step=1.5 kW -> 目标必 <= 21.5 kW
+        plan_closed = calculate_renewable_control_plan(
+            snap,
+            settings,
+            data_source="remote",
+            device_configs={
+                ("ACGenerator", "交流风电-1", "p_set"): {
+                    "control_state": "closed",
+                    "p_min": 5.0,
+                    "p_max": 22.0,
+                    "control_step": 1.5,
+                    "control_deadband": 0.0,
+                }
+            },
+        )
+        wind_row = next(r for r in plan_closed["commandRows"] if r["dev_name"] == "交流风电-1")
+        self.assertEqual(wind_row["deviceControlState"], "closed")
+        self.assertLessEqual(float(wind_row["commandKw"]), 21.5 + 1e-4)
+        self.assertGreaterEqual(float(wind_row["commandKw"]), 18.5 - 1e-4)
+
+        # 2B. 闭环控制死区：设 deadband=5.0 kW（大于单拍步长 1.5 kW）-> 变动被死区吸收保持 20 kW 且不产生变动标志
+        plan_dead = calculate_renewable_control_plan(
+            snap,
+            settings,
+            data_source="remote",
+            device_configs={
+                ("ACGenerator", "交流风电-1", "p_set"): {
+                    "control_state": "closed",
+                    "p_min": 0.0,
+                    "p_max": 100.0,
+                    "control_step": 1.5,
+                    "control_deadband": 5.0,
+                }
+            },
+        )
+        wind_dead = next(r for r in plan_dead["commandRows"] if r["dev_name"] == "交流风电-1")
+        self.assertAlmostEqual(float(wind_dead["commandKw"]), 20.0, places=3)
+        self.assertFalse(bool(wind_dead["strategyTargetChanged"]))
+
+        # 2C. 跟踪状态：交流风电-1 12:00 曲线目标=65 kW，但设 p_max=50 kW、step=4.0 kW -> 从 20 kW 单拍步进至 24.0 kW 且下发
+        track_curve = [0.0] * 96
+        track_curve[48] = 65.0  # 12:00
+        plan_track = calculate_renewable_control_plan(
+            snap,
+            settings,
+            data_source="remote",
+            device_configs={
+                ("ACGenerator", "交流风电-1", "p_set"): {
+                    "control_state": "track",
+                    "p_min": 0.0,
+                    "p_max": 50.0,
+                    "control_step": 4.0,
+                    "control_deadband": 0.5,
+                    "curve_interp": "step",
+                    "curve": track_curve,
+                }
+            },
+        )
+        wind_trk = next(r for r in plan_track["commandRows"] if r["dev_name"] == "交流风电-1")
+        self.assertEqual(wind_trk["deviceControlState"], "track")
+        self.assertAlmostEqual(float(wind_trk["trackBoundedKw"]), 50.0, places=3)
+        self.assertAlmostEqual(float(wind_trk["commandKw"]), 24.0, places=3)
+        self.assertTrue(bool(wind_trk["strategyTargetChanged"]))
+        self.assertTrue(any(c["dev_name"] == "交流风电-1" and abs(c["set_value"] - 24.0) < 1e-3 for c in plan_track["commands"]))
+
+        # 2D. 跟踪状态命中死区：曲线目标 21.0 kW，当前 20.0 kW，deadband=1.5 kW -> 保持 20.0 kW 不触发变动
+        track_curve[48] = 21.0
+        plan_track_dead = calculate_renewable_control_plan(
+            snap,
+            settings,
+            data_source="remote",
+            device_configs={
+                ("ACGenerator", "交流风电-1", "p_set"): {
+                    "control_state": "track",
+                    "p_min": 0.0,
+                    "p_max": 50.0,
+                    "control_step": 4.0,
+                    "control_deadband": 1.5,
+                    "curve_interp": "step",
+                    "curve": track_curve,
+                }
+            },
+        )
+        wind_td = next(r for r in plan_track_dead["commandRows"] if r["dev_name"] == "交流风电-1")
+        self.assertAlmostEqual(float(wind_td["commandKw"]), 20.0, places=3)
+        self.assertFalse(bool(wind_td["strategyTargetChanged"]))
+
+        # 2E. 开环状态：交流风电-1 设 open -> 不参与自动决策、不下发任何指令、不误报未纳入优化
+        plan_open = calculate_renewable_control_plan(
+            snap,
+            settings,
+            data_source="remote",
+            device_configs={
+                ("ACGenerator", "交流风电-1", "p_set"): {
+                    "control_state": "open",
+                }
+            },
+        )
+        wind_open = next(r for r in plan_open["commandRows"] if r["dev_name"] == "交流风电-1")
+        self.assertEqual(wind_open["deviceControlState"], "open")
+        self.assertAlmostEqual(float(wind_open["commandKw"]), 20.0, places=3)
+        self.assertFalse(bool(wind_open["strategyCommand"]))
+        self.assertFalse(bool(wind_open["strategyTargetChanged"]))
+        self.assertFalse(any(c["dev_name"] == "交流风电-1" for c in plan_open["commands"]))
+        self.assertFalse(any("交流风电-1" in str(w) for w in (plan_open.get("warnings") or [])))
+
+    def test_device_configs_http_api_and_persistence(self) -> None:
+        """验证受控设备配置与 96 点预设曲线的 REST API、校验拦截、闭环执行与持久化恢复。"""
+        # 为沙箱 scdfe_d 补齐控制列便于闭环下发测试
+        sconn = sqlite3.connect(self.env["scada_db"])
+        sconn.execute("ALTER TABLE ACGenerator ADD COLUMN p_set REAL")
+        sconn.execute("ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_time INTEGER")
+        sconn.execute("ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_status INTEGER DEFAULT 0")
+        sconn.execute("ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_ack_time INTEGER")
+        sconn.execute("ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_notuse INTEGER DEFAULT 0")
+        sconn.execute("ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_rtu INTEGER DEFAULT 3")
+        sconn.execute("ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_pnt INTEGER DEFAULT 1")
+        sconn.execute("ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_max REAL DEFAULT 100")
+        sconn.execute("ALTER TABLE ACGenerator ADD COLUMN p_set_cmd_min REAL DEFAULT 0")
+        sconn.execute("UPDATE ACGenerator SET p_set_cmd_pnt=1 WHERE idx=1")
+        sconn.execute("UPDATE ACGenerator SET p_set_cmd_pnt=2, p_set_cmd_min=-100 WHERE idx=2")
+        sconn.execute("UPDATE ACGenerator SET p_set_cmd_pnt=3, p_set_cmd_max=300 WHERE idx=3")
+        sconn.commit()
+        sconn.close()
+
+        server, service = create_server(
+            host="127.0.0.1",
+            port=0,
+            model_db=self.env["model_db"],
+            scada_db=self.env["scada_db"],
+            svg_path=self.env["svg_path"],
+            agc_db=self.env["agc_db"],
+            start_background=False,
+        )
+        port = server.server_address[1]
+        th = threading.Thread(target=server.serve_forever, daemon=True)
+        th.start()
+        self.addCleanup(service.close)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{port}"
+
+        def get_json(path: str):
+            with urlopen(f"{base}{path}", timeout=5) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def post_json(path: str, payload: dict):
+            req = Request(
+                f"{base}{path}",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req, timeout=5) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        # 1. 查询受控设备清单
+        cfgs = get_json("/api/device-configs")
+        self.assertGreaterEqual(cfgs["counts"]["total"], 3)
+        self.assertEqual(cfgs["counts"]["closed"], cfgs["counts"]["total"])
+
+        # 2. 保存 96 点预设曲线并配置交流风电-1 为跟踪态、交流柴发-1 为开环态
+        pts = [35.0] * 96
+        c_res = post_json(
+            "/api/device-configs/curve",
+            {
+                "dev_type": "ACGenerator",
+                "dev_name": "交流风电-1",
+                "set_type": "p_set",
+                "points": pts,
+                "curve_interp": "linear",
+            },
+        )
+        self.assertTrue(c_res["ok"])
+        self.assertEqual(len(c_res["points"]), 96)
+
+        s_res = post_json(
+            "/api/device-configs",
+            {
+                "items": [
+                    {
+                        "dev_type": "ACGenerator",
+                        "dev_name": "交流风电-1",
+                        "set_type": "p_set",
+                        "control_state": "track",
+                        "p_min": 0.0,
+                        "p_max": 80.0,
+                        "control_step": 5.0,
+                        "control_deadband": 0.5,
+                        "curve_interp": "linear",
+                    },
+                    {
+                        "dev_type": "ACGenerator",
+                        "dev_name": "交流柴发-1",
+                        "set_type": "p_set",
+                        "control_state": "open",
+                        "control_deadband": 0.0,
+                    },
+                ]
+            },
+        )
+        self.assertTrue(s_res["ok"])
+        self.assertEqual(s_res["counts"]["track"], 1)
+        self.assertEqual(s_res["counts"]["open"], 1)
+
+        # 3. 切至全局闭环并执行一次控制计算：交流风电-1 按跟踪步长从 20 -> 25 写入 scdfe_d，交流柴发-1 开环绝不写库
+        post_json("/api/agc/control", {"action": "set_mode", "loop_mode": "closed"})
+        calc = post_json("/api/agc/control", {"action": "calculate_once"})
+        self.assertTrue(calc["ok"])
+        cmd_rows = {r["dev_name"]: r for r in calc["control"]["latest"]["command_rows"]}
+        self.assertEqual(cmd_rows["交流风电-1"]["device_control_state"], "track")
+        self.assertAlmostEqual(float(cmd_rows["交流风电-1"]["target_kw"]), 25.0, places=3)
+        self.assertEqual(cmd_rows["交流柴发-1"]["device_control_state"], "open")
+        self.assertEqual(cmd_rows["交流柴发-1"]["dispatch_status"], "device_open")
+
+        chk = sqlite3.connect(self.env["scada_db"])
+        chk.row_factory = sqlite3.Row
+        scada_rows = {r["idx"]: dict(r) for r in chk.execute("SELECT idx, p_set, p_set_cmd_status FROM ACGenerator").fetchall()}
+        chk.close()
+        self.assertAlmostEqual(float(scada_rows[1]["p_set"]), 25.0, places=3)
+        self.assertEqual(int(scada_rows[1]["p_set_cmd_status"]), 1)
+        self.assertIsNone(scada_rows[3]["p_set"])
+
+        # 4. 重置配置验证
+        rst = post_json("/api/device-configs/reset", {"reset_curves": False})
+        self.assertTrue(rst["ok"])
+        self.assertEqual(rst["counts"]["track"], 0)
+        self.assertEqual(rst["counts"]["open"], 0)
+        # 曲线仍保留
+        c_after = get_json("/api/device-configs/curve?dev_type=ACGenerator&dev_name=%E4%BA%A4%E6%B5%81%E9%A3%8E%E7%94%B5-1&set_type=p_set")
+        self.assertTrue(c_after["has_saved"])
+        self.assertAlmostEqual(c_after["points"][0], 35.0, places=3)
 
 
 if __name__ == "__main__":

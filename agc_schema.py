@@ -32,6 +32,8 @@ TABLE_LABELS = {
     "agc_control_logs": "AGC控制决策日志",
     "agc_command_records": "AGC四遥指令记录",
     "agc_runtime_logs": "AGC系统运行日志",
+    "agc_device_configs": "AGC受控设备控制配置",
+    "agc_device_curves": "AGC受控设备96点预设曲线",
 }
 
 

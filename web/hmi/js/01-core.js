@@ -90,6 +90,7 @@ function cmdStatusMeta(status) {
     unconfigured: { cls: "badge-danger", label: "无配置" },
     blocked: { cls: "badge-danger", label: "已闭锁" },
     superseded: { cls: "badge-neutral", label: "已覆盖" },
+    device_open: { cls: "badge-neutral", label: "开环停发" },
     open_loop_only: { cls: "badge-info", label: "开环未发" },
     unchanged: { cls: "badge-neutral", label: "维持不变" },
     calculated: { cls: "badge-info", label: "已计算" },

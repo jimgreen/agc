@@ -177,3 +177,31 @@ CREATE INDEX IF NOT EXISTS idx_agc_runtime_logs_time
     ON agc_runtime_logs(logged_at);
 CREATE INDEX IF NOT EXISTS idx_agc_runtime_logs_type
     ON agc_runtime_logs(log_type);
+
+CREATE TABLE IF NOT EXISTS agc_device_configs (
+    dev_type TEXT NOT NULL,
+    dev_name TEXT NOT NULL,
+    set_type TEXT NOT NULL DEFAULT 'p_set',
+    control_state TEXT NOT NULL DEFAULT 'closed',
+    p_min REAL,
+    p_max REAL,
+    control_step REAL,
+    control_deadband REAL NOT NULL DEFAULT 0,
+    curve_interp TEXT NOT NULL DEFAULT 'step',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (dev_type, dev_name, set_type)
+);
+
+CREATE TABLE IF NOT EXISTS agc_device_curves (
+    dev_type TEXT NOT NULL,
+    dev_name TEXT NOT NULL,
+    set_type TEXT NOT NULL DEFAULT 'p_set',
+    point_index INTEGER NOT NULL CHECK (point_index BETWEEN 0 AND 95),
+    minute_of_day INTEGER NOT NULL CHECK (minute_of_day BETWEEN 0 AND 1439),
+    target_value REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (dev_type, dev_name, set_type, point_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agc_device_curves_dev
+    ON agc_device_curves(dev_type, dev_name, set_type, point_index);

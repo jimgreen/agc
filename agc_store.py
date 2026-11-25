@@ -313,10 +313,16 @@ class AGCRealtimeStore:
                         else None
                     )
                     dres = dispatch_map.get((dev_type, dev_name, set_type))
-                    d_status = str(dres.get("status", "calculated")) if dres else (
-                        "open_loop_only" if loop_mode != "closed" else "calculated"
-                    )
-                    d_msg = str(dres.get("message", "")) if dres else ""
+                    dev_ctrl_state = str(crow.get("deviceControlState") or "closed").strip().lower()
+                    if dres:
+                        d_status = str(dres.get("status", "calculated"))
+                        d_msg = str(dres.get("message", ""))
+                    elif dev_ctrl_state == "open":
+                        d_status = "device_open"
+                        d_msg = "设备开环（不参与决策/不下发）"
+                    else:
+                        d_status = "open_loop_only" if loop_mode != "closed" else "calculated"
+                        d_msg = ""
                     cmd_tuples.append(
                         (
                             cycle,
@@ -628,6 +634,11 @@ class AGCRealtimeStore:
                     "dev_name": r["dev_name"],
                     "connection_side": r["connection_side"],
                     "control_mode": r["control_mode"],
+                    "device_control_state": (
+                        json.loads(r["raw_json"] or "{}").get("deviceControlState", "closed")
+                        if r["raw_json"]
+                        else "closed"
+                    ),
                     "online": bool(r["online"]),
                     "commandable": bool(r["commandable"]),
                     "set_type": r["set_type"],
@@ -855,3 +866,236 @@ class AGCRealtimeStore:
                 ).fetchall()
                 rows = list(reversed(rows))
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # 受控设备控制配置（上下限/步长/死区/闭环-跟踪-开环状态）与 96 点预设曲线
+    # ------------------------------------------------------------------
+
+    def load_device_configs(self) -> Dict[Tuple[str, str, str], Dict[str, Any]]:
+        """读取全部已持久化的受控设备控制配置，返回 {(dev_type, dev_name, set_type): cfg}。"""
+        with self.lock:
+            rows = self.conn.execute(
+                """SELECT dev_type, dev_name, set_type, control_state,
+                          p_min, p_max, control_step, control_deadband,
+                          curve_interp, updated_at
+                   FROM agc_device_configs
+                   ORDER BY dev_type, dev_name, set_type"""
+            ).fetchall()
+        out: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        for r in rows:
+            state = str(r["control_state"] or "closed").strip().lower()
+            if state not in {"closed", "track", "open"}:
+                state = "closed"
+            interp = str(r["curve_interp"] or "step").strip().lower()
+            if interp not in {"step", "linear"}:
+                interp = "step"
+            key = (str(r["dev_type"]), str(r["dev_name"]), str(r["set_type"] or "p_set"))
+            out[key] = {
+                "dev_type": key[0],
+                "dev_name": key[1],
+                "set_type": key[2],
+                "control_state": state,
+                "p_min": _finite_or_none(r["p_min"]),
+                "p_max": _finite_or_none(r["p_max"]),
+                "control_step": _finite_or_none(r["control_step"]),
+                "control_deadband": max(0.0, _finite_or_zero(r["control_deadband"])),
+                "curve_interp": interp,
+                "updated_at": str(r["updated_at"] or ""),
+            }
+        return out
+
+    def save_device_configs(self, items: Sequence[Mapping[str, Any]]) -> Tuple[int, str]:
+        """事务批量保存受控设备控制配置（参数非法时整体回滚）。"""
+        now = _now_iso()
+        normalized: List[Tuple[Any, ...]] = []
+        for raw in items:
+            d_type = str(raw.get("dev_type") or "").strip()
+            d_name = str(raw.get("dev_name") or "").strip()
+            s_type = str(raw.get("set_type") or "p_set").strip()
+            if not d_type or not d_name or not s_type:
+                raise ValueError("设备配置缺少 dev_type / dev_name / set_type")
+            state = str(raw.get("control_state") or "closed").strip().lower()
+            if state not in {"closed", "track", "open"}:
+                raise ValueError(f"{d_name} 的控制状态无效：{state}（仅允许 closed / track / open）")
+            p_min_raw = raw.get("p_min")
+            p_max_raw = raw.get("p_max")
+            step_raw = raw.get("control_step")
+            dead_raw = raw.get("control_deadband", 0.0)
+            p_min = None if (p_min_raw is None or str(p_min_raw).strip() == "") else _finite_or_none(p_min_raw)
+            p_max = None if (p_max_raw is None or str(p_max_raw).strip() == "") else _finite_or_none(p_max_raw)
+            step = None if (step_raw is None or str(step_raw).strip() == "") else _finite_or_none(step_raw)
+            dead = 0.0 if (dead_raw is None or str(dead_raw).strip() == "") else _finite_or_none(dead_raw)
+            if p_min_raw not in (None, "") and p_min is None:
+                raise ValueError(f"{d_name} 下限必须为有效数值")
+            if p_max_raw not in (None, "") and p_max is None:
+                raise ValueError(f"{d_name} 上限必须为有效数值")
+            if step_raw not in (None, "") and (step is None or step < 0.0):
+                raise ValueError(f"{d_name} 控制步长必须为非负数值")
+            if dead is None or dead < 0.0:
+                raise ValueError(f"{d_name} 控制死区必须为非负数值")
+            if p_min is not None and p_max is not None and p_min > p_max + 1e-9:
+                raise ValueError(f"{d_name} 下限 ({p_min}) 不能大于上限 ({p_max})")
+            interp = str(raw.get("curve_interp") or "step").strip().lower()
+            if interp not in {"step", "linear"}:
+                interp = "step"
+            normalized.append((d_type, d_name, s_type, state, p_min, p_max, step, float(dead), interp, now))
+
+        with self.lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.executemany(
+                    """INSERT INTO agc_device_configs(
+                           dev_type, dev_name, set_type, control_state,
+                           p_min, p_max, control_step, control_deadband,
+                           curve_interp, updated_at
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(dev_type, dev_name, set_type) DO UPDATE SET
+                           control_state=excluded.control_state,
+                           p_min=excluded.p_min,
+                           p_max=excluded.p_max,
+                           control_step=excluded.control_step,
+                           control_deadband=excluded.control_deadband,
+                           curve_interp=excluded.curve_interp,
+                           updated_at=excluded.updated_at""",
+                    normalized,
+                )
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+        return len(normalized), now
+
+    def reset_device_configs(
+        self,
+        *,
+        dev_type: str = "",
+        dev_name: str = "",
+        set_type: str = "",
+        reset_curves: bool = False,
+    ) -> int:
+        """恢复单个或全部设备的控制配置为系统默认状态。"""
+        with self.lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                if dev_type and dev_name and set_type:
+                    cur = self.conn.execute(
+                        "DELETE FROM agc_device_configs WHERE dev_type=? AND dev_name=? AND set_type=?",
+                        (dev_type, dev_name, set_type),
+                    )
+                    if reset_curves:
+                        self.conn.execute(
+                            "DELETE FROM agc_device_curves WHERE dev_type=? AND dev_name=? AND set_type=?",
+                            (dev_type, dev_name, set_type),
+                        )
+                else:
+                    cur = self.conn.execute("DELETE FROM agc_device_configs")
+                    if reset_curves:
+                        self.conn.execute("DELETE FROM agc_device_curves")
+                self.conn.commit()
+                return int(cur.rowcount or 0)
+            except Exception:
+                self.conn.rollback()
+                raise
+
+    def load_device_curve(
+        self,
+        dev_type: str,
+        dev_name: str,
+        set_type: str = "p_set",
+    ) -> Optional[List[float]]:
+        """读取单台受控设备的 96 点预设曲线；若未配置或点数不完整返回 None。"""
+        with self.lock:
+            rows = self.conn.execute(
+                """SELECT point_index, target_value
+                   FROM agc_device_curves
+                   WHERE dev_type=? AND dev_name=? AND set_type=?
+                   ORDER BY point_index ASC""",
+                (dev_type, dev_name, set_type),
+            ).fetchall()
+        if len(rows) != 96:
+            return None
+        pts: List[float] = [0.0] * 96
+        for r in rows:
+            idx = int(r["point_index"])
+            if 0 <= idx < 96:
+                pts[idx] = _finite_or_zero(r["target_value"])
+        return pts
+
+    def load_all_device_curves(self) -> Dict[Tuple[str, str, str], List[float]]:
+        """一次性加载全部已保存的完整 96 点预设曲线（用于控制周期零延迟评估）。"""
+        with self.lock:
+            rows = self.conn.execute(
+                """SELECT dev_type, dev_name, set_type, point_index, target_value
+                   FROM agc_device_curves
+                   ORDER BY dev_type, dev_name, set_type, point_index ASC"""
+            ).fetchall()
+        grouped: Dict[Tuple[str, str, str], Dict[int, float]] = {}
+        for r in rows:
+            key = (str(r["dev_type"]), str(r["dev_name"]), str(r["set_type"] or "p_set"))
+            idx = int(r["point_index"])
+            if 0 <= idx < 96:
+                grouped.setdefault(key, {})[idx] = _finite_or_zero(r["target_value"])
+        out: Dict[Tuple[str, str, str], List[float]] = {}
+        for key, pts_map in grouped.items():
+            if len(pts_map) == 96:
+                out[key] = [pts_map[i] for i in range(96)]
+        return out
+
+    def save_device_curve(
+        self,
+        *,
+        dev_type: str,
+        dev_name: str,
+        set_type: str = "p_set",
+        points: Sequence[Any],
+        curve_interp: Optional[str] = None,
+    ) -> str:
+        """原子保存指定受控设备的 96 点预设曲线（校验 96 个有限实数）。"""
+        d_type = str(dev_type or "").strip()
+        d_name = str(dev_name or "").strip()
+        s_type = str(set_type or "p_set").strip()
+        if not d_type or not d_name or not s_type:
+            raise ValueError("保存预设曲线缺少 dev_type / dev_name / set_type")
+        if len(points) != 96:
+            raise ValueError(f"预设曲线必须包含 96 个采样点（当前 {len(points)} 个）")
+        cleaned: List[float] = []
+        for idx, raw_v in enumerate(points):
+            v = _finite_or_none(raw_v)
+            if v is None:
+                raise ValueError(f"预设曲线第 {idx + 1} 点数值无效")
+            cleaned.append(float(v))
+        now = _now_iso()
+        rows_to_write = [
+            (d_type, d_name, s_type, i, i * 15, cleaned[i], now)
+            for i in range(96)
+        ]
+        with self.lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.executemany(
+                    """INSERT INTO agc_device_curves(
+                           dev_type, dev_name, set_type, point_index, minute_of_day, target_value, updated_at
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(dev_type, dev_name, set_type, point_index) DO UPDATE SET
+                           minute_of_day=excluded.minute_of_day,
+                           target_value=excluded.target_value,
+                           updated_at=excluded.updated_at""",
+                    rows_to_write,
+                )
+                if curve_interp in {"step", "linear"}:
+                    self.conn.execute(
+                        """INSERT INTO agc_device_configs(
+                               dev_type, dev_name, set_type, control_state,
+                               p_min, p_max, control_step, control_deadband,
+                               curve_interp, updated_at
+                           ) VALUES (?, ?, ?, 'closed', NULL, NULL, NULL, 0, ?, ?)
+                           ON CONFLICT(dev_type, dev_name, set_type) DO UPDATE SET
+                               curve_interp=excluded.curve_interp,
+                               updated_at=excluded.updated_at""",
+                        (d_type, d_name, s_type, curve_interp, now),
+                    )
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+        return now

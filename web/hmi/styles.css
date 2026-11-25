@@ -1683,3 +1683,189 @@ body.is-resizing-y * {
 @media (max-width: 1180px) {
   .overview-kpi-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* ==================== 受控设备配置与 96 点预设曲线页 ==================== */
+.devcfg-page-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+}
+
+.devcfg-topbar {
+  flex-shrink: 0;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 5px 10px;
+  min-height: 36px;
+}
+
+.devcfg-stats-strip,
+.devcfg-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.devcfg-main-split {
+  flex: 1;
+  min-height: 0;
+}
+
+.devcfg-table th,
+.devcfg-table td {
+  padding: 4px 8px;
+  height: 28px;
+}
+
+.devcfg-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.online-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.online-dot.on { background: var(--ok); }
+.online-dot.off { background: var(--text-secondary); opacity: 0.45; }
+
+.dirty-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  flex-shrink: 0;
+}
+
+/* 表格单元格内嵌子控件去独立边框（无缝铺满 + 悬停柔和底色 + 聚焦 inset 高亮 + 非法值红框） */
+.data-table td.cell-edit {
+  padding: 0;
+  position: relative;
+  border-left: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
+}
+
+.data-table td.cell-edit:hover {
+  background: var(--accent-soft);
+}
+
+.data-table td.cell-edit.is-invalid {
+  background: var(--danger-soft);
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+}
+
+.grid-control {
+  display: block;
+  width: 100%;
+  height: 28px;
+  padding: 0 7px;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  box-shadow: none;
+}
+
+.grid-control.num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-control:focus {
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.data-table td.cell-edit.is-invalid .grid-control:focus {
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+}
+
+.grid-control::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.55;
+}
+
+.grid-control.state-closed { color: var(--ok); font-weight: 600; }
+.grid-control.state-track { color: var(--warn); font-weight: 600; }
+.grid-control.state-open { color: var(--text-secondary); }
+
+tr.is-dirty-row > td:first-child {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+
+/* 右侧 96 点预设曲线面板 */
+.devcfg-curve-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.devcfg-curve-stage {
+  height: 200px;
+  flex-shrink: 0;
+  padding: 6px 8px 4px;
+  border-bottom: var(--border);
+}
+
+.dc-curve-canvas {
+  cursor: crosshair;
+}
+
+.devcfg-curve-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: var(--border);
+  background: var(--bg-subtle);
+  flex-shrink: 0;
+}
+
+.devcfg-curve-grid-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+.curve-grid-table th,
+.curve-grid-table td {
+  padding: 2px 5px;
+  height: 25px;
+  font-size: 11.5px;
+}
+
+.curve-grid-table td.cell-edit {
+  padding: 0;
+}
+
+.curve-grid-table .grid-control {
+  height: 25px;
+  padding: 0 5px;
+  font-size: 11.5px;
+}
+
+.dc-slot-lbl {
+  width: 44px;
+  text-align: center !important;
+  border-left: 1px solid var(--border-color);
+}
+
+.curve-grid-table td.is-now-slot {
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-weight: 700;
+}

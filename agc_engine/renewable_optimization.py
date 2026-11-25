@@ -95,6 +95,7 @@ class _Variable:
     storage_commandable: bool = True
     converter_efficiency: float = 1.0
     converter_base_dc_coefficient: float = 0.0
+    fixed_track: bool = False
 
 
 @dataclass(frozen=True)
@@ -198,8 +199,40 @@ def _renewable_variable(
     key = _device_key(row)
     if current is None or capacity is None or capacity < 0.0 or not all(key) or not component_id:
         return None
-    step_kw = step_coefficient * max(0.0, capacity)
-    normal_available = min(max(0.0, capacity), max(0.0, current) + step_kw)
+    if str(row.get("deviceControlState") or "").strip().lower() == "track":
+        track_target = _number(row.get("trackTargetKw"))
+        if track_target is not None:
+            fixed_val = max(0.0, float(track_target))
+            return _Variable(
+                key=key,
+                kind="renewable",
+                current_kw=current,
+                lower_kw=fixed_val,
+                upper_kw=fixed_val,
+                side=str(row.get("connectionSide", "")).strip().upper(),
+                component_id=component_id,
+                renewable_available_kw=fixed_val,
+                safety_lower_kw=fixed_val,
+                safety_upper_kw=fixed_val,
+                requires_safety_correction=False,
+                normal_step_kw=math.inf,
+                fixed_track=True,
+            )
+    explicit_step = _number(row.get("configStepKw"))
+    step_kw = (
+        max(0.0, float(explicit_step))
+        if explicit_step is not None and explicit_step > EPSILON
+        else step_coefficient * max(0.0, capacity)
+    )
+    cfg_min = _number(row.get("configMinKw"))
+    cfg_max = _number(row.get("configMaxKw"))
+    hard_min = max(0.0, float(cfg_min)) if cfg_min is not None else 0.0
+    hard_max = max(0.0, float(capacity))
+    if cfg_max is not None:
+        hard_max = min(hard_max, max(0.0, float(cfg_max)))
+    if hard_min > hard_max + EPSILON:
+        hard_min = hard_max
+    normal_available = min(hard_max, max(hard_min, current) + step_kw)
     # 物理自然资源上限（有效气象前馈或电侧闭环饱和）同时收窄弃电基准与变量上界，
     # 避免夜间无光/无风时误产生弃风弃光惩罚或虚算增发额度去压柴发。
     natural_upper = _number(row.get("naturalUpperKw"))
@@ -209,7 +242,9 @@ def _renewable_variable(
     dispatch_upper = _number(row.get("dispatchUpperKw"))
     if dispatch_upper is not None:
         available = min(available, max(0.0, dispatch_upper))
-    lower = max(0.0, current - step_kw)
+    available = min(hard_max, max(0.0, available))
+    safety_min = min(hard_min, available)
+    lower = max(safety_min, current - step_kw)
     if lower > available + EPSILON:
         lower = available
     return _Variable(
@@ -221,7 +256,7 @@ def _renewable_variable(
         side=str(row.get("connectionSide", "")).strip().upper(),
         component_id=component_id,
         renewable_available_kw=max(0.0, normal_available),
-        safety_lower_kw=0.0,
+        safety_lower_kw=safety_min,
         safety_upper_kw=max(0.0, available),
         requires_safety_correction=bool(
             current < lower - EPSILON or current > available + EPSILON
@@ -238,6 +273,7 @@ def _diesel_variable(
     if (
         not row.get("online")
         or row.get("automaticControlBlocked")
+        or row.get("deviceOpenLoop")
         or not (row.get("commandable") or row.get("stateEligible"))
     ):
         return None
@@ -255,6 +291,32 @@ def _diesel_variable(
         or not component_id
     ):
         return None
+    if str(row.get("deviceControlState") or "").strip().lower() == "track":
+        track_target = _number(row.get("trackTargetKw"))
+        if track_target is not None:
+            fixed_val = float(track_target)
+            return _Variable(
+                key=key,
+                kind="diesel",
+                current_kw=current,
+                lower_kw=fixed_val,
+                upper_kw=fixed_val,
+                side=str(row.get("connectionSide", "")).strip().upper(),
+                component_id=component_id,
+                safety_lower_kw=fixed_val,
+                safety_upper_kw=fixed_val,
+                requires_safety_correction=False,
+                normal_step_kw=math.inf,
+                fixed_track=True,
+            )
+    cfg_min = _number(row.get("configMinKw"))
+    cfg_max = _number(row.get("configMaxKw"))
+    if cfg_min is not None:
+        minimum = max(minimum, float(cfg_min))
+    if cfg_max is not None:
+        maximum = min(maximum, float(cfg_max))
+    if minimum > maximum + EPSILON:
+        minimum = maximum
     guard_kw = min(
         max(0.0, protection_ratio) * max(0.0, maximum),
         max(0.0, maximum - minimum) * 0.5,
@@ -265,8 +327,22 @@ def _diesel_variable(
         current < protected_minimum - EPSILON
         or current > protected_maximum + EPSILON
     )
-    # 恢复柴发常规爬坡步长限制（0 或 >=1 时退化为不限步长；安全越限时自动由两阶段机制放开）
-    if 0.0 < diesel_step_ratio < 1.0 - EPSILON and maximum > EPSILON:
+    explicit_step = _number(row.get("configStepKw"))
+    # 恢复柴发常规爬坡步长限制（优先使用设备自定义步长；0 或 >=1 时退化为不限步长）
+    if explicit_step is not None and explicit_step > EPSILON:
+        normal_step_kw = float(explicit_step)
+        lower = max(protected_minimum, current - normal_step_kw)
+        upper = min(protected_maximum, current + normal_step_kw)
+        if lower > upper + EPSILON:
+            if current < protected_minimum:
+                step_toward = min(protected_minimum, current + normal_step_kw)
+                lower = step_toward
+                upper = min(protected_maximum, max(protected_minimum, step_toward))
+            else:
+                step_toward = max(protected_maximum, current - normal_step_kw)
+                lower = max(protected_minimum, min(protected_maximum, step_toward))
+                upper = step_toward
+    elif 0.0 < diesel_step_ratio < 1.0 - EPSILON and maximum > EPSILON:
         normal_step_kw = diesel_step_ratio * max(0.0, maximum)
         lower = max(protected_minimum, current - normal_step_kw)
         upper = min(protected_maximum, current + normal_step_kw)
@@ -313,6 +389,7 @@ def _storage_variable(
     if (
         not row.get("online")
         or row.get("automaticControlBlocked")
+        or row.get("deviceOpenLoop")
         or not (row.get("commandable") or state_eligible)
     ):
         return None
@@ -331,6 +408,27 @@ def _storage_variable(
         or not component_id
     ):
         return None
+    if str(row.get("deviceControlState") or "").strip().lower() == "track":
+        track_target = _number(row.get("trackTargetKw"))
+        if track_target is not None:
+            fixed_val = float(track_target)
+            return _Variable(
+                key=key,
+                kind="storage",
+                current_kw=current,
+                lower_kw=fixed_val,
+                upper_kw=fixed_val,
+                side=str(row.get("connectionSide", "")).strip().upper(),
+                component_id=component_id,
+                safety_lower_kw=fixed_val,
+                safety_upper_kw=fixed_val,
+                requires_safety_correction=False,
+                normal_step_kw=math.inf,
+                storage_soc=_number(row.get("soc")),
+                storage_forced_direction="",
+                storage_commandable=False,
+                fixed_track=True,
+            )
     rated_charge = _number(row.get("maxChargePowerKw"))
     rated_discharge = _number(row.get("maxDischargePowerKw"))
     rated_charge_kw = (
@@ -355,6 +453,12 @@ def _storage_variable(
 
     safety_lower = -charge
     safety_upper = discharge
+    cfg_min = _number(row.get("configMinKw"))
+    cfg_max = _number(row.get("configMaxKw"))
+    if cfg_min is not None:
+        safety_lower = max(safety_lower, float(cfg_min))
+    if cfg_max is not None:
+        safety_upper = min(safety_upper, float(cfg_max))
     if row.get("role") == "balance":
         protection_ratio = min(
             MAXIMUM_POWER_PROTECTION_RATIO,
@@ -372,8 +476,8 @@ def _storage_variable(
     explicit_step_kw = next(
         (
             value
-            for key_name in ("stepKw", "powerStepKw", "pStepKw")
-            if (value := _number(row.get(key_name))) is not None and value >= 0.0
+            for key_name in ("configStepKw", "stepKw", "powerStepKw", "pStepKw")
+            if (value := _number(row.get(key_name))) is not None and value > EPSILON
         ),
         None,
     )
@@ -933,11 +1037,66 @@ def _converter_variable(
         allocation_capacity_kw = max(abs(minimum), abs(maximum))
     if allocation_capacity_kw <= EPSILON:
         return None
+    if str(row.get("deviceControlState") or "").strip().lower() == "track":
+        track_p_ac = _number(row.get("trackTargetKw"))
+        if track_p_ac is not None:
+            try:
+                fixed_sys = converter_power_in_dc_to_ac_convention(
+                    float(track_p_ac),
+                    AC_TO_DC,
+                    "P_AC",
+                )
+            except ValueError:
+                fixed_sys = float(current)
+            return _Variable(
+                key=key,
+                kind="converter",
+                current_kw=current,
+                lower_kw=fixed_sys,
+                upper_kw=fixed_sys,
+                ac_component_id=endpoints[0],
+                dc_component_id=endpoints[1],
+                ac_balance_coefficient=ac_balance_coefficient,
+                dc_balance_coefficient=dc_balance_coefficient,
+                allocation_capacity_kw=allocation_capacity_kw,
+                safety_lower_kw=fixed_sys,
+                safety_upper_kw=fixed_sys,
+                requires_safety_correction=False,
+                normal_step_kw=math.inf,
+                converter_efficiency=eff,
+                converter_base_dc_coefficient=base_dc_balance_coefficient,
+                fixed_track=True,
+            )
+    cfg_min = _number(row.get("configMinKw"))
+    cfg_max = _number(row.get("configMaxKw"))
+    if cfg_min is not None or cfg_max is not None:
+        # 配置上下限采用 P_AC 端约定，转换为系统 DC->AC 约定后与物理范围取交集
+        c_lo_pac = float(cfg_min) if cfg_min is not None else float(minimum_p_ac)
+        c_hi_pac = float(cfg_max) if cfg_max is not None else float(maximum_p_ac)
+        try:
+            c_bounds = (
+                converter_power_in_dc_to_ac_convention(c_lo_pac, AC_TO_DC, "P_AC"),
+                converter_power_in_dc_to_ac_convention(c_hi_pac, AC_TO_DC, "P_AC"),
+            )
+            minimum = max(minimum, min(c_bounds))
+            maximum = min(maximum, max(c_bounds))
+            if minimum > maximum + EPSILON:
+                minimum = maximum
+        except ValueError:
+            pass
     requires_safety = bool(
         current < minimum - EPSILON or current > maximum + EPSILON
     )
-    # 恢复变流器常规爬坡步长限制（0 或 >=1 时不限步长；安全越限或平衡需要时由两阶段机制自动放开）
-    if 0.0 < converter_step_ratio < 1.0 - EPSILON:
+    explicit_step = _number(row.get("configStepKw"))
+    # 恢复变流器常规爬坡步长限制（优先使用设备自定义步长；0 或 >=1 时不限步长）
+    if explicit_step is not None and explicit_step > EPSILON:
+        normal_step_kw = float(explicit_step)
+        lower = max(minimum, current - normal_step_kw)
+        upper = min(maximum, current + normal_step_kw)
+        if lower > upper + EPSILON:
+            lower = minimum
+            upper = maximum
+    elif 0.0 < converter_step_ratio < 1.0 - EPSILON:
         normal_step_kw = converter_step_ratio * allocation_capacity_kw
         lower = max(minimum, current - normal_step_kw)
         upper = min(maximum, current + normal_step_kw)
@@ -1257,7 +1416,7 @@ def _solve_island(
     parallel_rows: list[np.ndarray] = []
     parallel_groups: Dict[Tuple[str, str], list[int]] = {}
     for index, item in enumerate(ordered):
-        if item.kind != "converter":
+        if item.kind != "converter" or item.fixed_track:
             continue
         parallel_groups.setdefault(
             (item.ac_component_id, item.dc_component_id),
@@ -1387,7 +1546,7 @@ def _solve_island(
         # 阶段 1 应急放开：优先允许新能源应急弃电至硬下限（应对储能过充/满荷），其余设备保持常规爬坡。
         safety_lower = normal_lower.copy()
         for index, item in enumerate(ordered):
-            if item.kind == "renewable" and item.safety_lower_kw is not None:
+            if item.kind == "renewable" and not item.fixed_track and item.safety_lower_kw is not None:
                 safety_lower[index] = item.safety_lower_kw
         if warm_cached is not None and already_feasible(warm_cached, safety_lower, normal_upper):
             feasibility_success = True
@@ -1408,7 +1567,7 @@ def _solve_island(
             emergency_lower = safety_lower.copy()
             emergency_upper = normal_upper.copy()
             for index, item in enumerate(ordered):
-                if item.kind in {"diesel", "converter"}:
+                if item.kind in {"diesel", "converter"} and not item.fixed_track:
                     if item.safety_lower_kw is not None:
                         emergency_lower[index] = min(emergency_lower[index], item.safety_lower_kw)
                     if item.safety_upper_kw is not None:
@@ -1843,6 +2002,7 @@ def _solve_island(
             col
             for col in renewable_indexes
             if not ordered[col].requires_safety_correction
+            and not ordered[col].fixed_track
             and float(active_lower[col]) <= ordered[col].current_kw + EPSILON
             and float(active_upper[col]) >= ordered[col].current_kw - EPSILON
         ]
@@ -2214,8 +2374,10 @@ def optimize_topology_islands(
     expected_keys: set[DeviceKey] = set()
 
     for row in renewable_rows:
-        if row.get("online") and row.get("commandable"):
+        if row.get("online") and row.get("commandable") and not row.get("deviceOpenLoop"):
             expected_keys.add(_device_key(row))
+        if row.get("deviceOpenLoop"):
+            continue
         variable = _renewable_variable(row, step_coefficient)
         if variable is not None:
             variables.append(variable)
@@ -2223,6 +2385,7 @@ def optimize_topology_islands(
         if (
             row.get("online")
             and not row.get("automaticControlBlocked")
+            and not row.get("deviceOpenLoop")
             and (row.get("commandable") or row.get("stateEligible"))
         ):
             expected_keys.add(_device_key(row))
@@ -2237,6 +2400,7 @@ def optimize_topology_islands(
         if (
             row.get("online")
             and not row.get("automaticControlBlocked")
+            and not row.get("deviceOpenLoop")
             and (
                 row.get("commandable")
                 or row.get("role") == "balance"
@@ -2254,8 +2418,10 @@ def optimize_topology_islands(
         if variable is not None:
             variables.append(variable)
     for row in converter_rows:
-        if row.get("online") and row.get("commandable"):
+        if row.get("online") and row.get("commandable") and not row.get("deviceOpenLoop"):
             expected_keys.add(_device_key(row))
+        if row.get("deviceOpenLoop"):
+            continue
         variable = _converter_variable(
             row,
             topology,

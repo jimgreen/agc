@@ -257,6 +257,23 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
                     self._send_json(service.store.load_runtime_settings())
                     return
 
+                if path == "/api/device-configs":
+                    self._send_json(service.get_device_configs_payload())
+                    return
+
+                if path == "/api/device-configs/curve":
+                    dev_type = (qs.get("dev_type") or [""])[0]
+                    dev_name = (qs.get("dev_name") or [""])[0]
+                    set_type = (qs.get("set_type") or ["p_set"])[0] or "p_set"
+                    self._send_json(
+                        service.get_device_curve_payload(
+                            dev_type=dev_type,
+                            dev_name=dev_name,
+                            set_type=set_type,
+                        )
+                    )
+                    return
+
                 if path == "/api/runtime-logs":
                     page = _parse_int(qs, "page", 1)
                     page_size = _parse_int(qs, "page_size", 20)
@@ -337,6 +354,35 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
                         reset_scope=str(body.get("reset_scope") or ""),
                     )
                     self._send_json({"ok": True, "runtime_settings": saved})
+                    return
+
+                if path == "/api/device-configs":
+                    items = body.get("items")
+                    if items is None and body.get("dev_type") and body.get("dev_name"):
+                        items = [body]
+                    res = service.save_device_configs(items or [])
+                    self._send_json({"ok": True, **res})
+                    return
+
+                if path == "/api/device-configs/reset":
+                    res = service.reset_device_configs(
+                        dev_type=str(body.get("dev_type") or ""),
+                        dev_name=str(body.get("dev_name") or ""),
+                        set_type=str(body.get("set_type") or ""),
+                        reset_curves=bool(body.get("reset_curves", False)),
+                    )
+                    self._send_json({"ok": True, **res})
+                    return
+
+                if path == "/api/device-configs/curve":
+                    res = service.save_device_curve(
+                        dev_type=str(body.get("dev_type") or ""),
+                        dev_name=str(body.get("dev_name") or ""),
+                        set_type=str(body.get("set_type") or "p_set"),
+                        points=body.get("points") or [],
+                        curve_interp=body.get("curve_interp"),
+                    )
+                    self._send_json({"ok": True, **res})
                     return
 
                 if path == "/api/runtime-logs/clear":

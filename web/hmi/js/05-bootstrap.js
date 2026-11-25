@@ -73,6 +73,8 @@ async function switchPage(pageName) {
       await refreshAgcControlData();
       if (AGCState.detailTab === "trend") await refreshAgcTrendData();
       else await refreshAgcControlLogs();
+    } else if (pageName === "device-config") {
+      await refreshDeviceConfigsPage(true);
     } else if (pageName === "diagram") {
       await ensureDiagramLoaded();
     } else if (pageName === "model") {
@@ -106,6 +108,8 @@ function redrawActiveCharts() {
     renderCurvesPage();
   } else if (AGCState.page === "diagram") {
     updateDiagramTelemetryOverlay();
+  } else if (AGCState.page === "device-config") {
+    drawDeviceCurveCanvas();
   }
 }
 
@@ -178,6 +182,12 @@ function bindGlobalShellEvents() {
       else if (AGCState.page === "model") renderModelPage();
       else if (AGCState.page === "measurements") renderMeasurementsPage();
       else if (AGCState.page === "commands") renderCommandsPage();
+      else if (AGCState.page === "device-config") {
+        renderDeviceConfigsToolbar();
+        renderDeviceConfigsTable();
+        renderDeviceCurveHeader();
+        drawDeviceCurveCanvas();
+      }
     });
   }
 
@@ -203,6 +213,8 @@ async function pollingTick() {
     }
   } else if (AGCState.page === "commands") {
     await refreshCommandsPage();
+  } else if (AGCState.page === "device-config") {
+    await refreshDeviceConfigsLiveOnly();
   }
 }
 
@@ -212,6 +224,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindGlobalShellEvents();
   bindDiagramInteractions();
   bindAgcControlEvents();
+  bindDeviceConfigEvents();
   bindMonitorPageEvents();
 
   await Promise.all([refreshSnapshot(), refreshAgcControlData()]);

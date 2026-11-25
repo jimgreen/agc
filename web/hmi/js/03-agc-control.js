@@ -358,6 +358,7 @@ function renderAgcStrategyTable() {
         <tr>
           <th>分类</th>
           <th>${t("col.device")}</th>
+          <th>${t("devcfg.ctrlState")}</th>
           <th>模式</th>
           <th class="num">${t("lbl.current")} (kW)</th>
           <th class="num">${t("lbl.maxAvail")} (kW)</th>
@@ -372,10 +373,14 @@ function renderAgcStrategyTable() {
         ${filtered.map((r) => {
           const deltaCls = r.changed ? (Number(r.delta_kw) >= 0 ? "val-pos" : "val-neg") : "";
           const st = cmdStatusMeta(r.dispatch_status);
+          const dcMeta = typeof devCfgControlStateMeta === "function"
+            ? devCfgControlStateMeta(r.device_control_state)
+            : { cls: "badge-ok", label: "闭环" };
           return `
             <tr class="${r.changed ? "is-selected" : ""}">
               <td>${escapeHtml(r.category)}</td>
               <td><strong>${escapeHtml(r.dev_name)}</strong></td>
+              <td><span class="badge ${dcMeta.cls}">${escapeHtml(dcMeta.label)}</span></td>
               <td class="mono">${escapeHtml(r.control_mode || "--")}</td>
               <td class="num">${fmtNum(r.current_kw, 2)}</td>
               <td class="num">${fmtNum(r.available_kw, 2)}</td>

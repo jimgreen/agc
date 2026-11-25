@@ -650,6 +650,413 @@ def _prepare_plan_weather_and_resources(
     )
 
 
+DEVICE_CONTROL_STATE_LABELS: Dict[str, str] = {
+    "closed": "闭环",
+    "track": "跟踪",
+    "open": "开环",
+}
+
+
+def resolve_snapshot_minute_of_day(snapshot: Optional[Mapping[str, Any]] = None) -> float:
+    """解析快照对应的当日分钟数 [0, 1440)，用于 96 点预设曲线取点。"""
+    if isinstance(snapshot, Mapping):
+        for block_name in ("clock", "measurement_clock", "compute"):
+            block = snapshot.get(block_name)
+            if not (type(block) is dict or isinstance(block, Mapping)):
+                continue
+            minute_val = _number(block.get("minute"))
+            if minute_val is not None and 0.0 <= float(minute_val) < 1440.0:
+                return float(minute_val)
+            for field in ("time", "simu_time", "timestamp"):
+                raw = str(block.get(field) or "").strip()
+                if not raw:
+                    continue
+                if "T" in raw:
+                    raw = raw.split("T", 1)[1]
+                elif " " in raw:
+                    raw = raw.split(" ", 1)[1]
+                raw = raw.split("+", 1)[0].split("Z", 1)[0]
+                parts = raw.split(":")
+                if len(parts) >= 2:
+                    try:
+                        hh = int(parts[0])
+                        mm = int(parts[1])
+                        ss = float(parts[2]) if len(parts) >= 3 else 0.0
+                        if 0 <= hh < 24 and 0 <= mm < 60:
+                            return hh * 60.0 + mm + max(0.0, min(59.999, ss)) / 60.0
+                    except ValueError:
+                        pass
+    now = datetime.now()
+    return now.hour * 60.0 + now.minute + now.second / 60.0
+
+
+def evaluate_device_curve(
+    points: Optional[Sequence[Any]],
+    minute_of_day: float,
+    interp: str = "step",
+) -> Optional[float]:
+    """按当日分钟数从 96 点（15 分钟间隔）预设曲线取目标值，支持阶梯与线性插值。"""
+    if not points or len(points) != 96:
+        return None
+    minute = float(minute_of_day) % 1440.0
+    pos = minute / 15.0
+    idx = int(math.floor(pos)) % 96
+    v0 = _number(points[idx])
+    if v0 is None:
+        return None
+    if str(interp or "step").strip().lower() == "linear":
+        frac = pos - math.floor(pos)
+        v1 = _number(points[(idx + 1) % 96])
+        if v1 is not None:
+            return float(v0) + (float(v1) - float(v0)) * frac
+    return float(v0)
+
+
+def _lookup_device_config(
+    device_configs: Optional[Mapping[Any, Mapping[str, Any]]],
+    dev_type: str,
+    dev_name: str,
+    set_type: str = "",
+) -> Optional[Mapping[str, Any]]:
+    if not device_configs:
+        return None
+    dt = str(dev_type or "").strip()
+    dn = str(dev_name or "").strip()
+    st = str(set_type or "").strip()
+    if st and (dt, dn, st) in device_configs:
+        return device_configs[(dt, dn, st)]
+    if (dt, dn) in device_configs:
+        return device_configs[(dt, dn)]
+    if (dt, dn, "p_set") in device_configs:
+        return device_configs[(dt, dn, "p_set")]
+    if (dt, dn, "p_ac_set") in device_configs:
+        return device_configs[(dt, dn, "p_ac_set")]
+    return None
+
+
+def _row_physical_bounds_and_default_step(
+    row: Mapping[str, Any],
+    kind: str,
+    settings: RenewableControlSettings,
+) -> Tuple[Optional[float], Optional[float], float]:
+    if kind == "renewable":
+        cap = max(0.0, _finite_number(row.get("capacityKw")))
+        return 0.0, cap, max(0.0, settings.step_coefficient * cap)
+    if kind == "diesel":
+        lo = _number(row.get("minKw"))
+        hi = _number(row.get("capacityKw"))
+        rated = max(0.0, hi or 0.0)
+        step = settings.diesel_step_ratio * rated if 0.0 < settings.diesel_step_ratio < 1.0 else 0.0
+        return lo, hi, step
+    if kind == "storage":
+        ch = _number(row.get("chargePower"))
+        dis = _number(row.get("dischargePower"))
+        lo = -max(0.0, ch) if ch is not None else None
+        hi = max(0.0, dis) if dis is not None else None
+        rated = max(abs(lo or 0.0), abs(hi or 0.0))
+        return lo, hi, max(0.0, settings.storage_step_ratio * rated)
+    if kind == "converter":
+        lo = _number(row.get("signedMinTargetKw"))
+        hi = _number(row.get("signedMaxTargetKw"))
+        cap = max(0.0, _finite_number(row.get("transferCapacityKw")))
+        ratio = settings.converter_ramp_step_ratio if settings.converter_ramp_step_ratio > EPSILON else settings.converter_step_ratio
+        step = ratio * cap if 0.0 < ratio < 1.0 else 0.0
+        return lo, hi, step
+    return None, None, 0.0
+
+
+def _apply_device_configs_to_rows(
+    device_configs: Optional[Mapping[Any, Mapping[str, Any]]],
+    *,
+    renewable_rows: Sequence[MutableMapping[str, Any]],
+    diesel_rows: Sequence[MutableMapping[str, Any]],
+    storage_rows: Sequence[MutableMapping[str, Any]],
+    converter_rows: Sequence[MutableMapping[str, Any]],
+    settings: RenewableControlSettings,
+    minute_of_day: float,
+) -> None:
+    """优化求解前将人机配置的受控设备上下限、步长、死区与控制状态（闭环/跟踪/开环）注入各设备行。"""
+    groups: Tuple[Tuple[str, Sequence[MutableMapping[str, Any]]], ...] = (
+        ("renewable", renewable_rows),
+        ("diesel", diesel_rows),
+        ("storage", storage_rows),
+        ("converter", converter_rows),
+    )
+    for kind, rows in groups:
+        for row in rows:
+            dt = str(row.get("dev_type", "")).strip()
+            dn = str(row.get("dev_name", "")).strip()
+            st = str(row.get("set_type") or ("p_ac_set" if kind == "converter" else "p_set")).strip()
+            cfg = _lookup_device_config(device_configs, dt, dn, st)
+            if cfg is None:
+                row["deviceControlState"] = "closed"
+                continue
+            state = str(cfg.get("control_state") or "closed").strip().lower()
+            if state not in {"closed", "track", "open"}:
+                state = "closed"
+            cfg_min = _number(cfg.get("p_min"))
+            cfg_max = _number(cfg.get("p_max"))
+            cfg_step = _number(cfg.get("control_step"))
+            cfg_dead = max(0.0, _number(cfg.get("control_deadband"), 0.0) or 0.0)
+            interp = str(cfg.get("curve_interp") or "step").strip().lower()
+            curve = cfg.get("curve") if isinstance(cfg.get("curve"), Sequence) else None
+
+            row["deviceControlState"] = state
+            row["configMinKw"] = cfg_min
+            row["configMaxKw"] = cfg_max
+            row["configStepKw"] = cfg_step if (cfg_step is not None and cfg_step > EPSILON) else None
+            row["configDeadbandKw"] = cfg_dead
+            row["curveInterp"] = interp
+
+            if state == "open":
+                row["deviceOpenLoop"] = True
+                row["commandable"] = False
+                continue
+
+            if state == "track":
+                current = _number(row.get("planningCurrentKw", row.get("currentKw")))
+                raw_curve = evaluate_device_curve(curve, minute_of_day, interp)
+                if raw_curve is None:
+                    raw_curve = current if current is not None else 0.0
+                phys_lo, phys_hi, default_step = _row_physical_bounds_and_default_step(row, kind, settings)
+                eff_lo = phys_lo
+                eff_hi = phys_hi
+                if cfg_min is not None:
+                    eff_lo = float(cfg_min) if eff_lo is None else max(eff_lo, float(cfg_min))
+                if cfg_max is not None:
+                    eff_hi = float(cfg_max) if eff_hi is None else min(eff_hi, float(cfg_max))
+                if eff_lo is not None and eff_hi is not None and eff_lo > eff_hi + EPSILON:
+                    eff_lo = eff_hi
+                bounded = float(raw_curve)
+                if eff_lo is not None:
+                    bounded = max(eff_lo, bounded)
+                if eff_hi is not None:
+                    bounded = min(eff_hi, bounded)
+
+                eff_step = float(cfg_step) if (cfg_step is not None and cfg_step > EPSILON) else default_step
+                deadband_hold = False
+                if current is not None:
+                    out_of_bounds = bool(
+                        (eff_lo is not None and current < eff_lo - EPSILON)
+                        or (eff_hi is not None and current > eff_hi + EPSILON)
+                    )
+                    if not out_of_bounds and abs(bounded - current) <= cfg_dead + EPSILON:
+                        track_target = float(current)
+                        deadband_hold = True
+                    elif eff_step > EPSILON:
+                        track_target = _move_toward(float(current), bounded, eff_step)
+                    else:
+                        track_target = bounded
+                else:
+                    track_target = bounded
+                row["trackCurveRawKw"] = float(raw_curve)
+                row["trackBoundedKw"] = float(bounded)
+                row["trackTargetKw"] = float(track_target)
+                row["trackDeadbandHold"] = deadband_hold
+                # 若设备存在有效控调点，跟踪态允许直接下发
+                if row.get("online") and row.get("set_type"):
+                    row["commandable"] = True
+
+
+def _finalize_device_configs_on_command_rows(
+    command_rows: List[MutableMapping[str, Any]],
+    *,
+    device_configs: Optional[Mapping[Any, Mapping[str, Any]]],
+    snapshot: Mapping[str, Any],
+    measurements: Mapping[Tuple[str, str, str], Any],
+    settings: RenewableControlSettings,
+    minute_of_day: float,
+) -> None:
+    """在生成最终四遥指令前，统一落地各设备的闭环死区、跟踪锁定、开环禁发与氢能设备配置。"""
+    # 1. 处理已存在于 command_rows 的电侧与氢能设备
+    present_keys = set()
+    for row in command_rows:
+        dt = str(row.get("dev_type", "")).strip()
+        dn = str(row.get("dev_name", "")).strip()
+        st = str(row.get("set_type") or "").strip()
+        present_keys.add((dt, dn))
+        cfg = _lookup_device_config(device_configs, dt, dn, st)
+        state = str(
+            row.get("deviceControlState")
+            or (cfg.get("control_state") if cfg else "closed")
+            or "closed"
+        ).strip().lower()
+        if state not in {"closed", "track", "open"}:
+            state = "closed"
+        row["deviceControlState"] = state
+        cfg_dead = (
+            max(0.0, _number(row.get("configDeadbandKw"), 0.0) or 0.0)
+            if row.get("configDeadbandKw") is not None
+            else max(0.0, _number(cfg.get("control_deadband"), 0.0) or 0.0) if cfg else 0.0
+        )
+        current = _number(row.get("planningCurrentKw", row.get("currentKw")))
+
+        if state == "open":
+            row["commandKw"] = current if current is not None else 0.0
+            if "targetKw" in row:
+                row["targetKw"] = row["commandKw"]
+            row["strategyCommand"] = False
+            row["dispatchEnabled"] = False
+            row["strategyTargetChanged"] = False
+            row["statusLabel"] = "开环（不参与决策/不下发）"
+            continue
+
+        if state == "track":
+            track_target = _number(row.get("trackTargetKw"))
+            track_bounded = _number(row.get("trackBoundedKw"))
+            deadband_hold = bool(row.get("trackDeadbandHold"))
+            if track_target is None and cfg is not None:
+                # 兜底计算（例如氢能行由氢能模块新生成）
+                curve = cfg.get("curve") if isinstance(cfg.get("curve"), Sequence) else None
+                interp = str(cfg.get("curve_interp") or "step").strip().lower()
+                raw_c = evaluate_device_curve(curve, minute_of_day, interp)
+                if raw_c is None:
+                    raw_c = current if current is not None else 0.0
+                cfg_min = _number(cfg.get("p_min"))
+                cfg_max = _number(cfg.get("p_max"))
+                bounded = float(raw_c)
+                if cfg_min is not None:
+                    bounded = max(float(cfg_min), bounded)
+                if cfg_max is not None:
+                    bounded = min(float(cfg_max), bounded)
+                cfg_step = _number(cfg.get("control_step"))
+                if current is not None and abs(bounded - current) <= cfg_dead + EPSILON:
+                    track_target = float(current)
+                    deadband_hold = True
+                elif current is not None and cfg_step is not None and cfg_step > EPSILON:
+                    track_target = _move_toward(float(current), bounded, float(cfg_step))
+                else:
+                    track_target = bounded
+                track_bounded = bounded
+            if track_target is not None:
+                row["commandKw"] = float(track_target)
+                row["targetKw"] = float(track_target)
+                can_cmd = bool(row.get("online") and row.get("set_type"))
+                row["commandable"] = can_cmd
+                row["strategyCommand"] = can_cmd
+                row["dispatchEnabled"] = can_cmd
+                changed = bool(
+                    can_cmd
+                    and not deadband_hold
+                    and (current is None or abs(float(track_target) - float(current)) > max(cfg_dead, 1e-4))
+                )
+                row["strategyTargetChanged"] = changed
+                b_txt = f"{track_bounded:.1f}" if track_bounded is not None else f"{track_target:.1f}"
+                row["statusLabel"] = (
+                    f"跟踪曲线·死区内保持（曲线 {b_txt} kW）"
+                    if deadband_hold
+                    else f"跟踪曲线（目标 {b_txt} kW）"
+                )
+            continue
+
+        # 闭环状态（closed）：落实设备级控制死区及氢能上下限/步长
+        if row.get("category") == "氢能" and cfg is not None:
+            target = _number(row.get("commandKw"))
+            if target is not None:
+                cfg_min = _number(cfg.get("p_min"))
+                cfg_max = _number(cfg.get("p_max"))
+                cfg_step = _number(cfg.get("control_step"))
+                if cfg_min is not None:
+                    target = max(float(cfg_min), float(target))
+                if cfg_max is not None:
+                    target = min(float(cfg_max), float(target))
+                if current is not None and cfg_step is not None and cfg_step > EPSILON:
+                    target = _move_toward(float(current), float(target), float(cfg_step))
+                row["commandKw"] = float(target)
+                row["targetKw"] = float(target)
+
+        if cfg_dead > EPSILON and current is not None and not row.get("boundaryCorrection"):
+            target = _number(row.get("commandKw"))
+            if target is not None and abs(float(target) - float(current)) <= cfg_dead + EPSILON:
+                row["commandKw"] = float(current)
+                if "targetKw" in row:
+                    row["targetKw"] = float(current)
+                row["strategyTargetChanged"] = False
+                old_lbl = str(row.get("statusLabel") or "").strip()
+                if "死区内保持" not in old_lbl:
+                    row["statusLabel"] = f"{old_lbl}·死区内保持" if old_lbl else "死区内保持"
+
+    # 2. 若氢能耦合设备（AcE2Hydro / Hydro2DcE）设为跟踪态但尚未进入 command_rows（例如氢能闭环开关未开），补充跟踪指令行
+    if not device_configs:
+        return
+    devices_map = _device_by_model_key(snapshot)
+    for coupling_type, category, side in (
+        ("AcE2Hydro", "氢能", "AC"),
+        ("Hydro2DcE", "氢能", "DC"),
+    ):
+        for param_row in _parameter_rows(snapshot, coupling_type):
+            cname = _parameter_name(param_row).strip()
+            if not cname or (coupling_type, cname) in present_keys:
+                continue
+            cfg = _lookup_device_config(device_configs, coupling_type, cname, "p_set")
+            if cfg is None:
+                continue
+            state = str(cfg.get("control_state") or "closed").strip().lower()
+            if state != "track":
+                continue
+            dev_obj = devices_map.get((coupling_type, cname))
+            online = bool(_is_online(dev_obj, measurements)) if dev_obj else True
+            # 读实时有功（优先 P_LOAD / P_GEN）
+            cur_meas = (
+                measurements.get((coupling_type, cname, "P_LOAD"))
+                or measurements.get((coupling_type, cname, "P_GEN"))
+            )
+            current = _number(getattr(cur_meas, "value", None)) if cur_meas is not None else 0.0
+            if current is None:
+                current = 0.0
+            rated = max(
+                0.0,
+                _number(param_row.get("p_rated"), _number(param_row.get("p_max"), 0.0) or 0.0) or 0.0,
+            )
+            curve = cfg.get("curve") if isinstance(cfg.get("curve"), Sequence) else None
+            interp = str(cfg.get("curve_interp") or "step").strip().lower()
+            raw_c = evaluate_device_curve(curve, minute_of_day, interp)
+            if raw_c is None:
+                raw_c = float(current)
+            cfg_min = _number(cfg.get("p_min"))
+            cfg_max = _number(cfg.get("p_max"))
+            lo = max(0.0, float(cfg_min)) if cfg_min is not None else 0.0
+            hi = float(cfg_max) if cfg_max is not None else (rated if rated > 0 else max(lo, float(raw_c)))
+            if lo > hi + EPSILON:
+                lo = hi
+            bounded = _clamp(float(raw_c), lo, hi)
+            cfg_dead = max(0.0, _number(cfg.get("control_deadband"), 0.0) or 0.0)
+            cfg_step = _number(cfg.get("control_step"))
+            deadband_hold = abs(bounded - float(current)) <= cfg_dead + EPSILON
+            if deadband_hold:
+                track_target = float(current)
+            elif cfg_step is not None and cfg_step > EPSILON:
+                track_target = _move_toward(float(current), bounded, float(cfg_step))
+            else:
+                track_target = bounded
+            changed = bool(online and not deadband_hold and abs(track_target - float(current)) > max(cfg_dead, 1e-4))
+            command_rows.append(
+                {
+                    "category": category,
+                    "dev_type": coupling_type,
+                    "dev_name": cname,
+                    "connectionSide": side,
+                    "controlMode": "track",
+                    "deviceControlState": "track",
+                    "online": online,
+                    "commandable": online,
+                    "set_type": "p_set",
+                    "currentKw": float(current),
+                    "availableKw": float(hi),
+                    "commandKw": float(track_target),
+                    "targetKw": float(track_target),
+                    "strategyCommand": online,
+                    "dispatchEnabled": online,
+                    "strategyTargetChanged": changed,
+                    "statusLabel": (
+                        f"跟踪曲线·死区内保持（曲线 {bounded:.1f} kW）"
+                        if deadband_hold
+                        else f"跟踪曲线（目标 {bounded:.1f} kW）"
+                    ),
+                }
+            )
+
+
 def calculate_renewable_control_plan(
     snapshot: Mapping[str, Any],
     settings: Optional[RenewableControlSettings] = None,
@@ -658,6 +1065,7 @@ def calculate_renewable_control_plan(
     snapshot_age_seconds: float = 0.0,
     topology_static_context: Optional[ResourceTopologyStaticContext] = None,
     runtime_memory: Optional[MutableMapping[str, Any]] = None,
+    device_configs: Optional[Mapping[Any, Mapping[str, Any]]] = None,
 ) -> Dict[str, Any]:
     plan_started = time.perf_counter()
     configured_settings = (settings or RenewableControlSettings()).normalized()
@@ -772,6 +1180,16 @@ def calculate_renewable_control_plan(
         converter_inventory_rows,
         diesel_rows,
         quality,
+    )
+    minute_of_day = resolve_snapshot_minute_of_day(snapshot)
+    _apply_device_configs_to_rows(
+        device_configs,
+        renewable_rows=renewable_rows,
+        diesel_rows=diesel_rows,
+        storage_rows=storage_rows,
+        converter_rows=converter_inventory_rows,
+        settings=settings,
+        minute_of_day=minute_of_day,
     )
     all_converter_rows = [
         row for row in converter_inventory_rows if row.get("commandable")
@@ -3307,6 +3725,14 @@ def calculate_renewable_control_plan(
         runtime_memory["hydrogen_dwell"] = hydrogen_plan["pendingDwellMemory"]
     strategy_boundary_warnings = _clamp_final_command_rows_to_boundaries(
         command_rows
+    )
+    _finalize_device_configs_on_command_rows(
+        command_rows,
+        device_configs=device_configs,
+        snapshot=snapshot,
+        measurements=measurements,
+        settings=settings,
+        minute_of_day=minute_of_day,
     )
     _finalize_renewable_saturation_memory(
         command_rows,

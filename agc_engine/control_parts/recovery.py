@@ -464,25 +464,38 @@ def _final_command_power_bounds_kw(
     row: Mapping[str, Any],
 ) -> Optional[Tuple[float, float]]:
     if row.get("category") == "氢能":
+        cfg_min = _number(row.get("configMinKw"))
+        cfg_max = _number(row.get("configMaxKw"))
+        if cfg_min is not None and cfg_max is not None and cfg_min <= cfg_max:
+            return float(cfg_min), float(cfg_max)
         return None
+    base_bounds: Optional[Tuple[float, float]] = None
     if row.get("technology") in {"wind", "pv"}:
         capacity = _number(row.get("capacityKw"))
         if capacity is not None and capacity >= 0.0:
-            return 0.0, float(capacity)
-        return None
-    if row.get("technology") == "storage":
+            base_bounds = (0.0, float(capacity))
+    elif row.get("technology") == "storage":
         if row.get("limitsValid") and row.get("socKnown"):
-            return _grid_storage_signed_power_bounds_kw(row)
-        return None
-    if row.get("category") == "柴油发电":
+            base_bounds = _grid_storage_signed_power_bounds_kw(row)
+    elif row.get("category") == "柴油发电":
         minimum = _number(row.get("minKw"))
         maximum = _number(row.get("capacityKw"))
         if minimum is not None and maximum is not None and minimum <= maximum:
-            return float(minimum), float(maximum)
+            base_bounds = (float(minimum), float(maximum))
+    elif _is_grid_converter_row(row) and row.get("limitsValid"):
+        base_bounds = _converter_signed_bounds_kw(row)
+    if base_bounds is None:
         return None
-    if _is_grid_converter_row(row) and row.get("limitsValid"):
-        return _converter_signed_bounds_kw(row)
-    return None
+    lo, hi = base_bounds
+    cfg_min = _number(row.get("configMinKw"))
+    cfg_max = _number(row.get("configMaxKw"))
+    if cfg_min is not None:
+        lo = max(lo, float(cfg_min))
+    if cfg_max is not None:
+        hi = min(hi, float(cfg_max))
+    if lo > hi + EPSILON:
+        lo = hi
+    return lo, hi
 
 def _clamp_final_command_rows_to_boundaries(
     rows: Sequence[MutableMapping[str, Any]],
@@ -493,6 +506,7 @@ def _clamp_final_command_rows_to_boundaries(
     for row in rows:
         if (
             not row.get("online")
+            or str(row.get("deviceControlState") or "").strip().lower() == "open"
             or row.get("commandable") is False
             or row.get("strategyCommand") is False
             or row.get("automaticControlBlocked")

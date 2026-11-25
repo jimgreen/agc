@@ -30,7 +30,7 @@
         } catch (_e) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20261125-fix14" />
+    <link rel="stylesheet" href="/styles.css?v=20261125-fix15" />
   </head>
   <body>
     <div class="app-shell">
@@ -106,6 +106,10 @@
             <button type="button" data-nav-page="agc-control" data-i18n-title="nav.agcControl">
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>
               <span class="nav-label" data-i18n="nav.agcControl">AGC 控制</span>
+            </button>
+            <button type="button" data-nav-page="device-config" data-i18n-title="nav.deviceConfig">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="11" cy="18" r="2" fill="currentColor"/></svg>
+              <span class="nav-label" data-i18n="nav.deviceConfig">设备配置</span>
             </button>
             <button type="button" data-nav-page="diagram" data-i18n-title="nav.diagram">
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.5 6h9M6.5 8.2 10.7 15.8M17.5 8.2 13.3 15.8"/></svg>
@@ -477,6 +481,7 @@
                       <div class="inline-btn-group">
                         <button id="openAgcParamsBtn" type="button" class="btn btn-sm" data-i18n="agc.editParams">控制参数</button>
                         <button id="openDeratingQuickBtn" type="button" class="btn btn-sm" data-i18n="agc.deratingCurve">降额曲线</button>
+                        <button id="openDeviceConfigFromAgcBtn" type="button" class="btn btn-sm" data-i18n="nav.deviceConfig">设备配置</button>
                       </div>
                     </div>
                     <div class="agc-env-strip">
@@ -594,6 +599,94 @@
                     <div id="agcLogTableWrap" class="table-scroll"></div>
                     <div id="agcLogPager" class="pager-bar"></div>
                   </div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <!-- ==================== 2.5 受控设备配置与预设曲线 ==================== -->
+          <section class="page-section" data-page="device-config">
+            <div class="devcfg-page-layout">
+              <div class="panel devcfg-topbar">
+                <div class="devcfg-stats-strip">
+                  <span class="badge badge-info"><span data-i18n="cat.all">全部</span> <strong id="dcStatTotal" class="mono">0</strong></span>
+                  <span class="badge badge-ok"><span data-i18n="devcfg.stateClosed">闭环</span> <strong id="dcStatClosed" class="mono">0</strong></span>
+                  <span class="badge badge-warn"><span data-i18n="devcfg.stateTrack">跟踪</span> <strong id="dcStatTrack" class="mono">0</strong></span>
+                  <span class="badge badge-neutral"><span data-i18n="devcfg.stateOpen">开环</span> <strong id="dcStatOpen" class="mono">0</strong></span>
+                  <span class="badge badge-neutral mono" id="dcNowSlotBadge">00:00</span>
+                </div>
+                <div class="devcfg-filter-bar">
+                  <div class="segmented" id="dcGroupTabs" role="tablist">
+                    <button type="button" class="is-active" data-dc-group="all" data-i18n="cat.all">全部</button>
+                    <button type="button" data-dc-group="wind" data-i18n="devcfg.grpWind">风电</button>
+                    <button type="button" data-dc-group="pv" data-i18n="devcfg.grpPv">光伏</button>
+                    <button type="button" data-dc-group="storage" data-i18n="devcfg.grpStorage">储能</button>
+                    <button type="button" data-dc-group="diesel" data-i18n="devcfg.grpDiesel">柴发</button>
+                    <button type="button" data-dc-group="converter" data-i18n="devcfg.grpConverter">变流器</button>
+                    <button type="button" data-dc-group="hydrogen" data-i18n="devcfg.grpHydrogen">氢能</button>
+                  </div>
+                  <select id="dcStateFilter" class="compact-select">
+                    <option value="all" data-i18n="devcfg.allStates">全部状态</option>
+                    <option value="closed" data-i18n="devcfg.stateClosed">闭环</option>
+                    <option value="track" data-i18n="devcfg.stateTrack">跟踪</option>
+                    <option value="open" data-i18n="devcfg.stateOpen">开环</option>
+                  </select>
+                  <input id="dcSearchInput" type="search" class="compact-input" style="width:140px;" data-i18n-placeholder="filter.device" placeholder="筛选设备..." />
+                </div>
+                <div class="inline-btn-group">
+                  <select id="dcBatchStateSelect" class="compact-select">
+                    <option value="" data-i18n="devcfg.batchState">批量设状态</option>
+                    <option value="closed" data-i18n="devcfg.stateClosed">闭环</option>
+                    <option value="track" data-i18n="devcfg.stateTrack">跟踪</option>
+                    <option value="open" data-i18n="devcfg.stateOpen">开环</option>
+                  </select>
+                  <button id="devCfgResetBtn" type="button" class="btn btn-sm btn-danger-ghost" data-i18n="action.restoreDefault">恢复默认</button>
+                  <button id="devCfgSaveBtn" type="button" class="btn btn-primary btn-sm" disabled data-i18n="action.save">保存</button>
+                </div>
+              </div>
+
+              <div class="devcfg-main-split split-x">
+                <section class="panel split-pane" style="flex: 1 1 0;">
+                  <div id="devCfgTableWrap" class="table-scroll"></div>
+                </section>
+
+                <div class="splitter splitter-x" data-split-id="devcfg-x" data-axis="x" data-target="next" data-collapse="next" data-default="470" data-min="340" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
+
+                <section class="panel devcfg-curve-panel split-pane">
+                  <div class="panel-head">
+                    <div class="panel-title-inline">
+                      <h2 id="dcCurveTitle" data-i18n="devcfg.curveEditor">96 点预设曲线</h2>
+                      <span id="dcCurveMeta" class="mono muted">—</span>
+                    </div>
+                    <div class="inline-btn-group">
+                      <select id="dcCurveInterpSelect" class="compact-select">
+                        <option value="step" data-i18n="devcfg.interpStep">阶梯 (15min)</option>
+                        <option value="linear" data-i18n="devcfg.interpLinear">线性插值</option>
+                      </select>
+                      <select id="dcCurveTemplateSelect" class="compact-select">
+                        <option value="" data-i18n="devcfg.template">快速填充</option>
+                        <option value="current" data-i18n="devcfg.tplCurrent">当前值平直</option>
+                        <option value="zero" data-i18n="devcfg.tplZero">零值平直</option>
+                        <option value="half" data-i18n="devcfg.tplHalf">半额平直</option>
+                        <option value="pv_bell" data-i18n="devcfg.tplPvBell">典型光伏钟形</option>
+                        <option value="double_peak" data-i18n="devcfg.tplDoublePeak">典型双峰曲线</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="devcfg-curve-stage">
+                    <div class="chart-canvas-wrap">
+                      <canvas id="dcCurveCanvas" class="chart-canvas dc-curve-canvas"></canvas>
+                    </div>
+                  </div>
+                  <div class="devcfg-curve-actions">
+                    <div class="inline-btn-group">
+                      <input id="dcImportCurveFile" type="file" accept=".csv,.txt" hidden />
+                      <button id="dcImportCurveBtn" type="button" class="btn btn-xs" data-i18n="devcfg.importCsv">导入 CSV</button>
+                      <button id="dcExportCurveBtn" type="button" class="btn btn-xs" data-i18n="action.exportCsv">导出 CSV</button>
+                    </div>
+                    <button id="dcSaveCurveBtn" type="button" class="btn btn-primary btn-xs" disabled data-i18n="devcfg.saveCurve">保存曲线</button>
+                  </div>
+                  <div id="dcCurveGridWrap" class="table-scroll devcfg-curve-grid-wrap"></div>
                 </section>
               </div>
             </div>
@@ -1166,11 +1259,12 @@
 
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-    <script defer src="/js/00-i18n.js?v=20261125-fix14"></script>
-    <script defer src="/js/01-core.js?v=20261125-fix14"></script>
-    <script defer src="/js/02-overview-diagram.js?v=20261125-fix14"></script>
-    <script defer src="/js/03-agc-control.js?v=20261125-fix14"></script>
-    <script defer src="/js/04-monitor-pages.js?v=20261125-fix14"></script>
-    <script defer src="/js/05-bootstrap.js?v=20261125-fix14"></script>
+    <script defer src="/js/00-i18n.js?v=20261125-fix15"></script>
+    <script defer src="/js/01-core.js?v=20261125-fix15"></script>
+    <script defer src="/js/02-overview-diagram.js?v=20261125-fix15"></script>
+    <script defer src="/js/03-agc-control.js?v=20261125-fix15"></script>
+    <script defer src="/js/04-monitor-pages.js?v=20261125-fix15"></script>
+    <script defer src="/js/06-device-config.js?v=20261125-fix15"></script>
+    <script defer src="/js/05-bootstrap.js?v=20261125-fix15"></script>
   </body>
 </html>
