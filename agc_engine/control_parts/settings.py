@@ -422,7 +422,9 @@ class RenewableControlSettings:
             ),
             fuel_cell_hydrogen_storage_soc_upper_limit=fuel_cell_hydrogen_storage_soc_upper_limit,
             fuel_cell_hydrogen_storage_soc_lower_limit=fuel_cell_hydrogen_storage_soc_lower_limit,
-            converter_step_ratio=converter_ramp_step_ratio,
+            # 旧版兼容字段已在归一化入口消费，必须归零以保证 normalized() 严格幂等，
+            # 防止 converter_ramp_step_ratio 在二次归一化时静默覆盖默认的 storage_step_ratio。
+            converter_step_ratio=0.0,
             storage_charge_derating_curve=_normalized_derating_curve(
                 self.storage_charge_derating_curve,
                 DEFAULT_STORAGE_CHARGE_DERATING_CURVE,
@@ -1191,12 +1193,14 @@ def _load_boundary(
 ) -> float:
     total = 0.0
     sources: set[str] = set()
+    online_load_count = 0
     measured_count = 0
     for device in snapshot.get("devices", []) or []:
         if not (type(device) is dict or isinstance(device, Mapping)) or _device_model_block(device) not in {"ACLoad", "DCLoad"}:
             continue
         if not _is_online(device, measurements):
             continue
+        online_load_count += 1
         measured = _measured(
             measurements,
             _device_type(device),
@@ -1213,10 +1217,20 @@ def _load_boundary(
         quality.input("load", total, source, True)
         return total
 
+    # 远端实时模式下若全部在线负荷测点均失效，严禁回退静态设定值继续闭环下发（fail-closed）
+    remote_all_load_lost = bool(
+        online_load_count > 0 and quality.source in {"remote", "trainee-live"}
+    )
+    if remote_all_load_lost:
+        quality.add(
+            "全部在线负荷实时量测失效，已按 fail-closed 禁止闭环下发",
+            dispatch_forbidden=True,
+        )
+
     boundary = snapshot.get("curve_boundary")
     boundary_load = _number(boundary.get("load_total")) if (type(boundary) is dict or isinstance(boundary, Mapping)) else None
     if boundary_load is not None and boundary_load >= 0:
-        quality.input("load", boundary_load, "curve_boundary", True)
+        quality.input("load", boundary_load, "curve_boundary", not remote_all_load_lost)
         return boundary_load
 
     estimated = 0.0
@@ -1233,7 +1247,7 @@ def _load_boundary(
             estimated += value
             estimated_count += 1
     if estimated_count:
-        quality.input("load", estimated, "model_setpoint", True)
+        quality.input("load", estimated, "model_setpoint", not remote_all_load_lost)
         return estimated
 
     quality.input("load", None, "missing", False)
@@ -1337,7 +1351,8 @@ def _renewable_rows(
             solar_irradiance=observed_solar_irradiance,
             air_temperature=observed_air_temperature,
         )
-        # 仅当对应气象测点配置与实时状态均有效时，才计算用于控制决策的理论可发上限
+        # 仅记录气象测点可用状态；不以风速/辐照推算的最大可发出力作为控制决策上界
+        # （weatherAvailableKw 仅保留用于统计展示参考）
         weather_measurement_available = bool(
             wind_measurement_available
             if spec.technology == "wind"
@@ -1346,24 +1361,6 @@ def _renewable_rows(
             else False
         )
         control_weather_available_kw: Optional[float] = None
-        if weather_measurement_available:
-            if (
-                spec.technology == "pv"
-                and control_solar_irradiance is not None
-                and control_solar_irradiance <= 1.0
-            ):
-                control_weather_available_kw = 0.0
-            else:
-                control_weather_available_kw = _renewable_weather_available_kw(
-                    spec.technology,
-                    spec.parameter,
-                    capacity,
-                    wind_speed=control_wind_speed if spec.technology == "wind" else None,
-                    solar_irradiance=(
-                        control_solar_irradiance if spec.technology == "pv" else None
-                    ),
-                    air_temperature=observed_air_temperature,
-                )
         measured = (
             _measured(measurements, dev_type, name, ("P_GEN", "P", "P_AC", "P_DC"))
             if device_online
@@ -1453,7 +1450,7 @@ def _renewable_rows(
                 "online": online,
                 "runStatValid": run_stat_valid,
                 "manualLocked": manual_locked,
-                "environmentKnown": weather_measurement_available and control_weather_available_kw is not None,
+                "environmentKnown": weather_measurement_available,
                 "weatherMeasurementAvailable": weather_measurement_available,
                 "controlWeatherAvailableKw": control_weather_available_kw,
                 "weatherAvailableKnown": weather_available_kw is not None,

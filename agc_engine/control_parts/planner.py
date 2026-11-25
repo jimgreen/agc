@@ -230,6 +230,10 @@ def _reset_runtime_memory_if_clock_rewound(
         runtime_memory["lastSimTimeSeconds"] = float(sim_time_seconds)
 
 
+WIND_NEAR_ZERO_SPEED_MS = 0.5
+SOLAR_NEAR_ZERO_IRRADIANCE_WM2 = 5.0
+
+
 def _apply_renewable_natural_upper_bounds(
     online_renewable: Sequence[MutableMapping[str, Any]],
     renewable_target_by_device: MutableMapping[Tuple[str, str], float],
@@ -243,10 +247,11 @@ def _apply_renewable_natural_upper_bounds(
     boundary_backtracked: bool = False,
 ) -> Dict[str, Any]:
     """双层融合自然资源上限判断：
-    1) 第一层（气象前馈）：严格受对应测点配置与可用状态门控——仅当太阳辐照量测值有效时进入光伏
-       夜间/低光判断，仅当风速量测值有效时进入风电无风/低风判断；
-    2) 第二层（电侧闭环指令-响应失配）：兜底测点停用、缺失或偏差场景，连续失配后在优化器中封顶，
-       并按固定周期执行不影响柴发平衡的解耦小步长探顶。
+    1) 第一层（近零气象门控）：严格受对应测点配置与有效状态门控——不使用气象公式估算出的
+       最大可发出力作为控制上界；仅当有效风速量测接近于 0（<= 0.5 m/s）时禁止风机增发功率，
+       有效太阳辐照量测接近于 0（<= 5.0 W/m²）时禁止光伏增发功率；
+    2) 第二层（电侧闭环指令-响应失配）：兜底自然资源见顶、测点停用或偏差场景，连续失配后在
+       优化器中封顶，并按固定周期执行不影响柴发平衡的解耦小步长探顶（气象回升可辅助提前解锁）。
     """
     saturation_store: Optional[MutableMapping[str, Any]] = None
     if runtime_memory is not None:
@@ -285,27 +290,28 @@ def _apply_renewable_natural_upper_bounds(
             row.get("weatherMeasurementAvailable") and weather_status.get("available")
         )
         weather_val = _number(weather_status.get("value")) if weather_available else None
-        control_weather_kw = (
-            _number(row.get("controlWeatherAvailableKw"))
-            if weather_available
-            else None
-        )
 
-        # 第一层：有效气象前馈自然上限（严控门控：仅对应测点有效时触发）
-        # 仅确认零资源且实测接近 0 时硬置 0；正常发电区间取 max(current_kw, control_weather_kw)，
-        # 只封堵虚假向上增发空间，杜绝量测噪声或传感器负偏导致“倒压正常实发、多烧柴油”。
+        # 第一层：有效气象近零门控（严禁使用风速/辐照推算的最大可发出力作为控制决策上界）
+        # 仅当有效风速接近 0 时禁止风机向上增发，有效太阳辐照接近 0 时禁止光伏向上增发；
+        # 实测功率已接近 0 时置 0，否则封顶在当前实发 current_kw，绝不凭气象值倒压正常实发。
         natural_upper: Optional[float] = None
         natural_reason = ""
-        if control_weather_kw is not None:
-            raw_weather_kw = max(0.0, min(capacity, float(control_weather_kw)))
-            zero_meas_tol = max(1.0, 0.02 * capacity)
-            if raw_weather_kw <= EPSILON and current_kw <= zero_meas_tol:
-                natural_upper = 0.0
-                natural_reason = "weather_zero_resource"
-            else:
-                natural_upper = min(capacity, max(current_kw, raw_weather_kw))
-                natural_reason = "weather_available_limit"
-            if natural_upper < min(capacity, current_kw + step_kw) - EPSILON:
+        weather_near_zero = False
+        if weather_available and weather_val is not None:
+            if tech == "wind" and weather_val <= WIND_NEAR_ZERO_SPEED_MS:
+                weather_near_zero = True
+                zero_meas_tol = max(1.0, 0.02 * capacity)
+                natural_upper = 0.0 if current_kw <= zero_meas_tol else current_kw
+                natural_reason = "weather_near_zero_wind"
+            elif tech == "pv" and weather_val <= SOLAR_NEAR_ZERO_IRRADIANCE_WM2:
+                weather_near_zero = True
+                zero_meas_tol = max(1.0, 0.02 * capacity)
+                natural_upper = 0.0 if current_kw <= zero_meas_tol else current_kw
+                natural_reason = "weather_near_zero_solar"
+            if (
+                natural_upper is not None
+                and natural_upper < min(capacity, current_kw + step_kw) - EPSILON
+            ):
                 weather_limited_devices.append(key[1] or key[0])
 
         # 第二层：电侧闭环指令-响应失配判别（抗气象停用/故障/测点误差）
@@ -386,13 +392,10 @@ def _apply_renewable_natural_upper_bounds(
                 saturated_devices.append(key[1] or key[0])
                 if clock_advanced:
                     entry["probeCounter"] = int(entry.get("probeCounter", 0)) + 1
-                # 若有效气象明确为 0（如夜间 0 辐照/无风）或柴发保护限电，则无需探顶
-                weather_confirmed_zero = bool(
-                    control_weather_kw is not None and control_weather_kw <= EPSILON
-                )
+                # 若有效气象接近 0（无风/夜间无辐照）或柴发保护限电，则无需探顶
                 if (
                     not diesel_guard_blocked
-                    and not weather_confirmed_zero
+                    and not weather_near_zero
                     and int(entry.get("probeCounter", 0)) >= 10
                     and capacity - current_kw > cmd_deadband
                 ):

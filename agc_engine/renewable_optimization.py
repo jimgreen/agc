@@ -1833,6 +1833,81 @@ def _solve_island(
                 active_upper,
                 None,
             )
+
+    # 新能源出力方向一致性约束（杜绝无环境/越限干扰时部分风光涨功率、部分风光降功率的“策略打架”）：
+    # 优先尝试“全岛只涨不降”（新能源优先）；若因某侧安全过剩确需弃电，则统一为“全岛只降不涨”，
+    # 仅在两种单向约束都会恶化系统功率平衡残差时保留原安全兜底解。
+    if success and len(renewable_indexes) >= 2:
+        conflict_tol = 0.05
+        coherent_ren_cols = [
+            col
+            for col in renewable_indexes
+            if not ordered[col].requires_safety_correction
+            and float(active_lower[col]) <= ordered[col].current_kw + EPSILON
+            and float(active_upper[col]) >= ordered[col].current_kw - EPSILON
+        ]
+        if len(coherent_ren_cols) >= 2:
+            has_ren_raise = any(
+                float(values[col]) > ordered[col].current_kw + conflict_tol
+                for col in coherent_ren_cols
+            )
+            has_ren_drop = any(
+                float(values[col]) < ordered[col].current_kw - conflict_tol
+                for col in coherent_ren_cols
+            )
+            if has_ren_raise and has_ren_drop:
+                orig_delta_max = (
+                    float(np.max(np.abs(solved_balance_delta)))
+                    if solved_balance_delta.size
+                    else 0.0
+                )
+                resolved_coherent = False
+                # 方案 1：优先尝试全岛新能源只涨不降
+                up_lower = active_lower.copy()
+                for col in coherent_ren_cols:
+                    up_lower[col] = max(float(up_lower[col]), ordered[col].current_kw)
+                if np.all(up_lower <= active_upper + EPSILON):
+                    c_solved, c_vals, c_delta, c_ok, c_conv = solve_with_bounds(
+                        up_lower,
+                        active_upper,
+                        None,
+                    )
+                    c_delta_max = (
+                        float(np.max(np.abs(c_delta))) if c_delta.size else 0.0
+                    )
+                    if c_ok and c_delta_max <= orig_delta_max + balance_tolerance_kw:
+                        solved, values, solved_balance_delta, success, solver_converged = (
+                            c_solved,
+                            c_vals,
+                            c_delta,
+                            c_ok,
+                            c_conv,
+                        )
+                        active_lower = up_lower
+                        resolved_coherent = True
+                # 方案 2：若因安全过剩必须弃电，则全岛统一为只降不涨（禁止边弃电边增发打架）
+                if not resolved_coherent:
+                    dn_upper = active_upper.copy()
+                    for col in coherent_ren_cols:
+                        dn_upper[col] = min(float(dn_upper[col]), ordered[col].current_kw)
+                    if np.all(active_lower <= dn_upper + EPSILON):
+                        c_solved, c_vals, c_delta, c_ok, c_conv = solve_with_bounds(
+                            active_lower,
+                            dn_upper,
+                            None,
+                        )
+                        c_delta_max = (
+                            float(np.max(np.abs(c_delta))) if c_delta.size else 0.0
+                        )
+                        if c_ok and c_delta_max <= orig_delta_max + balance_tolerance_kw:
+                            solved, values, solved_balance_delta, success, solver_converged = (
+                                c_solved,
+                                c_vals,
+                                c_delta,
+                                c_ok,
+                                c_conv,
+                            )
+                            active_upper = dn_upper
     solver_seconds = time.perf_counter() - solver_started
     if not success:
         total_seconds = time.perf_counter() - started

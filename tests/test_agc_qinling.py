@@ -286,6 +286,230 @@ class AGCRealtimeSystemTests(unittest.TestCase):
                 self.assertEqual(resp.status, 200)
                 self.assertGreater(len(resp.read()), 100)
 
+    def test_weather_near_zero_gate_without_max_available_cap(self):
+        """验证不使用气象估算最大可发作为控制上限，且仅在有效风速/辐照接近 0 时禁止对应设备增发。"""
+        from agc_engine.control_parts.planner import _apply_renewable_natural_upper_bounds
+        from agc_engine import RenewableControlSettings
+
+        settings = RenewableControlSettings()
+
+        def make_rows():
+            return [
+                {
+                    "dev_type": "ACGenerator",
+                    "dev_name": "风机-1",
+                    "technology": "wind",
+                    "capacityKw": 100.0,
+                    "currentKw": 20.0,
+                    "planningCurrentKw": 20.0,
+                    "commandable": True,
+                    "weatherMeasurementAvailable": True,
+                    "weatherAvailableKw": 5.0,  # 故意设极低的不准估算值
+                },
+                {
+                    "dev_type": "DCGenerator",
+                    "dev_name": "光伏-1",
+                    "technology": "pv",
+                    "capacityKw": 100.0,
+                    "currentKw": 20.0,
+                    "planningCurrentKw": 20.0,
+                    "commandable": True,
+                    "weatherMeasurementAvailable": True,
+                    "weatherAvailableKw": 5.0,  # 故意设极低的不准估算值
+                },
+            ]
+
+        # 1) 有效非零风速/辐照：不能以估算最大可发封顶，两者均不设 naturalUpperKw
+        rows = make_rows()
+        targets = {("ACGenerator", "风机-1"): 23.0, ("DCGenerator", "光伏-1"): 23.0}
+        _apply_renewable_natural_upper_bounds(
+            rows,
+            targets,
+            settings,
+            runtime_memory=None,
+            sim_time_seconds=10.0,
+            wind_measurement_status={"available": True, "value": 4.0},
+            solar_measurement_status={"available": True, "value": 120.0},
+            diesel_guard_blocked=False,
+        )
+        self.assertIsNone(rows[0].get("naturalUpperKw"))
+        self.assertIsNone(rows[1].get("naturalUpperKw"))
+        self.assertAlmostEqual(targets[("ACGenerator", "风机-1")], 23.0)
+        self.assertAlmostEqual(targets[("DCGenerator", "光伏-1")], 23.0)
+
+        # 2) 有效风速接近 0：仅风机禁增发（<= currentKw），光伏仍可增发
+        rows = make_rows()
+        targets = {("ACGenerator", "风机-1"): 23.0, ("DCGenerator", "光伏-1"): 23.0}
+        _apply_renewable_natural_upper_bounds(
+            rows,
+            targets,
+            settings,
+            runtime_memory=None,
+            sim_time_seconds=12.0,
+            wind_measurement_status={"available": True, "value": 0.2},
+            solar_measurement_status={"available": True, "value": 300.0},
+            diesel_guard_blocked=False,
+        )
+        self.assertAlmostEqual(rows[0].get("naturalUpperKw"), 20.0)
+        self.assertEqual(rows[0].get("naturalUpperReason"), "weather_near_zero_wind")
+        self.assertAlmostEqual(targets[("ACGenerator", "风机-1")], 20.0)
+        self.assertIsNone(rows[1].get("naturalUpperKw"))
+        self.assertAlmostEqual(targets[("DCGenerator", "光伏-1")], 23.0)
+
+        # 3) 有效辐照接近 0：仅光伏禁增发（<= currentKw），风机仍可增发
+        rows = make_rows()
+        targets = {("ACGenerator", "风机-1"): 23.0, ("DCGenerator", "光伏-1"): 23.0}
+        _apply_renewable_natural_upper_bounds(
+            rows,
+            targets,
+            settings,
+            runtime_memory=None,
+            sim_time_seconds=14.0,
+            wind_measurement_status={"available": True, "value": 6.0},
+            solar_measurement_status={"available": True, "value": 1.5},
+            diesel_guard_blocked=False,
+        )
+        self.assertIsNone(rows[0].get("naturalUpperKw"))
+        self.assertAlmostEqual(targets[("ACGenerator", "风机-1")], 23.0)
+        self.assertAlmostEqual(rows[1].get("naturalUpperKw"), 20.0)
+        self.assertEqual(rows[1].get("naturalUpperReason"), "weather_near_zero_solar")
+        self.assertAlmostEqual(targets[("DCGenerator", "光伏-1")], 20.0)
+
+        # 4) 测点无效时，即使值为 0 也不误封锁增发
+        rows = make_rows()
+        targets = {("ACGenerator", "风机-1"): 23.0, ("DCGenerator", "光伏-1"): 23.0}
+        _apply_renewable_natural_upper_bounds(
+            rows,
+            targets,
+            settings,
+            runtime_memory=None,
+            sim_time_seconds=16.0,
+            wind_measurement_status={"available": False, "value": 0.0},
+            solar_measurement_status={"available": False, "value": 0.0},
+            diesel_guard_blocked=False,
+        )
+        self.assertIsNone(rows[0].get("naturalUpperKw"))
+        self.assertIsNone(rows[1].get("naturalUpperKw"))
+        self.assertAlmostEqual(targets[("ACGenerator", "风机-1")], 23.0)
+        self.assertAlmostEqual(targets[("DCGenerator", "光伏-1")], 23.0)
+
+    def test_settings_normalized_idempotent_storage_step_ratio(self):
+        """验证 normalized() 严格幂等，不会将默认跟网储能步长 0.03 误覆写为变流器步长 0.20。"""
+        from agc_engine import RenewableControlSettings
+
+        s1 = RenewableControlSettings().updated(
+            {"step_coefficient": 0.02, "storage_step_ratio": 0.03, "diesel_step_ratio": 0.15}
+        )
+        s2 = s1.normalized()
+        self.assertAlmostEqual(s1.storage_step_ratio, 0.03)
+        self.assertAlmostEqual(s2.storage_step_ratio, 0.03)
+        self.assertAlmostEqual(s2.converter_ramp_step_ratio, 0.20)
+        self.assertAlmostEqual(s2.converter_step_ratio, 0.0)
+
+    def test_renewable_no_conflicting_directions_in_island(self):
+        """验证无环境干扰时同岛新能源机组不会一边涨功率一边降功率（禁止策略打架）。"""
+        import math
+        from agc_engine.renewable_optimization import _Variable, _solve_island
+
+        # 构造复现场景：AC 侧因储能退出过充多出过剩功率迫使 AC 风电降功率，DC 侧本来有空间增发；
+        # 启用同向约束后，岛内新能源不得出现“DC 涨、AC 降”的打架策略。
+        vars_in = [
+            _Variable(
+                key=("ACGenerator", "交流风电-1"), kind="renewable",
+                current_kw=16.0, lower_kw=14.5, upper_kw=17.5,
+                side="AC", component_id="AC:1",
+                renewable_available_kw=17.5, safety_lower_kw=0.0, safety_upper_kw=17.5,
+                normal_step_kw=1.5,
+            ),
+            _Variable(
+                key=("DCGenerator", "直流光伏-1"), kind="renewable",
+                current_kw=10.0, lower_kw=8.5, upper_kw=11.5,
+                side="DC", component_id="DC:1",
+                renewable_available_kw=11.5, safety_lower_kw=0.0, safety_upper_kw=11.5,
+                normal_step_kw=1.5,
+            ),
+            _Variable(
+                key=("ACGenerator", "交流储能-1"), kind="storage",
+                current_kw=-80.0, lower_kw=-30.0, upper_kw=-30.0,
+                side="AC", component_id="AC:1",
+                safety_lower_kw=-30.0, safety_upper_kw=95.0,
+                requires_safety_correction=True, normal_step_kw=3.0,
+            ),
+            _Variable(
+                key=("ACGenerator", "柴发-1"), kind="diesel",
+                current_kw=200.0, lower_kw=155.0, upper_kw=245.0,
+                side="AC", component_id="AC:1",
+                safety_lower_kw=79.0, safety_upper_kw=291.0,
+                normal_step_kw=45.0,
+            ),
+            _Variable(
+                key=("DCGenerator", "直流储能-1"), kind="storage",
+                current_kw=20.0, lower_kw=-57.0, upper_kw=57.0,
+                side="DC", component_id="DC:1",
+                safety_lower_kw=-57.0, safety_upper_kw=57.0,
+                normal_step_kw=math.inf,
+            ),
+            _Variable(
+                key=("DCACConverter", "变流器-1"), kind="converter",
+                current_kw=-5.0, lower_kw=-65.0, upper_kw=0.0,
+                ac_component_id="AC:1", dc_component_id="DC:1",
+                ac_balance_coefficient=1.0, dc_balance_coefficient=-0.96,
+                allocation_capacity_kw=300.0,
+                safety_lower_kw=-300.0, safety_upper_kw=0.0,
+                normal_step_kw=60.0, converter_efficiency=0.96,
+                converter_base_dc_coefficient=-1.0,
+            ),
+        ]
+        res = _solve_island(
+            ("AC:1", "DC:1"),
+            vars_in,
+            renewable_curtailment_weight=1.0,
+            diesel_output_weight=1.0,
+            curtailment_square_weight=1e-6,
+            adjustment_square_weight=1e-6,
+            balance_delta_square_weight=1e4,
+            balance_tolerance_kw=0.1,
+            bound_tolerance_kw=0.1,
+            optimization_ftol=1e-3,
+            optimization_max_iterations=100,
+        )
+        self.assertTrue(res.success)
+        ac_w_delta = res.target_by_device[("ACGenerator", "交流风电-1")] - 16.0
+        dc_pv_delta = res.target_by_device[("DCGenerator", "直流光伏-1")] - 10.0
+        # 绝不允许同时存在一个 > +0.05 且另一个 < -0.05 的方向打架
+        self.assertFalse(ac_w_delta < -0.05 and dc_pv_delta > 0.05)
+        self.assertFalse(ac_w_delta > 0.05 and dc_pv_delta < -0.05)
+        self.assertLessEqual(res.max_balance_delta_kw, 0.1)
+
+    def test_remote_all_load_measurements_invalid_fail_closed(self):
+        """验证远端实时模式下全部在线负荷遥测失效时按 fail-closed 禁止闭环下发，恢复后自动放行。"""
+        from agc_engine.control_parts.settings import _Quality, _load_boundary
+        from agc_engine.control_parts.common import MeasurementValue
+
+        snap = {
+            "devices": [
+                {
+                    "dev_type": "ACLoad",
+                    "name": "交流负荷-1",
+                    "model_block": "ACLoad",
+                    "raw": {"run_stat": 1, "p_set": 150.0},
+                    "set_values": {"p_set": 150.0},
+                }
+            ]
+        }
+        q_lost = _Quality("remote", 0.5)
+        val_lost = _load_boundary(snap, {}, q_lost)
+        self.assertAlmostEqual(val_lost, 150.0)
+        self.assertFalse(q_lost.payload()["dispatchAllowed"])
+        self.assertFalse(q_lost.payload()["inputs"]["load"]["valid"])
+
+        q_ok = _Quality("remote", 0.5)
+        meas = {("ACLoad", "交流负荷-1", "P_LOAD"): MeasurementValue(182.5, "scada", {})}
+        val_ok = _load_boundary(snap, meas, q_ok)
+        self.assertAlmostEqual(val_ok, 182.5)
+        self.assertTrue(q_ok.payload()["dispatchAllowed"])
+        self.assertTrue(q_ok.payload()["inputs"]["load"]["valid"])
+
 
 if __name__ == "__main__":
     unittest.main()
