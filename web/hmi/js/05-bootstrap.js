@@ -71,7 +71,6 @@ async function switchPage(pageName) {
       renderOverviewPage();
     } else if (pageName === "agc-control") {
       await refreshAgcControlData();
-      renderSeriesPicker();
       if (AGCState.detailTab === "trend") await refreshAgcTrendData();
       else await refreshAgcControlLogs();
     } else if (pageName === "diagram") {
@@ -97,7 +96,7 @@ async function switchPage(pageName) {
 
 function redrawActiveCharts() {
   if (AGCState.page === "agc-control" && AGCState.detailTab === "trend") {
-    renderSeriesPicker();
+    renderAgcMetricsTable();
     renderAgcTrendChart();
   } else if (AGCState.page === "measurements") {
     refreshMeasurementTrace();
@@ -202,7 +201,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindDiagramInteractions();
   bindAgcControlEvents();
   bindMonitorPageEvents();
-  renderSeriesPicker();
 
   await Promise.all([refreshSnapshot(), refreshAgcControlData()]);
   renderOverviewPage();

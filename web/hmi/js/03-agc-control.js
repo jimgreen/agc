@@ -1,27 +1,47 @@
 // AGC 控制决策页核心模块：启停、单次计算、开环/闭环、控制参数、储能降额、统计指标、策略表、趋势曲线、控制日志
 
 const TREND_SERIES_META = [
-  { key: "load_kw", label: "总负荷", group: "系统", axis: "left", unit: "kW" },
-  { key: "renewable_current_kw", label: "新能源实时", group: "系统", axis: "left", unit: "kW" },
-  { key: "renewable_target_kw", label: "新能源目标", group: "系统", axis: "left", unit: "kW", dashed: true },
-  { key: "renewable_max_available_kw", label: "新能源最大可发", group: "系统", axis: "left", unit: "kW", dashed: true },
-  { key: "storage_current_kw", label: "储能实时", group: "系统", axis: "left", unit: "kW" },
-  { key: "storage_target_kw", label: "储能目标", group: "系统", axis: "left", unit: "kW", dashed: true },
-  { key: "diesel_current_kw", label: "柴发实时", group: "系统", axis: "left", unit: "kW" },
-  { key: "diesel_target_kw", label: "柴发目标", group: "系统", axis: "left", unit: "kW", dashed: true },
-  { key: "acdc_current_kw", label: "ACDC 变流实时", group: "系统", axis: "left", unit: "kW" },
-  { key: "acdc_target_kw", label: "ACDC 变流目标", group: "系统", axis: "left", unit: "kW", dashed: true },
-  { key: "ac_renewable_current_kw", label: "交流新能源实时", group: "交流/直流", axis: "left", unit: "kW" },
-  { key: "dc_renewable_current_kw", label: "直流新能源实时", group: "交流/直流", axis: "left", unit: "kW" },
-  { key: "ac_storage_current_kw", label: "交流储能实时", group: "交流/直流", axis: "left", unit: "kW" },
-  { key: "dc_storage_current_kw", label: "直流储能实时", group: "交流/直流", axis: "left", unit: "kW" },
-  { key: "electrolyzer_current_kw", label: "电制氢实时", group: "氢能", axis: "left", unit: "kW" },
-  { key: "fuel_cell_current_kw", label: "燃料电池实时", group: "氢能", axis: "left", unit: "kW" },
-  { key: "storage_soc", label: "总储能 SOC", group: "SOC (%)", axis: "right", unit: "%", isRatio: true },
-  { key: "ac_storage_soc", label: "交流储能 SOC", group: "SOC (%)", axis: "right", unit: "%", isRatio: true },
-  { key: "dc_storage_soc", label: "直流储能 SOC", group: "SOC (%)", axis: "right", unit: "%", isRatio: true },
-  { key: "hydrogen_soc", label: "储氢罐 SOC", group: "SOC (%)", axis: "right", unit: "%", isRatio: true }
+  { key: "load_kw", label: "总负荷", group: "系统", scope: "system", axis: "left", unit: "kW" },
+  { key: "renewable_current_kw", label: "总新能源实时", group: "系统", scope: "system", axis: "left", unit: "kW" },
+  { key: "renewable_target_kw", label: "总新能源目标", group: "系统", scope: "system", axis: "left", unit: "kW", dashed: true },
+  { key: "renewable_max_available_kw", label: "新能源最大可发", group: "系统", scope: "system", axis: "left", unit: "kW", dashed: true },
+  { key: "wind_current_kw", label: "总风电实时", group: "系统", scope: "system", axis: "left", unit: "kW" },
+  { key: "wind_target_kw", label: "总风电目标", group: "系统", scope: "system", axis: "left", unit: "kW", dashed: true },
+  { key: "pv_current_kw", label: "总光伏实时", group: "系统", scope: "system", axis: "left", unit: "kW" },
+  { key: "pv_target_kw", label: "总光伏目标", group: "系统", scope: "system", axis: "left", unit: "kW", dashed: true },
+  { key: "storage_current_kw", label: "总储能实时", group: "系统", scope: "system", axis: "left", unit: "kW" },
+  { key: "storage_target_kw", label: "总储能目标", group: "系统", scope: "system", axis: "left", unit: "kW", dashed: true },
+  { key: "storage_soc", label: "总储能 SOC", group: "系统", scope: "system", axis: "right", unit: "%", isRatio: true },
+  { key: "diesel_current_kw", label: "柴发实时", group: "系统", scope: "system", axis: "left", unit: "kW" },
+  { key: "diesel_target_kw", label: "柴发目标", group: "系统", scope: "system", axis: "left", unit: "kW", dashed: true },
+  { key: "diesel_min_kw", label: "柴发下限", group: "系统", scope: "system", axis: "left", unit: "kW", dashed: true },
+  { key: "acdc_current_kw", label: "ACDC 变流实时", group: "系统", scope: "system", axis: "left", unit: "kW" },
+  { key: "acdc_target_kw", label: "ACDC 变流目标", group: "系统", scope: "system", axis: "left", unit: "kW", dashed: true },
+  { key: "ac_renewable_current_kw", label: "交流新能源实时", group: "交流", scope: "ac", axis: "left", unit: "kW" },
+  { key: "ac_renewable_target_kw", label: "交流新能源目标", group: "交流", scope: "ac", axis: "left", unit: "kW", dashed: true },
+  { key: "ac_storage_current_kw", label: "交流储能实时", group: "交流", scope: "ac", axis: "left", unit: "kW" },
+  { key: "ac_storage_target_kw", label: "交流储能目标", group: "交流", scope: "ac", axis: "left", unit: "kW", dashed: true },
+  { key: "ac_storage_soc", label: "交流储能 SOC", group: "交流", scope: "ac", axis: "right", unit: "%", isRatio: true },
+  { key: "ac_load_kw", label: "交流负荷", group: "交流", scope: "ac", axis: "left", unit: "kW" },
+  { key: "dc_renewable_current_kw", label: "直流新能源实时", group: "直流", scope: "dc", axis: "left", unit: "kW" },
+  { key: "dc_renewable_target_kw", label: "直流新能源目标", group: "直流", scope: "dc", axis: "left", unit: "kW", dashed: true },
+  { key: "dc_storage_current_kw", label: "直流储能实时", group: "直流", scope: "dc", axis: "left", unit: "kW" },
+  { key: "dc_storage_target_kw", label: "直流储能目标", group: "直流", scope: "dc", axis: "left", unit: "kW", dashed: true },
+  { key: "dc_storage_soc", label: "直流储能 SOC", group: "直流", scope: "dc", axis: "right", unit: "%", isRatio: true },
+  { key: "dc_load_kw", label: "直流负荷", group: "直流", scope: "dc", axis: "left", unit: "kW" },
+  { key: "electrolyzer_current_kw", label: "电制氢实时", group: "氢能", scope: "hydrogen", axis: "left", unit: "kW" },
+  { key: "electrolyzer_target_kw", label: "电制氢目标", group: "氢能", scope: "hydrogen", axis: "left", unit: "kW", dashed: true },
+  { key: "fuel_cell_current_kw", label: "燃料电池实时", group: "氢能", scope: "hydrogen", axis: "left", unit: "kW" },
+  { key: "fuel_cell_target_kw", label: "燃料电池目标", group: "氢能", scope: "hydrogen", axis: "left", unit: "kW", dashed: true },
+  { key: "hydrogen_pressure_mpa", label: "储氢罐压力", group: "氢能", scope: "hydrogen", axis: "left", unit: "MPa" },
+  { key: "hydrogen_soc", label: "储氢罐 SOC", group: "氢能", scope: "hydrogen", axis: "right", unit: "%", isRatio: true }
 ];
+
+function seriesColorByKey(seriesKey) {
+  const pal = chartThemePalette();
+  const idx = TREND_SERIES_META.findIndex((s) => s.key === seriesKey);
+  return pal.colors[(idx >= 0 ? idx : 0) % pal.colors.length];
+}
 
 const STRATEGY_TAB_CATEGORY_MAP = {
   "all": null,
@@ -129,71 +149,180 @@ function renderAgcControlPage() {
   renderAgcStrategyTable();
 }
 
+function getMetricRowsForScope(tab, m) {
+  if (tab === "ac") {
+    return [
+      { label: "新能源 (kW)", cur: fmtNum(m.acRenewableCurrentKw, 2), tgt: fmtNum(m.acRenewableTargetKw, 2), curKey: "ac_renewable_current_kw", tgtKey: "ac_renewable_target_kw" },
+      { label: "新能源最大可发 (kW)", cur: fmtNum(m.acRenewableMaxAvailableKw, 2), tgt: "--" },
+      { label: "风电 (kW)", cur: fmtNum(m.acWindCurrentKw, 2), tgt: fmtNum(m.acWindTargetKw, 2) },
+      { label: "光伏 (kW)", cur: fmtNum(m.acPvCurrentKw, 2), tgt: fmtNum(m.acPvTargetKw, 2) },
+      { label: "储能 (kW)", cur: fmtNum(m.acStorageCurrentKw, 2), tgt: fmtNum(m.acStorageTargetKw, 2), curKey: "ac_storage_current_kw", tgtKey: "ac_storage_target_kw" },
+      { label: "储能 SOC (%)", cur: fmtPct(m.acStorageSoc), tgt: "--", curKey: "ac_storage_soc" },
+      { label: "跟网储能 (kW)", cur: fmtNum(m.acGridFollowingStorageCurrentKw, 2), tgt: fmtNum(m.acGridFollowingStorageTargetKw, 2) },
+      { label: "构网储能 (kW)", cur: fmtNum(m.acGridFormingStorageCurrentKw, 2), tgt: fmtNum(m.acGridFormingStorageTargetKw, 2) },
+      { label: "柴发 (kW)", cur: fmtNum(m.acDieselCurrentKw ?? m.dieselCurrentKw, 2), tgt: fmtNum(m.acDieselTargetKw ?? m.dieselTargetKw, 2), curKey: "diesel_current_kw", tgtKey: "diesel_target_kw" },
+      { label: "柴发下限 (kW)", cur: fmtNum(m.acDieselMinKw ?? m.dieselMinKw, 2), tgt: "--", curKey: "diesel_min_kw" },
+      { label: "负荷 (kW)", cur: fmtNum(m.acLoadKw, 2), tgt: "--", curKey: "ac_load_kw" }
+    ];
+  }
+  if (tab === "dc") {
+    return [
+      { label: "新能源 (kW)", cur: fmtNum(m.dcRenewableCurrentKw, 2), tgt: fmtNum(m.dcRenewableTargetKw, 2), curKey: "dc_renewable_current_kw", tgtKey: "dc_renewable_target_kw" },
+      { label: "新能源最大可发 (kW)", cur: fmtNum(m.dcRenewableMaxAvailableKw, 2), tgt: "--" },
+      { label: "风电 (kW)", cur: fmtNum(m.dcWindCurrentKw, 2), tgt: fmtNum(m.dcWindTargetKw, 2) },
+      { label: "光伏 (kW)", cur: fmtNum(m.dcPvCurrentKw, 2), tgt: fmtNum(m.dcPvTargetKw, 2) },
+      { label: "储能 (kW)", cur: fmtNum(m.dcStorageCurrentKw, 2), tgt: fmtNum(m.dcStorageTargetKw, 2), curKey: "dc_storage_current_kw", tgtKey: "dc_storage_target_kw" },
+      { label: "储能 SOC (%)", cur: fmtPct(m.dcStorageSoc), tgt: "--", curKey: "dc_storage_soc" },
+      { label: "跟网储能 (kW)", cur: fmtNum(m.dcGridFollowingStorageCurrentKw, 2), tgt: fmtNum(m.dcGridFollowingStorageTargetKw, 2) },
+      { label: "构网储能 (kW)", cur: fmtNum(m.dcGridFormingStorageCurrentKw, 2), tgt: fmtNum(m.dcGridFormingStorageTargetKw, 2) },
+      { label: "负荷 (kW)", cur: fmtNum(m.dcLoadKw, 2), tgt: "--", curKey: "dc_load_kw" }
+    ];
+  }
+  if (tab === "hydrogen") {
+    return [
+      { label: "电制氢功率 (kW)", cur: fmtNum(m.electrolyzerCurrentKw, 2), tgt: fmtNum(m.electrolyzerTargetKw, 2), curKey: "electrolyzer_current_kw", tgtKey: "electrolyzer_target_kw" },
+      { label: "产氢流量 (Nm³/h)", cur: fmtNum(m.electrolyzerFlowCurrentNm3h, 2), tgt: fmtNum(m.electrolyzerFlowTargetNm3h, 2) },
+      { label: "燃料电池功率 (kW)", cur: fmtNum(m.fuelCellCurrentKw, 2), tgt: fmtNum(m.fuelCellTargetKw, 2), curKey: "fuel_cell_current_kw", tgtKey: "fuel_cell_target_kw" },
+      { label: "耗氢流量 (Nm³/h)", cur: fmtNum(m.fuelCellFlowCurrentNm3h, 2), tgt: fmtNum(m.fuelCellFlowTargetNm3h, 2) },
+      { label: "储氢罐压力 (MPa)", cur: fmtNum(m.hydrogenStoragePressureMpa, 2), tgt: "--", curKey: "hydrogen_pressure_mpa" },
+      { label: "储氢罐 SOC (%)", cur: fmtPct(m.hydrogenStorageSoc), tgt: "--", curKey: "hydrogen_soc" },
+      { label: "储氢净流量 (Nm³/h)", cur: fmtNum(m.hydrogenStorageFlowNm3h, 2), tgt: "--" }
+    ];
+  }
+  const renCur = Number(m.acRenewableCurrentKw || 0) + Number(m.dcRenewableCurrentKw || 0);
+  const renTgt = Number(m.acRenewableTargetKw || 0) + Number(m.dcRenewableTargetKw || 0);
+  const renMax = Number(m.acRenewableMaxAvailableKw || 0) + Number(m.dcRenewableMaxAvailableKw || 0);
+  const windCur = Number(m.acWindCurrentKw || 0) + Number(m.dcWindCurrentKw || 0);
+  const windTgt = Number(m.acWindTargetKw || 0) + Number(m.dcWindTargetKw || 0);
+  const pvCur = Number(m.acPvCurrentKw || 0) + Number(m.dcPvCurrentKw || 0);
+  const pvTgt = Number(m.acPvTargetKw || 0) + Number(m.dcPvTargetKw || 0);
+  const stCur = Number(m.acStorageCurrentKw || 0) + Number(m.dcStorageCurrentKw || 0);
+  const stTgt = Number(m.acStorageTargetKw || 0) + Number(m.dcStorageTargetKw || 0);
+  return [
+    { label: "总负荷 (kW)", cur: fmtNum(m.loadKw, 2), tgt: "--", curKey: "load_kw" },
+    { label: "总新能源 (kW)", cur: fmtNum(renCur, 2), tgt: fmtNum(renTgt, 2), curKey: "renewable_current_kw", tgtKey: "renewable_target_kw" },
+    { label: "最大可发 (kW)", cur: fmtNum(renMax, 2), tgt: "--", curKey: "renewable_max_available_kw" },
+    { label: "总风电 (kW)", cur: fmtNum(windCur, 2), tgt: fmtNum(windTgt, 2), curKey: "wind_current_kw", tgtKey: "wind_target_kw" },
+    { label: "总光伏 (kW)", cur: fmtNum(pvCur, 2), tgt: fmtNum(pvTgt, 2), curKey: "pv_current_kw", tgtKey: "pv_target_kw" },
+    { label: "总储能 (kW)", cur: fmtNum(stCur, 2), tgt: fmtNum(stTgt, 2), curKey: "storage_current_kw", tgtKey: "storage_target_kw" },
+    { label: "总储能 SOC (%)", cur: fmtPct(m.totalStorageSoc ?? m.storageSoc), tgt: "--", curKey: "storage_soc" },
+    { label: "总柴发 (kW)", cur: fmtNum(m.totalDieselCurrentKw ?? m.dieselCurrentKw, 2), tgt: fmtNum(m.totalDieselTargetKw ?? m.dieselTargetKw, 2), curKey: "diesel_current_kw", tgtKey: "diesel_target_kw" },
+    { label: "柴发下限 (kW)", cur: fmtNum(m.totalDieselMinKw ?? m.dieselMinKw, 2), tgt: "--", curKey: "diesel_min_kw" },
+    { label: "ACDC 变流 (kW)", cur: fmtNum(m.acdcCurrentKw, 2), tgt: fmtNum(m.acdcTargetKw, 2), curKey: "acdc_current_kw", tgtKey: "acdc_target_kw" },
+    { label: "弃电功率 (kW)", cur: fmtNum(m.curtailKw, 2), tgt: "--" }
+  ];
+}
+
+function updateMetricTabBadges() {
+  const totalBadge = document.getElementById("agcSelectedSeriesBadge");
+  if (totalBadge) totalBadge.textContent = String(AGCState.selectedSeries.size);
+  ["system", "ac", "dc", "hydrogen"].forEach((sc) => {
+    const el = document.querySelector(`[data-tab-count="${sc}"]`);
+    if (!el) return;
+    const rows = getMetricRowsForScope(sc, {});
+    const keys = new Set();
+    rows.forEach((r) => {
+      if (r.curKey && AGCState.selectedSeries.has(r.curKey)) keys.add(r.curKey);
+      if (r.tgtKey && AGCState.selectedSeries.has(r.tgtKey)) keys.add(r.tgtKey);
+    });
+    el.textContent = keys.size ? `(${keys.size})` : "";
+  });
+}
+
 function renderAgcMetricsTable() {
   const wrap = document.getElementById("agcMetricTableWrap");
   if (!wrap) return;
   const m = (AGCState.control && AGCState.control.latest && AGCState.control.latest.metrics) || {};
-  const tab = AGCState.metricTab;
-  let rows = [];
-  if (tab === "ac") {
-    rows = [
-      ["新能源 (kW)", fmtNum(m.acRenewableCurrentKw, 2), fmtNum(m.acRenewableTargetKw, 2)],
-      ["新能源最大可发 (kW)", fmtNum(m.acRenewableMaxAvailableKw, 2), "--"],
-      ["风电 (kW)", fmtNum(m.acWindCurrentKw, 2), fmtNum(m.acWindTargetKw, 2)],
-      ["光伏 (kW)", fmtNum(m.acPvCurrentKw, 2), fmtNum(m.acPvTargetKw, 2)],
-      ["储能 (kW)", fmtNum(m.acStorageCurrentKw, 2), fmtNum(m.acStorageTargetKw, 2)],
-      ["储能 SOC (%)", fmtPct(m.acStorageSoc), "--"],
-      ["跟网储能 (kW)", fmtNum(m.acGridFollowingStorageCurrentKw, 2), fmtNum(m.acGridFollowingStorageTargetKw, 2)],
-      ["构网储能 (kW)", fmtNum(m.acGridFormingStorageCurrentKw, 2), fmtNum(m.acGridFormingStorageTargetKw, 2)],
-      ["柴发 (kW)", fmtNum(m.acDieselCurrentKw ?? m.dieselCurrentKw, 2), fmtNum(m.acDieselTargetKw ?? m.dieselTargetKw, 2)],
-      ["柴发下限 (kW)", fmtNum(m.acDieselMinKw ?? m.dieselMinKw, 2), "--"],
-      ["负荷 (kW)", fmtNum(m.acLoadKw, 2), "--"]
-    ];
-  } else if (tab === "dc") {
-    rows = [
-      ["新能源 (kW)", fmtNum(m.dcRenewableCurrentKw, 2), fmtNum(m.dcRenewableTargetKw, 2)],
-      ["新能源最大可发 (kW)", fmtNum(m.dcRenewableMaxAvailableKw, 2), "--"],
-      ["风电 (kW)", fmtNum(m.dcWindCurrentKw, 2), fmtNum(m.dcWindTargetKw, 2)],
-      ["光伏 (kW)", fmtNum(m.dcPvCurrentKw, 2), fmtNum(m.dcPvTargetKw, 2)],
-      ["储能 (kW)", fmtNum(m.dcStorageCurrentKw, 2), fmtNum(m.dcStorageTargetKw, 2)],
-      ["储能 SOC (%)", fmtPct(m.dcStorageSoc), "--"],
-      ["跟网储能 (kW)", fmtNum(m.dcGridFollowingStorageCurrentKw, 2), fmtNum(m.dcGridFollowingStorageTargetKw, 2)],
-      ["构网储能 (kW)", fmtNum(m.dcGridFormingStorageCurrentKw, 2), fmtNum(m.dcGridFormingStorageTargetKw, 2)],
-      ["负荷 (kW)", fmtNum(m.dcLoadKw, 2), "--"]
-    ];
-  } else if (tab === "hydrogen") {
-    rows = [
-      ["电制氢功率 (kW)", fmtNum(m.electrolyzerCurrentKw, 2), fmtNum(m.electrolyzerTargetKw, 2)],
-      ["产氢流量 (Nm³/h)", fmtNum(m.electrolyzerFlowCurrentNm3h, 2), fmtNum(m.electrolyzerFlowTargetNm3h, 2)],
-      ["燃料电池功率 (kW)", fmtNum(m.fuelCellCurrentKw, 2), fmtNum(m.fuelCellTargetKw, 2)],
-      ["耗氢流量 (Nm³/h)", fmtNum(m.fuelCellFlowCurrentNm3h, 2), fmtNum(m.fuelCellFlowTargetNm3h, 2)],
-      ["储氢罐压力 (MPa)", fmtNum(m.hydrogenStoragePressureMpa, 2), "--"],
-      ["储氢罐 SOC (%)", fmtPct(m.hydrogenStorageSoc), "--"],
-      ["储氢净流量 (Nm³/h)", fmtNum(m.hydrogenStorageFlowNm3h, 2), "--"]
-    ];
-  } else {
-    const renCur = Number(m.acRenewableCurrentKw || 0) + Number(m.dcRenewableCurrentKw || 0);
-    const renTgt = Number(m.acRenewableTargetKw || 0) + Number(m.dcRenewableTargetKw || 0);
-    const renMax = Number(m.acRenewableMaxAvailableKw || 0) + Number(m.dcRenewableMaxAvailableKw || 0);
-    const stCur = Number(m.acStorageCurrentKw || 0) + Number(m.dcStorageCurrentKw || 0);
-    const stTgt = Number(m.acStorageTargetKw || 0) + Number(m.dcStorageTargetKw || 0);
-    rows = [
-      ["总新能源 (kW)", fmtNum(renCur, 2), fmtNum(renTgt, 2)],
-      ["最大可发 (kW)", fmtNum(renMax, 2), "--"],
-      ["总储能 (kW)", fmtNum(stCur, 2), fmtNum(stTgt, 2)],
-      ["总柴发 (kW)", fmtNum(m.totalDieselCurrentKw ?? m.dieselCurrentKw, 2), fmtNum(m.totalDieselTargetKw ?? m.dieselTargetKw, 2)],
-      ["总负荷 (kW)", fmtNum(m.loadKw, 2), "--"],
-      ["ACDC 变流 (kW)", fmtNum(m.acdcCurrentKw, 2), fmtNum(m.acdcTargetKw, 2)],
-      ["弃电功率 (kW)", fmtNum(m.curtailKw, 2), "--"]
-    ];
-  }
+  const rows = getMetricRowsForScope(AGCState.metricTab, m);
+  updateMetricTabBadges();
+
+  const renderMetricValCell = (valText, seriesKey, isDashed) => {
+    if (!seriesKey) return `<span class="mono">${escapeHtml(valText)}</span>`;
+    const isSelected = AGCState.selectedSeries.has(seriesKey);
+    const isHidden = isSelected && AGCState.hiddenSeries.has(seriesKey);
+    const color = seriesColorByKey(seriesKey);
+    const stateCls = !isSelected ? "is-unselected" : (isHidden ? "is-hidden" : "is-visible");
+    const tip = !isSelected
+      ? "点击加入并显示该曲线"
+      : (isHidden ? "已隐藏，点击重新显示该曲线" : "点击隐藏该曲线（不删除）");
+    return `
+      <span class="metric-val-cell">
+        <span class="mono">${escapeHtml(valText)}</span>
+        <button type="button" class="metric-swatch-btn ${stateCls}" data-toggle-series="${seriesKey}" title="${tip}" aria-label="${tip}">
+          <span class="metric-line-swatch ${isDashed ? "is-dashed" : ""}" style="color:${color}"></span>
+        </button>
+      </span>`;
+  };
+
   wrap.innerHTML = `
     <table class="data-table">
-      <thead><tr><th>指标</th><th class="num">${t("lbl.current")}</th><th class="num">${t("lbl.target")}</th></tr></thead>
+      <thead>
+        <tr>
+          <th class="col-check"></th>
+          <th>指标</th>
+          <th class="num">${t("lbl.current")}</th>
+          <th class="num">${t("lbl.target")}</th>
+        </tr>
+      </thead>
       <tbody>
-        ${rows.map(([k, a, b]) => `<tr><td>${escapeHtml(k)}</td><td class="num">${escapeHtml(a)}</td><td class="num">${escapeHtml(b)}</td></tr>`).join("")}
+        ${rows.map((r) => {
+          const rowKeys = [r.curKey, r.tgtKey].filter(Boolean);
+          const anySelected = rowKeys.some((k) => AGCState.selectedSeries.has(k));
+          const allSelected = rowKeys.length > 0 && rowKeys.every((k) => AGCState.selectedSeries.has(k));
+          const checkCell = rowKeys.length
+            ? `<input type="checkbox" data-row-keys="${rowKeys.join(",")}" ${allSelected ? "checked" : ""} title="${allSelected ? "取消勾选以移除本行全部曲线" : "勾选以显示本行全部曲线"}" />`
+            : "";
+          return `
+            <tr class="${anySelected ? "is-selected" : ""}">
+              <td class="col-check">${checkCell}</td>
+              <td>${escapeHtml(r.label)}</td>
+              <td class="num">${renderMetricValCell(r.cur, r.curKey, false)}</td>
+              <td class="num">${renderMetricValCell(r.tgt, r.tgtKey, true)}</td>
+            </tr>`;
+        }).join("")}
       </tbody>
     </table>`;
+
+  wrap.querySelectorAll("input[data-row-keys]").forEach((cb) => {
+    const keys = (cb.dataset.rowKeys || "").split(",").filter(Boolean);
+    const selectedCount = keys.filter((k) => AGCState.selectedSeries.has(k)).length;
+    if (selectedCount > 0 && selectedCount < keys.length) {
+      cb.indeterminate = true;
+    }
+    cb.addEventListener("change", () => {
+      if (cb.checked) {
+        keys.forEach((k) => {
+          AGCState.selectedSeries.add(k);
+          AGCState.hiddenSeries.delete(k);
+        });
+      } else {
+        keys.forEach((k) => {
+          AGCState.selectedSeries.delete(k);
+          AGCState.hiddenSeries.delete(k);
+        });
+      }
+      renderAgcMetricsTable();
+      renderAgcTrendChart();
+    });
+  });
+
+  wrap.querySelectorAll("button[data-toggle-series]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const k = btn.dataset.toggleSeries;
+      if (!k) return;
+      if (!AGCState.selectedSeries.has(k)) {
+        AGCState.selectedSeries.add(k);
+        AGCState.hiddenSeries.delete(k);
+      } else if (AGCState.hiddenSeries.has(k)) {
+        AGCState.hiddenSeries.delete(k);
+      } else {
+        AGCState.hiddenSeries.add(k);
+      }
+      renderAgcMetricsTable();
+      renderAgcTrendChart();
+    });
+  });
 }
 
 function renderAgcStrategyTable() {
@@ -257,60 +386,24 @@ function renderAgcStrategyTable() {
     </table>`;
 }
 
-function renderSeriesPicker() {
-  const listEl = document.getElementById("agcSeriesList");
-  if (!listEl) return;
-  const kw = (document.getElementById("agcSeriesSearch")?.value || "").trim().toLowerCase();
-  const pal = chartThemePalette();
-  const groups = new Map();
-  TREND_SERIES_META.forEach((s, idx) => {
-    if (kw && !s.label.toLowerCase().includes(kw) && !s.group.toLowerCase().includes(kw)) return;
-    if (!groups.has(s.group)) groups.set(s.group, []);
-    groups.get(s.group).push({ ...s, color: pal.colors[idx % pal.colors.length] });
-  });
-
-  let html = "";
-  groups.forEach((items, gName) => {
-    html += `<div class="series-group-title">${escapeHtml(gName)}</div>`;
-    items.forEach((s) => {
-      const checked = AGCState.selectedSeries.has(s.key) ? "checked" : "";
-      html += `
-        <label class="series-item">
-          <input type="checkbox" data-series-key="${s.key}" ${checked} />
-          <span class="series-dot" style="background:${s.color}"></span>
-          <span>${escapeHtml(s.label)}</span>
-        </label>`;
-    });
-  });
-  listEl.innerHTML = html;
-  listEl.querySelectorAll("input[data-series-key]").forEach((cb) => {
-    cb.addEventListener("change", () => {
-      const k = cb.dataset.seriesKey;
-      if (cb.checked) AGCState.selectedSeries.add(k);
-      else AGCState.selectedSeries.delete(k);
-      renderAgcTrendChart();
-    });
-  });
-}
-
 function renderAgcTrendChart() {
   const canvas = document.getElementById("agcTrendCanvas");
   const legendEl = document.getElementById("agcTrendLegend");
   if (!canvas) return;
   const pts = (AGCState.trendData && AGCState.trendData.points) || [];
-  const pal = chartThemePalette();
   const labels = pts.map((p) => p.time_label || (p.recorded_at || "").slice(11, 19));
 
   const activeSeries = [];
-  TREND_SERIES_META.forEach((meta, idx) => {
+  TREND_SERIES_META.forEach((meta) => {
     if (!AGCState.selectedSeries.has(meta.key)) return;
-    const color = pal.colors[idx % pal.colors.length];
+    const color = seriesColorByKey(meta.key);
     const values = pts.map((p) => {
       const v = p[meta.key];
       if (v === null || v === undefined) return null;
       return meta.isRatio && Number(v) <= 1.5 ? Number(v) * 100 : Number(v);
     });
     activeSeries.push({
+      key: meta.key,
       label: meta.label,
       values,
       axis: meta.axis,
@@ -322,16 +415,37 @@ function renderAgcTrendChart() {
 
   if (legendEl) {
     legendEl.innerHTML = activeSeries
-      .map((s) => `<span class="legend-pill"><span class="series-dot" style="background:${s.color}"></span>${escapeHtml(s.label)}</span>`)
+      .map((s) => {
+        const isHidden = AGCState.hiddenSeries.has(s.key);
+        const tip = isHidden ? "已隐藏，点击重新显示该曲线" : "点击隐藏该曲线（不删除）";
+        return `<button type="button" class="legend-pill is-clickable ${isHidden ? "is-hidden" : ""}" data-legend-toggle="${s.key}" title="${tip}"><span class="metric-line-swatch ${s.dashed ? "is-dashed" : ""}" style="color:${s.color}"></span>${escapeHtml(s.label)}</button>`;
+      })
       .join("");
+    legendEl.querySelectorAll("[data-legend-toggle]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const k = btn.dataset.legendToggle;
+        if (!k) return;
+        if (AGCState.hiddenSeries.has(k)) AGCState.hiddenSeries.delete(k);
+        else AGCState.hiddenSeries.add(k);
+        renderAgcMetricsTable();
+        renderAgcTrendChart();
+      });
+    });
   }
+
+  const visibleSeries = activeSeries.filter((s) => !AGCState.hiddenSeries.has(s.key));
+  const emptyText = !activeSeries.length
+    ? "请在左侧统计指标表中勾选要展示的曲线"
+    : !visibleSeries.length
+      ? "当前已选曲线均已隐藏，点击曲线图标可恢复显示"
+      : "点击单次计算或启动自动控制后记录趋势曲线";
 
   drawLineChart(canvas, {
     labels,
-    series: activeSeries,
+    series: visibleSeries,
     leftUnit: "kW",
     rightUnit: "%",
-    emptyText: "点击单次计算或启动自动控制后记录趋势曲线"
+    emptyText
   });
 }
 
@@ -558,21 +672,41 @@ function bindAgcControlEvents() {
     refreshAgcTrendData();
   });
 
-  // 曲线多选器
-  document.getElementById("agcSeriesSearch")?.addEventListener("input", renderSeriesPicker);
+  // 统计指标表顶部曲线联动快捷按钮（默认 / 全选当前分组 / 清空）
   document.getElementById("agcSeriesSelectDefault")?.addEventListener("click", () => {
-    AGCState.selectedSeries = new Set(["load_kw", "renewable_current_kw", "renewable_target_kw", "storage_current_kw", "diesel_current_kw", "storage_soc"]);
-    renderSeriesPicker();
+    AGCState.selectedSeries = new Set([
+      "load_kw",
+      "renewable_current_kw",
+      "renewable_target_kw",
+      "storage_current_kw",
+      "storage_target_kw",
+      "storage_soc",
+      "diesel_current_kw",
+      "diesel_target_kw"
+    ]);
+    AGCState.hiddenSeries.clear();
+    renderAgcMetricsTable();
     renderAgcTrendChart();
   });
   document.getElementById("agcSeriesSelectAll")?.addEventListener("click", () => {
-    TREND_SERIES_META.forEach((s) => AGCState.selectedSeries.add(s.key));
-    renderSeriesPicker();
+    const rows = getMetricRowsForScope(AGCState.metricTab, {});
+    rows.forEach((r) => {
+      if (r.curKey) {
+        AGCState.selectedSeries.add(r.curKey);
+        AGCState.hiddenSeries.delete(r.curKey);
+      }
+      if (r.tgtKey) {
+        AGCState.selectedSeries.add(r.tgtKey);
+        AGCState.hiddenSeries.delete(r.tgtKey);
+      }
+    });
+    renderAgcMetricsTable();
     renderAgcTrendChart();
   });
   document.getElementById("agcSeriesClearAll")?.addEventListener("click", () => {
     AGCState.selectedSeries.clear();
-    renderSeriesPicker();
+    AGCState.hiddenSeries.clear();
+    renderAgcMetricsTable();
     renderAgcTrendChart();
   });
 

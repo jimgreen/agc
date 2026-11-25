@@ -30,7 +30,7 @@
         } catch (_e) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20261125-fix5" />
+    <link rel="stylesheet" href="/styles.css?v=20261125-fix9" />
   </head>
   <body>
     <div class="app-shell">
@@ -348,63 +348,47 @@
 
           <!-- ==================== 2. AGC 控制决策（核心页） ==================== -->
           <section class="page-section" data-page="agc-control">
-            <div class="agc-page-layout split-x">
-              <aside class="agc-side-col split-y split-pane">
+            <div class="agc-page-layout split-y">
+              <div class="agc-top-row split-x split-pane">
                 <section class="panel agc-ctrl-panel split-pane">
                   <div class="panel-head">
                     <h2 data-i18n="agc.panelTitle">运行控制</h2>
                     <span id="agcStateBadge" class="badge badge-neutral">已停止</span>
                   </div>
-                  <div class="agc-primary-actions">
-                    <button id="agcAutoToggleBtn" type="button" class="btn btn-primary" data-i18n="agc.startAuto">启动实时控制</button>
-                    <button id="agcCalcOnceBtn" type="button" class="btn" data-i18n="agc.calcOnce">单次计算</button>
-                  </div>
-                  <div class="agc-setting-row">
-                    <span data-i18n="agc.loopMode">控制方式</span>
-                    <div class="segmented" id="agcLoopModeGroup" role="group">
-                      <button type="button" class="is-active" data-loop-mode="open" data-i18n="mode.open">开环</button>
-                      <button type="button" data-loop-mode="closed" data-i18n="mode.closed">闭环</button>
+                  <div class="agc-ctrl-body">
+                    <div class="agc-primary-actions">
+                      <button id="agcAutoToggleBtn" type="button" class="btn btn-primary" data-i18n="agc.startAuto">启动实时控制</button>
+                      <button id="agcCalcOnceBtn" type="button" class="btn" data-i18n="agc.calcOnce">单次计算</button>
                     </div>
-                  </div>
-                  <div class="agc-setting-row">
-                    <span data-i18n="agc.strategyParams">策略参数</span>
-                    <div class="inline-btn-group">
-                      <button id="openAgcParamsBtn" type="button" class="btn btn-sm" data-i18n="agc.editParams">控制参数</button>
-                      <button id="openDeratingQuickBtn" type="button" class="btn btn-sm" data-i18n="agc.deratingCurve">降额曲线</button>
+                    <div class="agc-setting-row">
+                      <span data-i18n="agc.loopMode">控制方式</span>
+                      <div class="segmented" id="agcLoopModeGroup" role="group">
+                        <button type="button" class="is-active" data-loop-mode="open" data-i18n="mode.open">开环</button>
+                        <button type="button" data-loop-mode="closed" data-i18n="mode.closed">闭环</button>
+                      </div>
                     </div>
+                    <div class="agc-setting-row">
+                      <span data-i18n="agc.strategyParams">策略参数</span>
+                      <div class="inline-btn-group">
+                        <button id="openAgcParamsBtn" type="button" class="btn btn-sm" data-i18n="agc.editParams">控制参数</button>
+                        <button id="openDeratingQuickBtn" type="button" class="btn btn-sm" data-i18n="agc.deratingCurve">降额曲线</button>
+                      </div>
+                    </div>
+                    <div class="agc-env-strip">
+                      <div><span data-i18n="env.windSpeed">风速</span><strong id="agcEnvWind" class="mono">--</strong><small>m/s</small></div>
+                      <div><span data-i18n="env.solar">辐照度</span><strong id="agcEnvSolar" class="mono">--</strong><small>W/m²</small></div>
+                    </div>
+                    <div class="agc-meta-line">
+                      <span data-i18n="agc.lastCalc">最近计算</span>
+                      <strong id="agcLastCalc" class="mono">--</strong>
+                    </div>
+                    <p id="agcStatusLine" class="status-note">--</p>
                   </div>
-                  <div class="agc-env-strip">
-                    <div><span data-i18n="env.windSpeed">风速</span><strong id="agcEnvWind" class="mono">--</strong><small>m/s</small></div>
-                    <div><span data-i18n="env.solar">辐照度</span><strong id="agcEnvSolar" class="mono">--</strong><small>W/m²</small></div>
-                  </div>
-                  <div class="agc-meta-line">
-                    <span data-i18n="agc.lastCalc">最近计算</span>
-                    <strong id="agcLastCalc" class="mono">--</strong>
-                  </div>
-                  <p id="agcStatusLine" class="status-note">--</p>
                 </section>
 
-                <div class="splitter splitter-y" data-split-id="agc-side-y" data-axis="y" data-target="prev" data-collapse="prev" data-default="272" data-min="160" title="拖动调整高度 · 双击复原 · 点击按钮折叠"></div>
+                <div class="splitter splitter-x" data-split-id="agc-top-x" data-sync-group="agc-col-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="310" data-min="220" title="拖动同步调整左右宽度 · 双击复原 · 点击按钮折叠"></div>
 
-                <section class="panel agc-metrics-panel split-pane" style="flex: 1 1 0;">
-                  <div class="panel-head">
-                    <h2 data-i18n="agc.metricsTitle">统计指标</h2>
-                    <span class="muted" data-i18n="agc.curVsTgt">实时 / 目标</span>
-                  </div>
-                  <div class="tab-bar" id="agcMetricTabs" role="tablist">
-                    <button type="button" class="is-active" data-metric-tab="ac" data-i18n="scope.ac">交流</button>
-                    <button type="button" data-metric-tab="dc" data-i18n="scope.dc">直流</button>
-                    <button type="button" data-metric-tab="hydrogen" data-i18n="scope.hydrogen">氢能</button>
-                    <button type="button" data-metric-tab="system" data-i18n="scope.system">系统</button>
-                  </div>
-                  <div id="agcMetricTableWrap" class="table-scroll"></div>
-                </section>
-              </aside>
-
-              <div class="splitter splitter-x" data-split-id="agc-main-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="310" data-min="220" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
-
-              <div class="agc-main-col split-y split-pane" style="flex: 1 1 0;">
-                <section class="panel agc-strategy-panel split-pane">
+                <section class="panel agc-strategy-panel split-pane" style="flex: 1 1 0;">
                   <div class="panel-head">
                     <div class="panel-title-inline">
                       <h2 data-i18n="agc.strategyTitle">控制策略</h2>
@@ -431,8 +415,33 @@
                   </div>
                   <div id="agcStrategyTableWrap" class="table-scroll"></div>
                 </section>
+              </div>
 
-                <div class="splitter splitter-y" data-split-id="agc-main-y" data-axis="y" data-target="prev" data-collapse="next" data-default="52%" data-min="160" title="拖动调整高度 · 双击复原 · 点击按钮折叠"></div>
+              <div class="splitter splitter-y" data-split-id="agc-row-y" data-axis="y" data-target="prev" data-collapse="next" data-default="46%" data-min="180" title="拖动同时调整上下两排高度 · 双击复原 · 点击按钮折叠"></div>
+
+              <div class="agc-bottom-row split-x split-pane" style="flex: 1 1 0;">
+                <section class="panel agc-metrics-panel split-pane">
+                  <div class="panel-head">
+                    <div class="panel-title-inline">
+                      <h2 data-i18n="agc.metricsTitle">统计指标</h2>
+                      <span id="agcSelectedSeriesBadge" class="badge badge-info mono">0</span>
+                    </div>
+                    <div class="inline-btn-group">
+                      <button id="agcSeriesSelectDefault" type="button" class="btn btn-xs" data-i18n="action.default">默认</button>
+                      <button id="agcSeriesSelectAll" type="button" class="btn btn-xs" data-i18n="action.selectAll">全选</button>
+                      <button id="agcSeriesClearAll" type="button" class="btn btn-xs" data-i18n="action.clearAll">清空</button>
+                    </div>
+                  </div>
+                  <div class="tab-bar" id="agcMetricTabs" role="tablist">
+                    <button type="button" class="is-active" data-metric-tab="system"><span data-i18n="scope.system">系统</span><small class="tab-count mono" data-tab-count="system"></small></button>
+                    <button type="button" data-metric-tab="ac"><span data-i18n="scope.ac">交流</span><small class="tab-count mono" data-tab-count="ac"></small></button>
+                    <button type="button" data-metric-tab="dc"><span data-i18n="scope.dc">直流</span><small class="tab-count mono" data-tab-count="dc"></small></button>
+                    <button type="button" data-metric-tab="hydrogen"><span data-i18n="scope.hydrogen">氢能</span><small class="tab-count mono" data-tab-count="hydrogen"></small></button>
+                  </div>
+                  <div id="agcMetricTableWrap" class="table-scroll"></div>
+                </section>
+
+                <div class="splitter splitter-x" data-split-id="agc-bottom-x" data-sync-group="agc-col-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="310" data-min="220" title="拖动同步调整左右宽度 · 双击复原 · 点击按钮折叠"></div>
 
                 <section class="panel agc-detail-panel split-pane" style="flex: 1 1 0;">
                   <div class="panel-head">
@@ -467,18 +476,8 @@
                     </div>
                   </div>
 
-                  <div id="agcDetailPaneTrend" class="agc-trend-workspace split-x">
-                    <aside class="trend-series-picker split-pane">
-                      <input id="agcSeriesSearch" type="search" class="compact-input" data-i18n-placeholder="filter.series" placeholder="过滤曲线..." />
-                      <div class="series-picker-actions">
-                        <button id="agcSeriesSelectDefault" type="button" class="btn btn-xs" data-i18n="action.default">默认</button>
-                        <button id="agcSeriesSelectAll" type="button" class="btn btn-xs" data-i18n="action.selectAll">全选</button>
-                        <button id="agcSeriesClearAll" type="button" class="btn btn-xs" data-i18n="action.clearAll">清空</button>
-                      </div>
-                      <div id="agcSeriesList" class="series-checkbox-list"></div>
-                    </aside>
-                    <div class="splitter splitter-x" data-split-id="agc-trend-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="205" data-min="140" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
-                    <div class="chart-stage split-pane" style="flex: 1 1 0;">
+                  <div id="agcDetailPaneTrend" class="agc-trend-workspace">
+                    <div class="chart-stage" style="flex: 1 1 0;">
                       <div id="agcTrendLegend" class="chart-legend-bar"></div>
                       <div class="chart-canvas-wrap">
                         <canvas id="agcTrendCanvas" class="chart-canvas"></canvas>
@@ -1060,11 +1059,11 @@
 
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-    <script defer src="/js/00-i18n.js?v=20261125-fix4"></script>
-    <script defer src="/js/01-core.js?v=20261125-fix4"></script>
-    <script defer src="/js/02-overview-diagram.js?v=20261125-fix4"></script>
-    <script defer src="/js/03-agc-control.js?v=20261125-fix4"></script>
-    <script defer src="/js/04-monitor-pages.js?v=20261125-fix4"></script>
-    <script defer src="/js/05-bootstrap.js?v=20261125-fix4"></script>
+    <script defer src="/js/00-i18n.js?v=20261125-fix9"></script>
+    <script defer src="/js/01-core.js?v=20261125-fix9"></script>
+    <script defer src="/js/02-overview-diagram.js?v=20261125-fix9"></script>
+    <script defer src="/js/03-agc-control.js?v=20261125-fix9"></script>
+    <script defer src="/js/04-monitor-pages.js?v=20261125-fix9"></script>
+    <script defer src="/js/05-bootstrap.js?v=20261125-fix9"></script>
   </body>
 </html>

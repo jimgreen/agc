@@ -7,7 +7,7 @@ const AGCState = {
   commands: null,
   trendData: null,
   runtimeSettings: null,
-  metricTab: "ac",
+  metricTab: "system",
   strategyTab: "all",
   detailTab: "trend",
   trendWindow: 60,
@@ -17,9 +17,12 @@ const AGCState = {
     "renewable_current_kw",
     "renewable_target_kw",
     "storage_current_kw",
+    "storage_target_kw",
+    "storage_soc",
     "diesel_current_kw",
-    "storage_soc"
+    "diesel_target_kw"
   ]),
+  hiddenSeries: new Set(),
   controlLogPage: 1,
   runtimeLogPage: 1,
   modelFilterBlock: "ALL",
@@ -426,21 +429,24 @@ function drawChartHover(canvas, idx) {
 }
 
 // =========================================================================
-// 通用可拖拽折叠分栏引擎（支持拖拽缩放、一键折叠/恢复、双击复原与本地持久化）
+// 通用可拖拽折叠分栏引擎（支持拖拽缩放、同组联动对齐、一键折叠/恢复、双击复原与本地持久化）
 // =========================================================================
 function initAllSplitters() {
   const splitters = document.querySelectorAll(".splitter[data-split-id]");
+  const syncGroups = new Map();
+
   splitters.forEach((bar) => {
     if (bar._splitReady) return;
     bar._splitReady = true;
 
     const id = bar.dataset.splitId;
+    const syncGroup = String(bar.dataset.syncGroup || "").trim();
     const axis = bar.dataset.axis === "y" ? "y" : "x";
     const targetSide = bar.dataset.target === "next" ? "next" : "prev";
     const collapseSide = bar.dataset.collapse === "next" ? "next" : "prev";
     const defaultRaw = String(bar.dataset.default || "260").trim();
     const minPx = Math.max(80, Number(bar.dataset.min || 140));
-    const storageKey = `agcSplit:${id}`;
+    const storageKey = syncGroup ? `agcSplitGroup:${syncGroup}` : `agcSplit:${id}`;
 
     const prevPane = bar.previousElementSibling;
     const nextPane = bar.nextElementSibling;
@@ -500,7 +506,7 @@ function initAllSplitters() {
       flexPane.style.flex = "1 1 0";
     }
 
-    function applyState() {
+    function applyState(triggerRedraw = true) {
       if (savedState.collapsed) {
         collapsiblePane.classList.add("is-collapsed");
         const other = collapsiblePane === prevPane ? nextPane : prevPane;
@@ -510,9 +516,33 @@ function initAllSplitters() {
         applySize(savedState.size);
       }
       updateToggleIcon();
-      if (typeof redrawActiveCharts === "function") {
+      if (triggerRedraw && typeof redrawActiveCharts === "function") {
         requestAnimationFrame(() => redrawActiveCharts());
       }
+    }
+
+    const controller = {
+      id,
+      receiveSync(nextState) {
+        savedState = {
+          size: nextState.size || defaultRaw,
+          collapsed: Boolean(nextState.collapsed)
+        };
+        applyState(false);
+      }
+    };
+
+    if (syncGroup) {
+      if (!syncGroups.has(syncGroup)) syncGroups.set(syncGroup, []);
+      syncGroups.get(syncGroup).push(controller);
+    }
+
+    function broadcastSync() {
+      if (!syncGroup) return;
+      const peers = syncGroups.get(syncGroup) || [];
+      peers.forEach((peer) => {
+        if (peer !== controller) peer.receiveSync(savedState);
+      });
     }
 
     // 按钮点击：一键折叠 / 恢复原尺寸
@@ -522,14 +552,16 @@ function initAllSplitters() {
       ev.stopPropagation();
       savedState.collapsed = !savedState.collapsed;
       persist();
-      applyState();
+      applyState(true);
+      broadcastSync();
     });
 
     // 双击分割条：恢复默认尺寸并展开
     bar.addEventListener("dblclick", () => {
       savedState = { size: defaultRaw, collapsed: false };
       persist();
-      applyState();
+      applyState(true);
+      broadcastSync();
     });
 
     // 鼠标拖拽实时缩放
@@ -554,6 +586,7 @@ function initAllSplitters() {
         nextPx = Math.max(minPx, Math.min(maxPx, nextPx));
         savedState.size = `${Math.round(nextPx)}px`;
         applySize(savedState.size);
+        broadcastSync();
       };
 
       const onUp = () => {
@@ -562,6 +595,7 @@ function initAllSplitters() {
         bar.classList.remove("is-dragging");
         document.body.classList.remove("is-resizing-x", "is-resizing-y");
         updateToggleIcon();
+        broadcastSync();
         persist();
         if (typeof redrawActiveCharts === "function") {
           requestAnimationFrame(() => redrawActiveCharts());
@@ -572,6 +606,6 @@ function initAllSplitters() {
       window.addEventListener("mouseup", onUp);
     });
 
-    applyState();
+    applyState(false);
   });
 }
