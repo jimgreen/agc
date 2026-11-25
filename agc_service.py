@@ -180,6 +180,9 @@ class AGCRealtimeService:
         self._ack_wake_event = threading.Event()
         self._pending_acks: Dict[Tuple[str, int, str], Dict[str, Any]] = {}
         self._ack_watcher_thread: Optional[threading.Thread] = None
+        self._consecutive_ack_failures: int = 0
+        self._channel_alarm_text: str = ""
+        self._last_prune_monotonic: float = time.monotonic()
         self.start_ack_watcher()
 
         if start_background:
@@ -295,6 +298,42 @@ class AGCRealtimeService:
         if final_status == "dispatched":
             with self.lock:
                 self._last_dispatched_at = _now_iso()
+                self._consecutive_ack_failures = 0
+                self._channel_alarm_text = ""
+        elif final_status in {"failed", "timeout", "disabled", "unconfigured"}:
+            auto_fallback = False
+            fail_cnt = 0
+            thr = 5
+            with self.lock:
+                self._consecutive_ack_failures += 1
+                fail_cnt = self._consecutive_ack_failures
+                bcfg = self.runtime_settings.get("backend") or {}
+                thr = max(1, int(bcfg.get("ack_fail_alarm_threshold", 5)))
+                if fail_cnt >= thr:
+                    self._channel_alarm_text = f"scdfe_d 通道连续 {fail_cnt} 次回执异常（最近：{final_status}）"
+                    if bool(bcfg.get("ack_fail_auto_open_loop", False)) and self.loop_mode == "closed":
+                        self.loop_mode = "open"
+                        self._status_text = f"四遥通道连续 {fail_cnt} 次异常，已自动退回开环保护"
+                        self.store.save_control_mode(self.loop_mode, self.auto_enabled)
+                        auto_fallback = True
+            if auto_fallback:
+                try:
+                    self.store.append_control_log(
+                        level="error",
+                        event_type="channel_guard",
+                        cycle=cycle,
+                        subject="四遥通道保护：自动退回开环",
+                        summary=f"scdfe_d 连续 {fail_cnt} 次指令回执异常（阈值 {thr}），已自动切换为开环保护",
+                    )
+                    self.store.append_runtime_log(
+                        level="error",
+                        log_type="channel_guard",
+                        target="scdfe_d 通道",
+                        result="自动退开环",
+                        summary=f"连续 {fail_cnt} 次回执异常触发保护",
+                    )
+                except Exception:
+                    pass
 
         if log_event:
             is_ok = final_status == "dispatched"
@@ -413,6 +452,9 @@ class AGCRealtimeService:
                 now_mono = time.monotonic()
                 if auto_on and (now_mono - last_run >= interval):
                     self.run_control_cycle(trigger="auto")
+                if now_mono - self._last_prune_monotonic >= 3600.0:
+                    self._last_prune_monotonic = now_mono
+                    self.prune_history_now(reason="auto_hourly")
             except Exception as exc:
                 self.store.append_runtime_log(
                     level="error",
@@ -943,6 +985,8 @@ class AGCRealtimeService:
                     "agc_db": str(self.store.path),
                     "command_channel": "scdfe_d",
                     "pending_ack_count": len(self._pending_acks),
+                    "consecutive_ack_failures": self._consecutive_ack_failures,
+                    "channel_alarm": self._channel_alarm_text,
                 },
                 "latest_strategy": latest_strategy,
                 "runtime_settings": self.runtime_settings,
@@ -1048,6 +1092,8 @@ class AGCRealtimeService:
                 "agc_db": str(self.store.path),
                 "command_channel": "scdfe_d",
                 "pending_ack_count": len(self._pending_acks),
+                "consecutive_ack_failures": self._consecutive_ack_failures,
+                "channel_alarm": self._channel_alarm_text,
                 "island_diagnostics": self._extract_island_diagnostics(latest),
                 "latest": latest,
             }
@@ -1720,4 +1766,219 @@ class AGCRealtimeService:
         payload = self.get_device_configs_payload()
         payload["copied_count"] = len(copied_names)
         payload["updated_at"] = last_ts
+        return payload
+
+    def emergency_stop(self, reason: str = "操作员触发紧急停控") -> Dict[str, Any]:
+        """一键紧急停控：立即停止自动控制循环并强制退回开环模式，阻断自动四遥下发。"""
+        with self.lock:
+            self.auto_enabled = False
+            self.loop_mode = "open"
+            self._consecutive_ack_failures = 0
+            self._channel_alarm_text = ""
+            self._status_text = f"已紧急停控（退回开环）：{reason}"
+            self.store.save_control_mode("open", False)
+        self.store.append_control_log(
+            level="error",
+            event_type="emergency_stop",
+            cycle=self._last_cycle,
+            subject="一键紧急停控",
+            summary=f"已停止 AGC 自动控制并强制退回开环（{reason}）",
+        )
+        self.store.append_runtime_log(
+            level="error",
+            log_type="agc_control",
+            target="AGC 紧急停控",
+            result="已退开环",
+            summary=f"紧急停控触发：{reason}",
+        )
+        return self.get_agc_control_payload()
+
+    def prune_history_now(self, *, reason: str = "manual") -> Dict[str, Any]:
+        """执行历史数据滚动留存清理并记录清理统计。"""
+        with self.lock:
+            bcfg = dict(self.runtime_settings.get("backend") or {})
+        deleted = self.store.prune_historical_data(
+            retention_days=int(bcfg.get("retention_days", 30)),
+            max_strategy_cycles=int(bcfg.get("max_strategy_cycles", 50000)),
+            max_trend_points=int(bcfg.get("trend_retention_points", 50000)),
+            max_log_rows=max(20000, int(bcfg.get("trend_retention_points", 50000))),
+        )
+        total_deleted = sum(deleted.values())
+        if total_deleted > 0 or reason == "manual":
+            self.store.append_runtime_log(
+                level="info",
+                log_type="maintenance",
+                target="agc.sqlite3 留存清理",
+                result=f"清理 {total_deleted} 条",
+                summary=f"触发={reason}｜策略={deleted['strategy_snapshots']} 明细={deleted['strategy_commands']} 趋势={deleted['trend_points']} 指令={deleted['command_records']} 日志={deleted['control_logs'] + deleted['runtime_logs']}",
+            )
+        return {"ok": True, "deleted": deleted, "total_deleted": total_deleted}
+
+    def get_device_tracking_payload(
+        self,
+        *,
+        dev_type: str,
+        dev_name: str,
+        set_type: str = "p_set",
+        window_minutes: int = 60,
+        limit: int = 600,
+    ) -> Dict[str, Any]:
+        """单设备“实测出力 vs AGC 下发目标 vs 96 点预设曲线”三线跟踪考核数据与偏差指标。"""
+        d_type = str(dev_type or "").strip()
+        d_name = str(dev_name or "").strip()
+        s_type = str(set_type or "p_set").strip()
+        if not d_type or not d_name:
+            raise ValueError("缺少 dev_type 或 dev_name")
+        rows = self.store.query_device_strategy_history(
+            dev_type=d_type,
+            dev_name=d_name,
+            window_minutes=window_minutes,
+            limit=limit,
+        )
+        cfgs = self.store.load_device_configs()
+        cfg = cfgs.get((d_type, d_name, s_type))
+        curve = self.store.load_device_curve(d_type, d_name, s_type)
+        interp = str((cfg or {}).get("curve_interp") or "step")
+        control_state = str((cfg or {}).get("control_state") or "closed")
+
+        points_out: List[Dict[str, Any]] = []
+        abs_errors: List[float] = []
+        sq_errors: List[float] = []
+
+        for r in rows:
+            rec_at = str(r.get("recorded_at") or "")
+            time_part = rec_at.split("T", 1)[1] if "T" in rec_at else rec_at[-8:]
+            preset_val: Optional[float] = None
+            if curve is not None and ":" in time_part:
+                parts = time_part.split(":")
+                try:
+                    hh = int(parts[0])
+                    mm = int(parts[1])
+                    ss = float(parts[2]) if len(parts) >= 3 else 0.0
+                    min_of_day = hh * 60.0 + mm + ss / 60.0
+                    preset_val = evaluate_device_curve(curve, min_of_day, interp)
+                except ValueError:
+                    preset_val = None
+            cur_v = _finite(r.get("current_kw"))
+            tgt_v = _finite(r.get("target_kw"))
+            ref_v = preset_val if (control_state == "track" and preset_val is not None) else tgt_v
+            err_v: Optional[float] = None
+            if cur_v is not None and ref_v is not None:
+                err_v = cur_v - ref_v
+                abs_errors.append(abs(err_v))
+                sq_errors.append(err_v * err_v)
+            points_out.append(
+                {
+                    "cycle": int(r.get("cycle") or 0),
+                    "recorded_at": rec_at,
+                    "time_label": time_part[:8],
+                    "current_kw": round(cur_v, 3) if cur_v is not None else None,
+                    "target_kw": round(tgt_v, 3) if tgt_v is not None else None,
+                    "preset_kw": round(preset_val, 3) if preset_val is not None else None,
+                    "error_kw": round(err_v, 3) if err_v is not None else None,
+                    "dispatch_status": str(r.get("dispatch_status") or ""),
+                    "status_label": str(r.get("status_label") or ""),
+                }
+            )
+
+        n_err = len(abs_errors)
+        stats = {
+            "sample_count": len(points_out),
+            "valid_error_count": n_err,
+            "mae_kw": round(sum(abs_errors) / n_err, 3) if n_err else None,
+            "rmse_kw": round(math.sqrt(sum(sq_errors) / n_err), 3) if n_err else None,
+            "max_error_kw": round(max(abs_errors), 3) if n_err else None,
+            "reference_mode": "preset_curve" if (control_state == "track" and curve is not None) else "agc_target",
+        }
+        return {
+            "dev_type": d_type,
+            "dev_name": d_name,
+            "set_type": s_type,
+            "control_state": control_state,
+            "has_curve": curve is not None,
+            "window_minutes": int(window_minutes),
+            "stats": stats,
+            "points": points_out,
+        }
+
+    def export_device_config_bundle(self) -> Dict[str, Any]:
+        """导出整站受控设备配置与全部 96 点预设曲线 JSON 方案包。"""
+        payload = self.get_device_configs_payload()
+        curves = self.store.load_all_device_curves()
+        configs_out: List[Dict[str, Any]] = []
+        for it in payload["items"]:
+            configs_out.append(
+                {
+                    "dev_type": it["dev_type"],
+                    "dev_name": it["dev_name"],
+                    "set_type": it["set_type"],
+                    "control_state": it["control_state"],
+                    "p_min": it["p_min"],
+                    "p_max": it["p_max"],
+                    "control_step": it["control_step"],
+                    "control_deadband": it["control_deadband"],
+                    "curve_interp": it["curve_interp"],
+                }
+            )
+        curves_out: List[Dict[str, Any]] = [
+            {
+                "dev_type": k[0],
+                "dev_name": k[1],
+                "set_type": k[2],
+                "points": pts,
+            }
+            for k, pts in sorted(curves.items())
+        ]
+        return {
+            "schema_version": "agc-device-config-v1",
+            "exported_at": _now_iso(),
+            "model_name": str((self.adapter.model_meta or {}).get("name") or "qinling"),
+            "configs": configs_out,
+            "curves": curves_out,
+        }
+
+    def import_device_config_bundle(self, bundle: Mapping[str, Any]) -> Dict[str, Any]:
+        """校验并导入整站受控设备配置与 96 点预设曲线 JSON 方案包。"""
+        if not isinstance(bundle, Mapping):
+            raise ValueError("配置方案必须为 JSON 对象")
+        raw_configs = bundle.get("configs")
+        raw_curves = bundle.get("curves")
+        if not isinstance(raw_configs, list) and not isinstance(raw_curves, list):
+            raise ValueError("配置方案缺少 configs 或 curves 列表")
+
+        saved_cfg_cnt = 0
+        saved_curve_cnt = 0
+        if isinstance(raw_configs, list) and raw_configs:
+            res_cfg = self.save_device_configs(raw_configs)
+            saved_cfg_cnt = int(res_cfg.get("saved_count") or len(raw_configs))
+        if isinstance(raw_curves, list):
+            for entry in raw_curves:
+                if not isinstance(entry, Mapping):
+                    continue
+                self.store.save_device_curve(
+                    dev_type=str(entry.get("dev_type") or ""),
+                    dev_name=str(entry.get("dev_name") or ""),
+                    set_type=str(entry.get("set_type") or "p_set"),
+                    points=entry.get("points") or [],
+                    curve_interp=entry.get("curve_interp"),
+                )
+                saved_curve_cnt += 1
+
+        self.store.append_control_log(
+            level="warn",
+            event_type="device_config",
+            cycle=self._last_cycle,
+            subject="整站设备配置方案导入",
+            summary=f"已导入 {saved_cfg_cnt} 台设备配置与 {saved_curve_cnt} 条 96 点预设曲线",
+        )
+        self.store.append_runtime_log(
+            level="warn",
+            log_type="parameters",
+            target="整站设备配置方案",
+            result="已导入",
+            summary=f"导入 {saved_cfg_cnt} 项配置 / {saved_curve_cnt} 条曲线",
+        )
+        payload = self.get_device_configs_payload()
+        payload["imported_configs"] = saved_cfg_cnt
+        payload["imported_curves"] = saved_curve_cnt
         return payload

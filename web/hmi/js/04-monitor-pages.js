@@ -342,8 +342,36 @@ async function refreshCommandTrace() {
   });
 }
 
-// ==================== 7. 曲线查询（agc.sqlite3 持久化历史） ====================
+// ==================== 7. 曲线查询（系统趋势 + 单设备三线跟踪考核） ====================
+let curveViewMode = "system"; // "system" | "device"
+let curveDeviceListCache = [];
+let curveSelectedDevice = null; // { dev_type, dev_name, set_type }
+let curveTrackingData = null;
+
 async function refreshCurvesPage() {
+  if (curveViewMode === "device") {
+    if (!curveDeviceListCache.length) {
+      const cfgRes = await apiGet("/api/device-configs");
+      curveDeviceListCache = cfgRes.items || [];
+    }
+    if (!curveSelectedDevice && curveDeviceListCache.length) {
+      curveSelectedDevice = curveDeviceListCache[0];
+    }
+    if (curveSelectedDevice) {
+      const qs = new URLSearchParams({
+        dev_type: curveSelectedDevice.dev_type,
+        dev_name: curveSelectedDevice.dev_name,
+        set_type: curveSelectedDevice.set_type || "p_set",
+        window: String(AGCState.curveWindow),
+        limit: "600"
+      });
+      curveTrackingData = await apiGet(`/api/agc/device-tracking?${qs.toString()}`);
+    } else {
+      curveTrackingData = null;
+    }
+    renderCurvesPage();
+    return;
+  }
   const qs = new URLSearchParams({ window: String(AGCState.curveWindow), limit: "600" });
   if (AGCState.curveEndMs) qs.set("end_epoch_ms", String(AGCState.curveEndMs));
   const data = await apiGet(`/api/agc/trend?${qs.toString()}`);
@@ -354,6 +382,114 @@ async function refreshCurvesPage() {
 function renderCurvesPage() {
   const listEl = document.getElementById("curveMetricList");
   const filter = (document.getElementById("curveListFilter")?.value || "").trim().toLowerCase();
+  const statsBadge = document.getElementById("curveTrackingStats");
+  const prevBtn = document.getElementById("curvePrevBtn");
+  const nextBtn = document.getElementById("curveNextBtn");
+
+  if (curveViewMode === "device") {
+    if (prevBtn) prevBtn.hidden = true;
+    if (nextBtn) nextBtn.hidden = true;
+    const visibleDevs = curveDeviceListCache.filter((d) => {
+      if (!filter) return true;
+      return `${d.category} ${d.dev_name} ${d.dev_type}`.toLowerCase().includes(filter);
+    });
+    document.getElementById("curveListCount").textContent = String(visibleDevs.length);
+    if (listEl) {
+      listEl.innerHTML = visibleDevs.map((d) => {
+        const isSel = curveSelectedDevice && curveSelectedDevice.dev_type === d.dev_type && curveSelectedDevice.dev_name === d.dev_name;
+        const stLbl = d.control_state === "track" ? "跟踪" : (d.control_state === "open" ? "开环" : "闭环");
+        return `
+          <button type="button" class="tree-node ${isSel ? "is-selected" : ""}" data-track-dev-type="${escapeHtml(d.dev_type)}" data-track-dev-name="${escapeHtml(d.dev_name)}" data-track-set-type="${escapeHtml(d.set_type || "p_set")}">
+            <span>${escapeHtml(d.dev_name)}</span>
+            <small>${stLbl}</small>
+          </button>`;
+      }).join("");
+      listEl.querySelectorAll("button[data-track-dev-name]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          curveSelectedDevice = {
+            dev_type: btn.dataset.trackDevType,
+            dev_name: btn.dataset.trackDevName,
+            set_type: btn.dataset.trackSetType || "p_set"
+          };
+          refreshCurvesPage();
+        });
+      });
+    }
+
+    const td = curveTrackingData;
+    const pts = (td && td.points) || [];
+    const devLabel = curveSelectedDevice ? `${curveSelectedDevice.dev_name} · ${curveSelectedDevice.set_type}` : t("curves.modeDevice");
+    document.getElementById("curveChartTitle").textContent = `${devLabel} (kW)`;
+    document.getElementById("curvePointCount").textContent = `${pts.length} 点`;
+
+    if (statsBadge) {
+      const st = td && td.stats;
+      if (st && st.valid_error_count > 0) {
+        statsBadge.hidden = false;
+        const refTxt = st.reference_mode === "preset_curve" ? "对标预设" : "对标目标";
+        statsBadge.textContent = `${refTxt} · RMSE ${fmtNum(st.rmse_kw, 2)} · MAE ${fmtNum(st.mae_kw, 2)} · Max ${fmtNum(st.max_error_kw, 2)} kW`;
+      } else {
+        statsBadge.hidden = true;
+      }
+    }
+
+    const series = [
+      { label: "实测出力", values: pts.map((p) => p.current_kw), unit: "kW" },
+      { label: "AGC 目标", values: pts.map((p) => p.target_kw), unit: "kW", dashed: true }
+    ];
+    if (td && td.has_curve) {
+      series.push({ label: "96点预设曲线", values: pts.map((p) => p.preset_kw), unit: "kW", dashed: true });
+    }
+    drawLineChart(document.getElementById("curveQueryCanvas"), {
+      labels: pts.map((p) => p.time_label || (p.recorded_at || "").slice(11, 19)),
+      series,
+      leftUnit: "kW",
+      emptyText: "暂无该设备历史控制策略采样"
+    });
+
+    const wrap = document.getElementById("curveDataTableWrap");
+    if (!pts.length) {
+      wrap.innerHTML = `<table class="data-table"><tbody><tr><td class="empty-cell">—</td></tr></tbody></table>`;
+    } else {
+      const recent = [...pts].reverse().slice(0, 200);
+      wrap.innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th class="num">周期</th>
+              <th>记录时刻</th>
+              <th class="num">实测 (kW)</th>
+              <th class="num">AGC 目标 (kW)</th>
+              <th class="num">预设曲线 (kW)</th>
+              <th class="num">跟踪偏差 (kW)</th>
+              <th>执行状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${recent.map((p) => {
+              const stMeta = cmdStatusMeta(p.dispatch_status);
+              const errCls = p.error_kw !== null && Math.abs(Number(p.error_kw)) > 1 ? "val-warn" : "";
+              return `<tr>
+                <td class="num">#${p.cycle}</td>
+                <td class="mono">${escapeHtml((p.recorded_at || "").replace("T", " "))}</td>
+                <td class="num">${fmtNum(p.current_kw, 2)}</td>
+                <td class="num">${fmtNum(p.target_kw, 2)}</td>
+                <td class="num">${p.preset_kw !== null && p.preset_kw !== undefined ? fmtNum(p.preset_kw, 2) : "—"}</td>
+                <td class="num ${errCls}">${p.error_kw !== null && p.error_kw !== undefined ? (Number(p.error_kw) >= 0 ? "+" : "") + fmtNum(p.error_kw, 2) : "—"}</td>
+                <td><span class="badge ${stMeta.cls}">${escapeHtml(stMeta.label)}</span></td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>`;
+    }
+    return;
+  }
+
+  // 系统趋势模式
+  if (prevBtn) prevBtn.hidden = false;
+  if (nextBtn) nextBtn.hidden = false;
+  if (statsBadge) statsBadge.hidden = true;
+
   const visible = TREND_SERIES_META.filter((s) => !filter || s.label.toLowerCase().includes(filter));
   document.getElementById("curveListCount").textContent = String(visible.length);
   if (listEl) {
@@ -413,22 +549,27 @@ function renderCurvesPage() {
   }
 }
 
-// ==================== 8. 参数配置 ====================
+// ==================== 8. 系统设置（弹窗托管） ====================
 async function refreshRuntimeSettingsPage() {
   const data = await apiGet("/api/runtime-settings");
   AGCState.runtimeSettings = data;
   const b = data.backend || {};
   const w = data.web || {};
-  const bind = (curId, inpId, val) => {
+  const bind = (curId, inpId, val, dispVal) => {
     const c = document.getElementById(curId);
     const i = document.getElementById(inpId);
-    if (c) c.textContent = String(val ?? "--");
+    if (c) c.textContent = String(dispVal ?? val ?? "--");
     if (i) i.value = String(val ?? "");
   };
   bind("curBackendRefresh", "inpBackendRefresh", b.backend_refresh_seconds);
   bind("curFrameAgeLimit", "inpFrameAgeLimit", b.frame_age_limit_seconds);
   bind("curCmdTimeout", "inpCmdTimeout", b.scada_command_timeout_seconds);
   bind("curTrendRetention", "inpTrendRetention", b.trend_retention_points);
+  bind("curRetentionDays", "inpRetentionDays", b.retention_days ?? 30);
+  bind("curMaxCycles", "inpMaxCycles", b.max_strategy_cycles ?? 50000);
+  bind("curAckFailThr", "inpAckFailThr", b.ack_fail_alarm_threshold ?? 5);
+  const autoOpen = Boolean(b.ack_fail_auto_open_loop);
+  bind("curAckAutoOpen", "inpAckAutoOpen", autoOpen ? "1" : "0", autoOpen ? "启用" : "关闭");
   bind("curWebRefresh", "inpWebRefresh", w.frontend_refresh_seconds);
   bind("curLogPageSize", "inpLogPageSize", w.runtime_log_page_size);
   bind("curDiagElectric", "inpDiagElectric", w.diagram_flow_electric_threshold_kw);
@@ -580,7 +721,14 @@ function bindMonitorPageEvents() {
     }
   });
 
-  // 曲线查询事件
+  // 曲线查询事件（系统趋势 / 单设备三线考核切换）
+  document.querySelectorAll("#curveModeGroup button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      curveViewMode = btn.dataset.curveMode || "system";
+      document.querySelectorAll("#curveModeGroup button").forEach((b) => b.classList.toggle("is-active", b === btn));
+      refreshCurvesPage();
+    });
+  });
   document.getElementById("curveListFilter")?.addEventListener("input", renderCurvesPage);
   document.getElementById("curveWindowSelect")?.addEventListener("change", (ev) => {
     AGCState.curveWindow = Number(ev.target.value) || 60;
@@ -605,6 +753,16 @@ function bindMonitorPageEvents() {
     refreshCurvesPage();
   });
   document.getElementById("exportCurveCsvBtn")?.addEventListener("click", () => {
+    if (curveViewMode === "device" && curveTrackingData) {
+      const pts = curveTrackingData.points || [];
+      const devNm = curveTrackingData.dev_name || "device";
+      downloadCsv(
+        `agc_tracking_${devNm}.csv`,
+        ["cycle", "recorded_at", "current_kw", "target_kw", "preset_kw", "error_kw", "dispatch_status"],
+        pts.map((p) => [p.cycle, p.recorded_at, p.current_kw, p.target_kw, p.preset_kw, p.error_kw, p.dispatch_status])
+      );
+      return;
+    }
     const pts = (AGCState.curveQueryData && AGCState.curveQueryData.points) || [];
     downloadCsv(
       "agc_trend_export.csv",
@@ -613,18 +771,55 @@ function bindMonitorPageEvents() {
     );
   });
 
-  // 参数配置事件
+  // 系统设置弹窗 Tab 切换与保存/留存清理事件
+  document.querySelectorAll("#sysSetTabs button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.syssetTab || "backend";
+      document.querySelectorAll("#sysSetTabs button").forEach((b) => b.classList.toggle("is-active", b === btn));
+      document.querySelectorAll("[data-sysset-pane]").forEach((p) => {
+        p.hidden = p.dataset.syssetPane !== tab;
+      });
+      const isBack = tab === "backend";
+      const setVis = (id, show) => { const el = document.getElementById(id); if (el) el.hidden = !show; };
+      setVis("pruneHistoryNowBtn", isBack);
+      setVis("resetBackendParamsBtn", isBack);
+      setVis("saveBackendParamsBtn", isBack);
+      setVis("resetWebParamsBtn", !isBack);
+      setVis("saveWebParamsBtn", !isBack);
+    });
+  });
+
+  document.getElementById("pruneHistoryNowBtn")?.addEventListener("click", async () => {
+    const ok = await confirmDanger({
+      title: "确认立即清理过期历史数据？",
+      target: "agc.sqlite3",
+      message: "将按当前留存天数与最大周期上限裁剪过期历史策略、趋势与日志记录。",
+      confirmText: "立即清理"
+    });
+    if (!ok) return;
+    try {
+      const res = await apiPost("/api/agc/prune-history", {});
+      showToast(`历史留存清理完成（共清理 ${res.total_deleted || 0} 条）`, "ok");
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
+
   document.getElementById("saveBackendParamsBtn")?.addEventListener("click", async () => {
     await apiPost("/api/runtime-settings", {
       backend: {
         backend_refresh_seconds: Number(document.getElementById("inpBackendRefresh").value),
         frame_age_limit_seconds: Number(document.getElementById("inpFrameAgeLimit").value),
         scada_command_timeout_seconds: Number(document.getElementById("inpCmdTimeout").value),
-        trend_retention_points: Number(document.getElementById("inpTrendRetention").value)
+        trend_retention_points: Number(document.getElementById("inpTrendRetention").value),
+        retention_days: Number(document.getElementById("inpRetentionDays").value),
+        max_strategy_cycles: Number(document.getElementById("inpMaxCycles").value),
+        ack_fail_alarm_threshold: Number(document.getElementById("inpAckFailThr").value),
+        ack_fail_auto_open_loop: document.getElementById("inpAckAutoOpen").value === "1"
       }
     });
     await refreshRuntimeSettingsPage();
-    showToast("后台运行参数已保存", "ok");
+    showToast("后台运行与留存保护参数已保存", "ok");
   });
 
   document.getElementById("resetBackendParamsBtn")?.addEventListener("click", async () => {

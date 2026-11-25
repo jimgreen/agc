@@ -30,7 +30,7 @@
         } catch (_e) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20261125-fix17" />
+    <link rel="stylesheet" href="/styles.css?v=20261125-fix18" />
   </head>
   <body>
     <div class="app-shell">
@@ -71,6 +71,12 @@
           <button id="topbarAlertBadge" class="topbar-alert-badge" type="button" hidden>
             <span class="alert-pulse-dot" aria-hidden="true"></span>
             <span id="topbarAlertBadgeText">异常</span>
+          </button>
+          <button id="topbarEmergencyStopBtn" class="btn btn-sm btn-danger-ghost" type="button" data-i18n-title="topbar.estopTip" title="停止自动控制并强制退回开环">
+            <span data-i18n="topbar.estop">紧急停控</span>
+          </button>
+          <button id="openSystemSettingsBtn" class="btn btn-sm" type="button" data-i18n-title="nav.parameters" title="系统设置">
+            <span data-i18n="nav.parameters">系统设置</span>
           </button>
           <label class="utility-select" data-i18n-title="ui.language">
             <span data-i18n="ui.language">语言</span>
@@ -130,10 +136,6 @@
             <button type="button" data-nav-page="curves" data-i18n-title="nav.curves">
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 3v18h18"/><path d="m6 15 4-4 3 3 6-7"/></svg>
               <span class="nav-label" data-i18n="nav.curves">曲线查询</span>
-            </button>
-            <button type="button" data-nav-page="parameters" data-i18n-title="nav.parameters">
-              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
-              <span class="nav-label" data-i18n="nav.parameters">参数配置</span>
             </button>
             <button type="button" data-nav-page="history" data-i18n-title="nav.history">
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg>
@@ -649,6 +651,9 @@
                     <option value="track" data-i18n="devcfg.stateTrack">跟踪</option>
                     <option value="open" data-i18n="devcfg.stateOpen">开环</option>
                   </select>
+                  <button id="devCfgExportJsonBtn" type="button" class="btn btn-sm" data-i18n="devcfg.exportScheme">导出方案</button>
+                  <input id="devCfgImportJsonFile" type="file" accept=".json" hidden />
+                  <button id="devCfgImportJsonBtn" type="button" class="btn btn-sm" data-i18n="devcfg.importScheme">导入方案</button>
                   <button id="devCfgResetBtn" type="button" class="btn btn-sm btn-danger-ghost" data-i18n="action.restoreDefault">恢复默认</button>
                   <button id="devCfgSaveBtn" type="button" class="btn btn-primary btn-sm" disabled data-i18n="action.save">保存</button>
                 </div>
@@ -869,24 +874,28 @@
             </div>
           </section>
 
-          <!-- ==================== 7. 曲线查询 ==================== -->
+          <!-- ==================== 7. 曲线查询（系统趋势 + 单设备三线跟踪考核） ==================== -->
           <section class="page-section" data-page="curves">
             <div class="split-tree-layout split-x">
               <aside class="panel tree-panel split-pane">
                 <div class="panel-head">
-                  <h2 data-i18n="curves.listTitle">曲线列表</h2>
+                  <div class="segmented" id="curveModeGroup" role="tablist">
+                    <button type="button" class="is-active" data-curve-mode="system" data-i18n="curves.modeSystem">系统趋势</button>
+                    <button type="button" data-curve-mode="device" data-i18n="curves.modeDevice">单设备考核</button>
+                  </div>
                   <span id="curveListCount" class="mono muted">0</span>
                 </div>
                 <input id="curveListFilter" type="search" class="compact-input" data-i18n-placeholder="filter.series" placeholder="过滤曲线..." />
                 <div id="curveMetricList" class="tree-list"></div>
               </aside>
-              <div class="splitter splitter-x" data-split-id="curve-tree-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="245" data-min="160" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
+              <div class="splitter splitter-x" data-split-id="curve-tree-x" data-axis="x" data-target="prev" data-collapse="prev" data-default="255" data-min="180" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
               <div class="v-stack-panel split-y split-pane" style="flex: 1 1 0;">
                 <section class="panel trace-panel tall split-pane">
                   <div class="panel-head">
                     <div class="panel-title-inline">
                       <h2 id="curveChartTitle" data-i18n="nav.curves">曲线查询</h2>
                       <span id="curvePointCount" class="mono muted">0</span>
+                      <span id="curveTrackingStats" class="badge badge-info mono" hidden></span>
                     </div>
                     <div class="chart-toolbar">
                       <button type="button" class="btn btn-icon btn-sm" id="curvePrevBtn">&#8592;</button>
@@ -921,124 +930,7 @@
             </div>
           </section>
 
-          <!-- ==================== 8. 参数配置 ==================== -->
-          <section class="page-section" data-page="parameters">
-            <div class="params-page-grid split-x">
-              <section class="panel split-pane">
-                <div class="panel-head">
-                  <h2 data-i18n="params.backendTitle">后台运行参数</h2>
-                  <div class="inline-btn-group">
-                    <button id="resetBackendParamsBtn" type="button" class="btn btn-sm" data-i18n="action.restoreDefault">恢复默认</button>
-                    <button id="saveBackendParamsBtn" type="button" class="btn btn-primary btn-sm" data-i18n="action.save">保存</button>
-                  </div>
-                </div>
-                <div class="table-scroll">
-                  <table class="data-table">
-                    <thead>
-                      <tr>
-                        <th data-i18n="col.paramName">参数名称</th>
-                        <th class="num" data-i18n="col.currentVal">当前值</th>
-                        <th data-i18n="col.setVal">设置值</th>
-                        <th data-i18n="col.unit">单位</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td data-i18n="params.backendRefresh">后台数据刷新周期</td>
-                        <td id="curBackendRefresh" class="num mono">1</td>
-                        <td><input id="inpBackendRefresh" type="number" min="0.3" max="60" step="0.1" class="cell-input" /></td>
-                        <td>s</td>
-                      </tr>
-                      <tr>
-                        <td data-i18n="params.frameAgeLimit">数据帧超时上限</td>
-                        <td id="curFrameAgeLimit" class="num mono">30</td>
-                        <td><input id="inpFrameAgeLimit" type="number" min="2" max="3600" step="1" class="cell-input" /></td>
-                        <td>s</td>
-                      </tr>
-                      <tr>
-                        <td data-i18n="params.cmdTimeout">四遥指令超时</td>
-                        <td id="curCmdTimeout" class="num mono">5</td>
-                        <td><input id="inpCmdTimeout" type="number" min="1" max="60" step="1" class="cell-input" /></td>
-                        <td>s</td>
-                      </tr>
-                      <tr>
-                        <td data-i18n="params.trendRetention">趋势留存上限</td>
-                        <td id="curTrendRetention" class="num mono">50000</td>
-                        <td>
-                          <select id="inpTrendRetention" class="cell-input">
-                            <option value="10000">10000</option>
-                            <option value="50000">50000</option>
-                            <option value="100000">100000</option>
-                            <option value="500000">500000</option>
-                          </select>
-                        </td>
-                        <td>pts</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-
-              <div class="splitter splitter-x" data-split-id="params-x" data-axis="x" data-target="prev" data-collapse="next" data-default="50%" data-min="280" title="拖动调整宽度 · 双击复原 · 点击按钮折叠"></div>
-
-              <section class="panel split-pane" style="flex: 1 1 0;">
-                <div class="panel-head">
-                  <h2 data-i18n="params.webTitle">WEB 运行参数</h2>
-                  <div class="inline-btn-group">
-                    <button id="resetWebParamsBtn" type="button" class="btn btn-sm" data-i18n="action.restoreDefault">恢复默认</button>
-                    <button id="saveWebParamsBtn" type="button" class="btn btn-primary btn-sm" data-i18n="action.save">保存</button>
-                  </div>
-                </div>
-                <div class="table-scroll">
-                  <table class="data-table">
-                    <thead>
-                      <tr>
-                        <th data-i18n="col.paramName">参数名称</th>
-                        <th class="num" data-i18n="col.currentVal">当前值</th>
-                        <th data-i18n="col.setVal">设置值</th>
-                        <th data-i18n="col.unit">单位</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td data-i18n="params.webRefresh">前端数据刷新周期</td>
-                        <td id="curWebRefresh" class="num mono">1.5</td>
-                        <td><input id="inpWebRefresh" type="number" min="0.5" max="60" step="0.5" class="cell-input" /></td>
-                        <td>s</td>
-                      </tr>
-                      <tr>
-                        <td data-i18n="params.logPageSize">运行日志分页条数</td>
-                        <td id="curLogPageSize" class="num mono">20</td>
-                        <td>
-                          <select id="inpLogPageSize" class="cell-input">
-                            <option value="10">10</option>
-                            <option value="20">20</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                          </select>
-                        </td>
-                        <td>rows</td>
-                      </tr>
-                      <tr>
-                        <td data-i18n="params.diagElectricThreshold">电功率箭头显示门槛</td>
-                        <td id="curDiagElectric" class="num mono">0.1</td>
-                        <td><input id="inpDiagElectric" type="number" min="0" max="1000" step="0.05" class="cell-input" /></td>
-                        <td>kW</td>
-                      </tr>
-                      <tr>
-                        <td data-i18n="params.diagHydroThreshold">氢流量箭头显示门槛</td>
-                        <td id="curDiagHydro" class="num mono">0.1</td>
-                        <td><input id="inpDiagHydro" type="number" min="0" max="1000" step="0.05" class="cell-input" /></td>
-                        <td>Nm³/h</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            </div>
-          </section>
-
-          <!-- ==================== 9. 运行日志 ==================== -->
+          <!-- ==================== 8. 运行日志 ==================== -->
           <section class="page-section" data-page="history">
             <section class="panel full-panel">
               <div class="panel-head">
@@ -1270,14 +1162,175 @@
       </div>
     </dialog>
 
+    <!-- ==================== 弹窗 5：系统运行参数与留存保护 ==================== -->
+    <dialog id="systemSettingsDialog" class="modal-dialog wide">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2 data-i18n="nav.parameters">系统设置</h2>
+          <button type="button" class="icon-close" data-close-dialog="systemSettingsDialog">×</button>
+        </div>
+        <div class="tab-bar" id="sysSetTabs">
+          <button type="button" class="is-active" data-sysset-tab="backend" data-i18n="params.backendTitle">后台运行与留存保护</button>
+          <button type="button" data-sysset-tab="web" data-i18n="params.webTitle">WEB 运行参数</button>
+        </div>
+        <div class="modal-body">
+          <div class="param-pane is-active" data-sysset-pane="backend">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th data-i18n="col.paramName">参数名称</th>
+                  <th class="num" data-i18n="col.currentVal">当前值</th>
+                  <th data-i18n="col.setVal">设置值</th>
+                  <th data-i18n="col.unit">单位</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td data-i18n="params.backendRefresh">后台数据刷新周期</td>
+                  <td id="curBackendRefresh" class="num mono">1</td>
+                  <td class="cell-edit"><input id="inpBackendRefresh" type="number" min="0.3" max="60" step="0.1" class="grid-control num" /></td>
+                  <td>s</td>
+                </tr>
+                <tr>
+                  <td data-i18n="params.frameAgeLimit">数据帧超时上限</td>
+                  <td id="curFrameAgeLimit" class="num mono">30</td>
+                  <td class="cell-edit"><input id="inpFrameAgeLimit" type="number" min="2" max="3600" step="1" class="grid-control num" /></td>
+                  <td>s</td>
+                </tr>
+                <tr>
+                  <td data-i18n="params.cmdTimeout">四遥指令超时</td>
+                  <td id="curCmdTimeout" class="num mono">5</td>
+                  <td class="cell-edit"><input id="inpCmdTimeout" type="number" min="1" max="60" step="1" class="grid-control num" /></td>
+                  <td>s</td>
+                </tr>
+                <tr>
+                  <td data-i18n="params.trendRetention">趋势留存上限</td>
+                  <td id="curTrendRetention" class="num mono">50000</td>
+                  <td class="cell-edit">
+                    <select id="inpTrendRetention" class="grid-control">
+                      <option value="10000">10000</option>
+                      <option value="50000">50000</option>
+                      <option value="100000">100000</option>
+                      <option value="500000">500000</option>
+                    </select>
+                  </td>
+                  <td>pts</td>
+                </tr>
+                <tr>
+                  <td data-i18n="params.retentionDays">历史留存天数</td>
+                  <td id="curRetentionDays" class="num mono">30</td>
+                  <td class="cell-edit">
+                    <select id="inpRetentionDays" class="grid-control">
+                      <option value="7">7</option>
+                      <option value="30">30</option>
+                      <option value="90">90</option>
+                      <option value="365">365</option>
+                    </select>
+                  </td>
+                  <td>d</td>
+                </tr>
+                <tr>
+                  <td data-i18n="params.maxCycles">最大留存周期</td>
+                  <td id="curMaxCycles" class="num mono">50000</td>
+                  <td class="cell-edit">
+                    <select id="inpMaxCycles" class="grid-control">
+                      <option value="5000">5000</option>
+                      <option value="20000">20000</option>
+                      <option value="50000">50000</option>
+                      <option value="200000">200000</option>
+                    </select>
+                  </td>
+                  <td>cycles</td>
+                </tr>
+                <tr>
+                  <td data-i18n="params.ackFailThr">通道连续失败告警阈值</td>
+                  <td id="curAckFailThr" class="num mono">5</td>
+                  <td class="cell-edit"><input id="inpAckFailThr" type="number" min="1" max="100" step="1" class="grid-control num" /></td>
+                  <td>次</td>
+                </tr>
+                <tr>
+                  <td data-i18n="params.ackAutoOpen">通道异常自动退开环</td>
+                  <td id="curAckAutoOpen" class="num mono">否</td>
+                  <td class="cell-edit">
+                    <select id="inpAckAutoOpen" class="grid-control">
+                      <option value="0">关闭</option>
+                      <option value="1">启用</option>
+                    </select>
+                  </td>
+                  <td>—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="param-pane" data-sysset-pane="web" hidden>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th data-i18n="col.paramName">参数名称</th>
+                  <th class="num" data-i18n="col.currentVal">当前值</th>
+                  <th data-i18n="col.setVal">设置值</th>
+                  <th data-i18n="col.unit">单位</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td data-i18n="params.webRefresh">前端数据刷新周期</td>
+                  <td id="curWebRefresh" class="num mono">1.5</td>
+                  <td class="cell-edit"><input id="inpWebRefresh" type="number" min="0.5" max="60" step="0.5" class="grid-control num" /></td>
+                  <td>s</td>
+                </tr>
+                <tr>
+                  <td data-i18n="params.logPageSize">运行日志分页条数</td>
+                  <td id="curLogPageSize" class="num mono">20</td>
+                  <td class="cell-edit">
+                    <select id="inpLogPageSize" class="grid-control">
+                      <option value="10">10</option>
+                      <option value="20">20</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                    </select>
+                  </td>
+                  <td>rows</td>
+                </tr>
+                <tr>
+                  <td data-i18n="params.diagElectricThreshold">电功率箭头显示门槛</td>
+                  <td id="curDiagElectric" class="num mono">0.1</td>
+                  <td class="cell-edit"><input id="inpDiagElectric" type="number" min="0" max="1000" step="0.05" class="grid-control num" /></td>
+                  <td>kW</td>
+                </tr>
+                <tr>
+                  <td data-i18n="params.diagHydroThreshold">氢流量箭头显示门槛</td>
+                  <td id="curDiagHydro" class="num mono">0.1</td>
+                  <td class="cell-edit"><input id="inpDiagHydro" type="number" min="0" max="1000" step="0.05" class="grid-control num" /></td>
+                  <td>Nm³/h</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <div class="inline-btn-group">
+            <button id="pruneHistoryNowBtn" type="button" class="btn btn-sm btn-danger-ghost" data-i18n="params.pruneNow">立即清理历史</button>
+            <button id="resetBackendParamsBtn" type="button" class="btn btn-sm" data-i18n="action.restoreDefault">恢复默认</button>
+            <button id="resetWebParamsBtn" type="button" class="btn btn-sm" hidden data-i18n="action.restoreDefault">恢复默认</button>
+          </div>
+          <div class="inline-btn-group">
+            <button type="button" class="btn" data-close-dialog="systemSettingsDialog" data-i18n="action.cancel">取消</button>
+            <button id="saveBackendParamsBtn" type="button" class="btn btn-primary" data-i18n="action.save">保存</button>
+            <button id="saveWebParamsBtn" type="button" class="btn btn-primary" hidden data-i18n="action.save">保存</button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-    <script defer src="/js/00-i18n.js?v=20261125-fix17"></script>
-    <script defer src="/js/01-core.js?v=20261125-fix17"></script>
-    <script defer src="/js/02-overview-diagram.js?v=20261125-fix17"></script>
-    <script defer src="/js/03-agc-control.js?v=20261125-fix17"></script>
-    <script defer src="/js/04-monitor-pages.js?v=20261125-fix17"></script>
-    <script defer src="/js/06-device-config.js?v=20261125-fix17"></script>
-    <script defer src="/js/05-bootstrap.js?v=20261125-fix17"></script>
+    <script defer src="/js/00-i18n.js?v=20261125-fix18"></script>
+    <script defer src="/js/01-core.js?v=20261125-fix18"></script>
+    <script defer src="/js/02-overview-diagram.js?v=20261125-fix18"></script>
+    <script defer src="/js/03-agc-control.js?v=20261125-fix18"></script>
+    <script defer src="/js/04-monitor-pages.js?v=20261125-fix18"></script>
+    <script defer src="/js/06-device-config.js?v=20261125-fix18"></script>
+    <script defer src="/js/05-bootstrap.js?v=20261125-fix18"></script>
   </body>
 </html>

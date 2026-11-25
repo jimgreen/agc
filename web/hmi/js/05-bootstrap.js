@@ -30,9 +30,13 @@ function updateTopbar() {
 
   const alertBtn = document.getElementById("topbarAlertBadge");
   const alertText = document.getElementById("topbarAlertBadgeText");
+  const chanAlarm = agc.channel_alarm || "";
   if (hasErr) {
     alertBtn.hidden = false;
     alertText.textContent = "SCADA 采集异常";
+  } else if (chanAlarm) {
+    alertBtn.hidden = false;
+    alertText.textContent = chanAlarm;
   } else {
     alertBtn.hidden = true;
   }
@@ -144,7 +148,41 @@ function bindGlobalShellEvents() {
     }
   });
 
-  document.getElementById("topbarAlertBadge")?.addEventListener("click", () => switchPage("history"));
+  document.getElementById("topbarAlertBadge")?.addEventListener("click", () => {
+    const alertChk = document.getElementById("runtimeLogAlertOnly");
+    if (alertChk) alertChk.checked = true;
+    switchPage("history");
+  });
+
+  // 顶栏一键紧急停控（高危确认 -> 停自动 + 强制退开环）
+  document.getElementById("topbarEmergencyStopBtn")?.addEventListener("click", async () => {
+    const ok = await confirmDanger({
+      title: t("topbar.estopConfirmTitle"),
+      target: "AGC 自动控制 + 闭环四遥下发",
+      message: t("topbar.estopConfirmMsg"),
+      confirmText: t("topbar.estop")
+    });
+    if (!ok) return;
+    try {
+      const res = await apiPost("/api/agc/emergency-stop", { reason: "顶栏紧急停控按钮触发" });
+      AGCState.control = res.control;
+      await refreshSnapshot();
+      if (AGCState.page === "agc-control") renderAgcControlPage();
+      showToast("已执行紧急停控：自动控制已停止并退回开环", "warn");
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
+
+  // 顶栏系统设置弹窗
+  document.getElementById("openSystemSettingsBtn")?.addEventListener("click", async () => {
+    try {
+      await refreshRuntimeSettingsPage();
+      document.getElementById("systemSettingsDialog")?.showModal();
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
 
   // 侧栏折叠
   document.getElementById("appSidebarToggle")?.addEventListener("click", () => {

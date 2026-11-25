@@ -227,6 +227,27 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
                     self._send_json(res, HTTPStatus.OK if res.get("ok") else HTTPStatus.NOT_FOUND)
                     return
 
+                if path == "/api/agc/device-tracking":
+                    dev_type = (qs.get("dev_type") or [""])[0]
+                    dev_name = (qs.get("dev_name") or [""])[0]
+                    set_type = (qs.get("set_type") or ["p_set"])[0] or "p_set"
+                    window = _parse_int(qs, "window", 60)
+                    limit = _parse_int(qs, "limit", 600)
+                    self._send_json(
+                        service.get_device_tracking_payload(
+                            dev_type=dev_type,
+                            dev_name=dev_name,
+                            set_type=set_type,
+                            window_minutes=window,
+                            limit=limit,
+                        )
+                    )
+                    return
+
+                if path == "/api/device-configs/export":
+                    self._send_json(service.export_device_config_bundle())
+                    return
+
                 if path == "/api/agc/presets":
                     self._send_json({"presets": STRATEGY_PRESETS})
                     return
@@ -400,6 +421,21 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
                         targets=body.get("targets") or [],
                     )
                     self._send_json({"ok": True, **res})
+                    return
+
+                if path == "/api/device-configs/import":
+                    res = service.import_device_config_bundle(body)
+                    self._send_json({"ok": True, **res})
+                    return
+
+                if path == "/api/agc/emergency-stop":
+                    reason = str(body.get("reason") or "操作员触发紧急停控")
+                    self._send_json({"ok": True, "control": service.emergency_stop(reason=reason)})
+                    return
+
+                if path == "/api/agc/prune-history":
+                    res = service.prune_history_now(reason="manual")
+                    self._send_json(res)
                     return
 
                 if path == "/api/runtime-logs/clear":

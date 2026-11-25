@@ -1027,6 +1027,127 @@ class AGCRealtimeSystemTests(unittest.TestCase):
         )
         self.assertAlmostEqual(elec_net_delta, 4.0, places=2)
 
+    def test_retention_prune_channel_guard_estop_tracking_and_bundle(self) -> None:
+        """验证历史滚动清理、四遥连续失败保护、一键急停、单设备三线跟踪考核与整站 JSON 导入导出。"""
+        server, service = create_server(
+            host="127.0.0.1",
+            port=0,
+            model_db=self.env["model_db"],
+            scada_db=self.env["scada_db"],
+            svg_path=self.env["svg_path"],
+            agc_db=self.env["agc_db"],
+            start_background=False,
+        )
+        port = server.server_address[1]
+        th = threading.Thread(target=server.serve_forever, daemon=True)
+        th.start()
+        self.addCleanup(service.close)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{port}"
+
+        def get_json(path: str):
+            with urlopen(f"{base}{path}", timeout=5) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def post_json(path: str, payload: dict):
+            req = Request(
+                f"{base}{path}",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req, timeout=5) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        # 1. 构造设备配置与 96 点曲线，执行单次计算，验证单设备三线考核 API
+        post_json(
+            "/api/device-configs/curve",
+            {
+                "dev_type": "ACGenerator",
+                "dev_name": "交流风电-1",
+                "set_type": "p_set",
+                "points": [25.0] * 96,
+                "curve_interp": "step",
+            },
+        )
+        post_json(
+            "/api/device-configs",
+            {
+                "items": [
+                    {
+                        "dev_type": "ACGenerator",
+                        "dev_name": "交流风电-1",
+                        "set_type": "p_set",
+                        "control_state": "track",
+                        "p_min": 0.0,
+                        "p_max": 80.0,
+                        "control_step": 3.0,
+                        "control_deadband": 0.5,
+                    }
+                ]
+            },
+        )
+        post_json("/api/agc/control", {"action": "calculate_once"})
+        trk = get_json("/api/agc/device-tracking?dev_type=ACGenerator&dev_name=%E4%BA%A4%E6%B5%81%E9%A3%8E%E7%94%B5-1&set_type=p_set&window=60")
+        self.assertEqual(trk["control_state"], "track")
+        self.assertTrue(trk["has_curve"])
+        self.assertGreaterEqual(len(trk["points"]), 1)
+        self.assertAlmostEqual(float(trk["points"][-1]["preset_kw"]), 25.0, places=3)
+        self.assertIsNotNone(trk["stats"]["rmse_kw"])
+        self.assertIsNotNone(trk["stats"]["mae_kw"])
+
+        # 2. 整站配置方案导出 -> 清空重置 -> 整包导入恢复
+        bundle = get_json("/api/device-configs/export")
+        self.assertEqual(bundle["schema_version"], "agc-device-config-v1")
+        self.assertGreaterEqual(len(bundle["configs"]), 3)
+        self.assertEqual(len(bundle["curves"]), 1)
+
+        post_json("/api/device-configs/reset", {"reset_curves": True})
+        after_rst = get_json("/api/device-configs")
+        self.assertEqual(after_rst["counts"]["track"], 0)
+
+        imp = post_json("/api/device-configs/import", bundle)
+        self.assertTrue(imp["ok"])
+        self.assertEqual(imp["counts"]["track"], 1)
+        self.assertEqual(imp["imported_curves"], 1)
+
+        # 3. 通道连续回执失败触发告警与自动退开环保护
+        post_json(
+            "/api/runtime-settings",
+            {"backend": {"ack_fail_alarm_threshold": 2, "ack_fail_auto_open_loop": True, "retention_days": 30}},
+        )
+        post_json("/api/agc/control", {"action": "set_mode", "loop_mode": "closed"})
+        dummy_entry = {"record_id": 0, "cycle": 1, "origin": "automatic", "dev_type": "ACGenerator", "dev_name": "交流风电-1", "set_type": "p_set", "value": 23.0}
+        service._finalize_ack_entry(dummy_entry, final_status="timeout", final_msg="超时1", log_event=False)
+        service._finalize_ack_entry(dummy_entry, final_status="timeout", final_msg="超时2", log_event=False)
+        ctrl_after_fault = get_json("/api/agc/control")
+        self.assertEqual(ctrl_after_fault["loop_mode"], "open")
+        self.assertGreaterEqual(ctrl_after_fault["consecutive_ack_failures"], 2)
+        self.assertTrue(bool(ctrl_after_fault["channel_alarm"]))
+
+        # 4. 一键紧急停控：停止自动 + 退回开环 + 清除通道告警
+        post_json("/api/agc/control", {"action": "set_mode", "loop_mode": "closed"})
+        post_json("/api/agc/control", {"action": "start"})
+        estop = post_json("/api/agc/emergency-stop", {"reason": "单测验证急停"})
+        self.assertTrue(estop["ok"])
+        self.assertFalse(estop["control"]["auto_enabled"])
+        self.assertEqual(estop["control"]["loop_mode"], "open")
+        self.assertEqual(estop["control"]["channel_alarm"], "")
+
+        # 5. 数据库滚动留存清理：写入 60 天前旧记录并触发清理，旧记录删除且最新记录保留
+        old_iso = "2020-01-01T00:00:00"
+        with service.store.lock:
+            service.store.conn.execute(
+                "INSERT INTO agc_runtime_logs(logged_at, level, log_type, target, result, summary) VALUES (?, 'info', 'test', 'old', 'ok', 'old')",
+                (old_iso,),
+            )
+            service.store.conn.commit()
+        pruned = post_json("/api/agc/prune-history", {})
+        self.assertTrue(pruned["ok"])
+        self.assertGreaterEqual(pruned["deleted"]["runtime_logs"], 1)
+        self.assertGreaterEqual(service.store.latest_cycle(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1003,6 +1003,61 @@ function bindDeviceConfigEvents() {
 
   document.getElementById("devCfgSaveBtn")?.addEventListener("click", saveDirtyDeviceConfigs);
 
+  // 整站配置方案导出/导入（JSON 整包：全部设备参数 + 96 点预设曲线）
+  document.getElementById("devCfgExportJsonBtn")?.addEventListener("click", async () => {
+    try {
+      const bundle = await apiGet("/api/device-configs/export");
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      a.download = `agc_device_scheme_${stamp}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(`已导出整站配置方案（${(bundle.configs || []).length} 台设备 / ${(bundle.curves || []).length} 条曲线）`, "ok");
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
+
+  const schemeFileInp = document.getElementById("devCfgImportJsonFile");
+  document.getElementById("devCfgImportJsonBtn")?.addEventListener("click", () => schemeFileInp?.click());
+  schemeFileInp?.addEventListener("change", async () => {
+    const f = schemeFileInp.files && schemeFileInp.files[0];
+    schemeFileInp.value = "";
+    if (!f) return;
+    try {
+      const parsed = JSON.parse(await f.text());
+      const cCnt = Array.isArray(parsed.configs) ? parsed.configs.length : 0;
+      const kCnt = Array.isArray(parsed.curves) ? parsed.curves.length : 0;
+      if (!cCnt && !kCnt) {
+        showToast("JSON 方案中未包含有效 configs 或 curves", "danger");
+        return;
+      }
+      const ok = await confirmDanger({
+        title: t("devcfg.importSchemeTitle"),
+        target: `${f.name}（${cCnt} 台配置 / ${kCnt} 条曲线）`,
+        message: "导入将覆盖对应受控设备的上下限、步长、死区、控制状态与 96 点预设曲线，并在下一周期立即生效。",
+        confirmText: t("devcfg.importScheme")
+      });
+      if (!ok) return;
+      const res = await apiPost("/api/device-configs/import", parsed);
+      DevCfgState.items = res.items || [];
+      DevCfgState.counts = res.counts || {};
+      DevCfgState.drafts = {};
+      DevCfgState.dirtyKeys.clear();
+      DevCfgState.curveDirty = false;
+      renderDeviceConfigsToolbar();
+      renderDeviceConfigsTable();
+      const selItem = DevCfgState.items.find((it) => devCfgKey(it) === DevCfgState.selectedKey) || DevCfgState.items[0];
+      if (selItem) await loadDeviceCurveEditor(selItem, true);
+      showToast(`已导入配置方案（${res.imported_configs || 0} 台配置 / ${res.imported_curves || 0} 条曲线）`, "ok");
+    } catch (err) {
+      showToast(err.message || "JSON 解析失败", "danger");
+    }
+  });
+
   // 高危恢复默认确认
   document.getElementById("devCfgResetBtn")?.addEventListener("click", async () => {
     const ok = await confirmDanger({

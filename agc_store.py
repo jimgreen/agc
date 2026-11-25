@@ -27,6 +27,10 @@ DEFAULT_BACKEND_RUNTIME_SETTINGS: Dict[str, Any] = {
     "frame_age_limit_seconds": 30.0,
     "scada_command_timeout_seconds": 5.0,
     "trend_retention_points": 50000,
+    "retention_days": 30,
+    "max_strategy_cycles": 50000,
+    "ack_fail_alarm_threshold": 5,
+    "ack_fail_auto_open_loop": False,
     "auto_start_on_boot": False,
 }
 
@@ -1123,3 +1127,145 @@ class AGCRealtimeStore:
                 self.conn.rollback()
                 raise
         return now
+
+    # ------------------------------------------------------------------
+    # 单设备历史三线考核查询 & 长期运行历史滚动留存清理
+    # ------------------------------------------------------------------
+
+    def query_device_strategy_history(
+        self,
+        *,
+        dev_type: str,
+        dev_name: str,
+        window_minutes: int = 60,
+        limit: int = 600,
+    ) -> List[Dict[str, Any]]:
+        """查询单台受控设备历史逐周期实测值与 AGC 目标值（按时间升序返回）。"""
+        lim = max(10, min(2000, int(limit)))
+        cutoff_iso = datetime.fromtimestamp(
+            time.time() - max(1, int(window_minutes)) * 60
+        ).isoformat(timespec="seconds")
+        with self.lock:
+            rows = self.conn.execute(
+                """SELECT cycle, recorded_at, set_type, current_kw, target_kw,
+                          delta_kw, changed, dispatch_status, status_label
+                   FROM agc_strategy_commands
+                   WHERE dev_type=? AND dev_name=? AND recorded_at >= ?
+                   ORDER BY cycle DESC LIMIT ?""",
+                (dev_type, dev_name, cutoff_iso, lim),
+            ).fetchall()
+            if not rows:
+                rows = self.conn.execute(
+                    """SELECT cycle, recorded_at, set_type, current_kw, target_kw,
+                              delta_kw, changed, dispatch_status, status_label
+                       FROM agc_strategy_commands
+                       WHERE dev_type=? AND dev_name=?
+                       ORDER BY cycle DESC LIMIT ?""",
+                    (dev_type, dev_name, min(lim, 200)),
+                ).fetchall()
+        return [dict(r) for r in reversed(rows)]
+
+    def prune_historical_data(
+        self,
+        *,
+        retention_days: int = 30,
+        max_strategy_cycles: int = 50000,
+        max_trend_points: int = 50000,
+        max_log_rows: int = 50000,
+    ) -> Dict[str, int]:
+        """按留存天数与最大条数/周期数原子滚动清理历史数据，防止长期运行库体积失控。"""
+        keep_days = max(1, int(retention_days))
+        keep_cycles = max(100, int(max_strategy_cycles))
+        keep_trends = max(500, int(max_trend_points))
+        keep_logs = max(500, int(max_log_rows))
+        cutoff_ts = time.time() - keep_days * 86400
+        cutoff_iso = datetime.fromtimestamp(cutoff_ts).isoformat(timespec="seconds")
+        cutoff_ms = int(round(cutoff_ts * 1000))
+        deleted: Dict[str, int] = {}
+
+        with self.lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                # 1. 计算周期裁剪边界
+                row = self.conn.execute(
+                    "SELECT COALESCE(MAX(cycle), 0) AS max_c FROM agc_strategy_snapshots"
+                ).fetchone()
+                max_c = int(row["max_c"] if row else 0)
+                min_keep_cycle = max(1, max_c - keep_cycles + 1)
+
+                c1 = self.conn.execute(
+                    "DELETE FROM agc_strategy_commands WHERE recorded_at < ? OR cycle < ?",
+                    (cutoff_iso, min_keep_cycle),
+                ).rowcount
+                c2 = self.conn.execute(
+                    "DELETE FROM agc_strategy_snapshots WHERE recorded_at < ? OR cycle < ?",
+                    (cutoff_iso, min_keep_cycle),
+                ).rowcount
+
+                # 2. 趋势表按时间与最大点数双保险裁剪
+                c3 = self.conn.execute(
+                    "DELETE FROM agc_trend_points WHERE epoch_ms < ?",
+                    (cutoff_ms,),
+                ).rowcount
+                c3_cap = self.conn.execute(
+                    """DELETE FROM agc_trend_points
+                       WHERE id <= (
+                           SELECT COALESCE(MAX(id), 0) - ? FROM agc_trend_points
+                       )""",
+                    (keep_trends,),
+                ).rowcount
+                c3 = int(c3 or 0) + int(c3_cap or 0)
+
+                # 3. 指令审计与日志表滚动裁剪
+                c4 = self.conn.execute(
+                    "DELETE FROM agc_command_records WHERE epoch_ms < ?",
+                    (cutoff_ms,),
+                ).rowcount
+                c4_cap = self.conn.execute(
+                    """DELETE FROM agc_command_records
+                       WHERE id <= (
+                           SELECT COALESCE(MAX(id), 0) - ? FROM agc_command_records
+                       )""",
+                    (keep_logs,),
+                ).rowcount
+                c4 = int(c4 or 0) + int(c4_cap or 0)
+
+                c5 = self.conn.execute(
+                    "DELETE FROM agc_control_logs WHERE logged_at < ?",
+                    (cutoff_iso,),
+                ).rowcount
+                c5_cap = self.conn.execute(
+                    """DELETE FROM agc_control_logs
+                       WHERE seq <= (
+                           SELECT COALESCE(MAX(seq), 0) - ? FROM agc_control_logs
+                       )""",
+                    (keep_logs,),
+                ).rowcount
+                c5 = int(c5 or 0) + int(c5_cap or 0)
+
+                c6 = self.conn.execute(
+                    "DELETE FROM agc_runtime_logs WHERE logged_at < ?",
+                    (cutoff_iso,),
+                ).rowcount
+                c6_cap = self.conn.execute(
+                    """DELETE FROM agc_runtime_logs
+                       WHERE seq <= (
+                           SELECT COALESCE(MAX(seq), 0) - ? FROM agc_runtime_logs
+                       )""",
+                    (keep_logs,),
+                ).rowcount
+                c6 = int(c6 or 0) + int(c6_cap or 0)
+
+                self.conn.commit()
+                deleted = {
+                    "strategy_commands": int(c1 or 0),
+                    "strategy_snapshots": int(c2 or 0),
+                    "trend_points": int(c3 or 0),
+                    "command_records": int(c4 or 0),
+                    "control_logs": int(c5 or 0),
+                    "runtime_logs": int(c6 or 0),
+                }
+            except Exception:
+                self.conn.rollback()
+                raise
+        return deleted
