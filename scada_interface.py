@@ -186,9 +186,9 @@ def command_endpoint_from_env() -> Optional[Path]:
     if database:
         db_path = Path(database)
         for candidate in (
-            db_path.parent.parent / "fes" / "scdfe_c.sqlite3.scdfe_command.json",
+            db_path.parent.parent / "fes" / "scdfe_c.db.scdfe_command.json",
             db_path.with_name(db_path.name + ".scdfe_command.json"),
-            db_path.parent / "scdfe_c.sqlite3.scdfe_command.json",
+            db_path.parent / "scdfe_c.db.scdfe_command.json",
         ):
             if candidate.exists():
                 return candidate

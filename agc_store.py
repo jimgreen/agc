@@ -1,6 +1,6 @@
 """AGC SQLite 持久化数据访问层。
 
-默认存储路径：``D:\\codex\\workspace\\realtime\\qinling\\sqldb\\agc\\agc.sqlite3``
+默认存储路径：``D:\\codex\\workspace\\realtime\\qinling\\sqldb\\agc\\agc.db``
 （可通过 ``AGC_DB`` 环境变量或构造参数覆盖）。
 
 所有表结构由 ``agc_schema.open_realtime_database`` 自动初始化并同步至

@@ -1,10 +1,10 @@
 """秦岭 AGC 实时控制决策核心服务与后台调度器。
 
 职责：
-- 周期只读采样 ``scdfe_d.sqlite3``，维护最新快照与测点滚动跟踪历史；
+- 周期只读采样 ``scdfe_d.db``，维护最新快照与测点滚动跟踪历史；
 - 托管 ``RenewableControlSettings``、策略预设、储能充放电降额曲线及开环/闭环状态；
 - 按控制周期或单次计算触发 ``calculate_renewable_control_plan``，将控制参数、
-  计算策略、设备明细、综合趋势曲线、控制日志与指令审计统一持久化至 ``agc.sqlite3``；
+  计算策略、设备明细、综合趋势曲线、控制日志与指令审计统一持久化至 ``agc.db``；
 - 闭环模式及人工确认遥控/遥调经由 ``QinlingDataAdapter`` 向 SCADA 四遥通道下发。
 """
 
@@ -358,7 +358,7 @@ class AGCRealtimeService:
                 pass
 
     def _ack_watcher_loop(self) -> None:
-        """独立线程主循环：只读轮询 scdfe_d.sqlite3 中在途指令的返回状态并异步更新审计与策略表。"""
+        """独立线程主循环：只读轮询 scdfe_d.db 中在途指令的返回状态并异步更新审计与策略表。"""
         while not self._ack_stop_event.is_set():
             with self._ack_lock:
                 pending_items = dict(self._pending_acks)
@@ -566,7 +566,7 @@ class AGCRealtimeService:
         now_iso = _now_iso()
         now_ms = int(round(time.time() * 1000))
 
-        # 仅在闭环模式且数据质量允许时写回 scdfe_d.sqlite3 并交由独立线程异步等待回执
+        # 仅在闭环模式且数据质量允许时写回 scdfe_d.db 并交由独立线程异步等待回执
         pending_to_watch: List[Tuple[int, Dict[str, Any]]] = []
         if loop_mode == "closed" and dispatch_allowed:
             for cmd in commands_to_send:
@@ -1808,7 +1808,7 @@ class AGCRealtimeService:
             self.store.append_runtime_log(
                 level="info",
                 log_type="maintenance",
-                target="agc.sqlite3 留存清理",
+                target="agc.db 留存清理",
                 result=f"清理 {total_deleted} 条",
                 summary=f"触发={reason}｜策略={deleted['strategy_snapshots']} 明细={deleted['strategy_commands']} 趋势={deleted['trend_points']} 指令={deleted['command_records']} 日志={deleted['control_logs'] + deleted['runtime_logs']}",
             )

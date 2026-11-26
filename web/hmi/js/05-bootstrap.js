@@ -1,6 +1,108 @@
-// 启动引导、导航切换、主题与多语言实时切换及定时轮询调度
+// 启动引导、导航切换、14 套主题可视化切换与多语言实时调度
 
-const DARK_THEMES = new Set(["precision-dark", "glassmorphism", "sci-fi-cyan", "sci-fi-purple", "sci-fi-matrix"]);
+const THEME_CATALOG = [
+  {
+    groupKey: "theme.group.light",
+    items: [
+      { id: "minimalist-light", dark: false, canvas: "#F4F6F8", surface: "#FFFFFF", accent: "#2563EB", ok: "#0D9488" },
+      { id: "bento-grid", dark: false, canvas: "#F5F5F7", surface: "#FFFFFF", accent: "#0071E3", ok: "#0D9488" },
+      { id: "editorial", dark: false, canvas: "#FAF9F6", surface: "#FFFFFF", accent: "#9F1239", ok: "#15803D" },
+      { id: "nordic-frost", dark: false, canvas: "#ECF2F7", surface: "#F9FBFD", accent: "#0284C7", ok: "#0F766E" },
+      { id: "warm-paper", dark: false, canvas: "#F4EFE6", surface: "#FCF9F2", accent: "#2E6F40", ok: "#2E6F40" },
+      { id: "blueprint-light", dark: false, canvas: "#EAF2FB", surface: "#F7FBFF", accent: "#1D4ED8", ok: "#0F766E" }
+    ]
+  },
+  {
+    groupKey: "theme.group.dark",
+    items: [
+      { id: "precision-dark", dark: true, canvas: "#0B0F19", surface: "#111827", accent: "#38BDF8", ok: "#34D399" },
+      { id: "glassmorphism", dark: true, canvas: "#101A2E", surface: "#223452", accent: "#60A5FA", ok: "#34D399" },
+      { id: "obsidian-amber", dark: true, canvas: "#11100E", surface: "#1A1815", accent: "#F59E0B", ok: "#34D399" },
+      { id: "nord-slate", dark: true, canvas: "#1D222D", surface: "#252C3A", accent: "#88C0D0", ok: "#A3BE8C" }
+    ]
+  },
+  {
+    groupKey: "theme.group.scifi",
+    items: [
+      { id: "sci-fi-cyan", dark: true, canvas: "#040812", surface: "#081121", accent: "#00E5FF", ok: "#00E6A8" },
+      { id: "sci-fi-purple", dark: true, canvas: "#090614", surface: "#120C24", accent: "#C084FC", ok: "#2DD4BF" },
+      { id: "sci-fi-matrix", dark: true, canvas: "#040D08", surface: "#081810", accent: "#00E676", ok: "#00E676" },
+      { id: "sci-fi-crimson", dark: true, canvas: "#10070B", surface: "#1A0C12", accent: "#FF4757", ok: "#2ED573" }
+    ]
+  }
+];
+
+const THEME_BY_ID = new Map(THEME_CATALOG.flatMap((g) => g.items).map((it) => [it.id, it]));
+const DARK_THEMES = new Set(Array.from(THEME_BY_ID.values()).filter((it) => it.dark).map((it) => it.id));
+
+function syncThemePickerTrigger(themeId) {
+  const item = THEME_BY_ID.get(themeId) || THEME_BY_ID.get("minimalist-light");
+  if (!item) return;
+  const lbl = document.getElementById("themePickerLabel");
+  if (lbl) {
+    lbl.dataset.i18n = `theme.${item.id}`;
+    lbl.textContent = t(`theme.${item.id}`);
+  }
+  const dots = document.querySelectorAll("#themePickerDots .theme-dot");
+  if (dots.length >= 3) {
+    dots[0].style.background = item.canvas;
+    dots[1].style.background = item.surface;
+    dots[2].style.background = item.accent;
+  }
+  const hiddenSel = document.getElementById("themeSelector");
+  if (hiddenSel && hiddenSel.value !== item.id) hiddenSel.value = item.id;
+}
+
+function renderThemePopover() {
+  const pop = document.getElementById("themePopover");
+  if (!pop) return;
+  const active = document.documentElement.dataset.theme || "minimalist-light";
+  pop.innerHTML = THEME_CATALOG.map((grp) => `
+    <div class="theme-group">
+      <h3 class="theme-group-title">${escapeHtml(t(grp.groupKey))}</h3>
+      <div class="theme-swatch-grid">
+        ${grp.items.map((it) => `
+          <button type="button" class="theme-swatch-card ${it.id === active ? "is-active" : ""}" data-pick-theme="${it.id}">
+            <span class="theme-mini-preview" style="background:${it.canvas};">
+              <span class="theme-mini-bar" style="background:${it.surface};"></span>
+              <span class="theme-mini-row">
+                <span class="theme-mini-pill" style="background:${it.surface};"></span>
+                <span class="theme-mini-accent" style="background:${it.accent};"></span>
+              </span>
+            </span>
+            <span class="theme-swatch-label">${escapeHtml(t(`theme.${it.id}`))}</span>
+            <span class="theme-swatch-check" aria-hidden="true">✓</span>
+          </button>
+        `).join("")}
+      </div>
+    </div>
+  `).join("");
+  pop.querySelectorAll("[data-pick-theme]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      applyThemeChoice(btn.dataset.pickTheme, true);
+      closeThemePopover();
+    });
+  });
+}
+
+function closeThemePopover() {
+  const pop = document.getElementById("themePopover");
+  const btn = document.getElementById("themePickerBtn");
+  if (pop) pop.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function applyThemeChoice(themeId, persist = true) {
+  const theme = THEME_BY_ID.has(themeId) ? themeId : "minimalist-light";
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.colorScheme = DARK_THEMES.has(theme) ? "dark" : "light";
+  if (persist) {
+    try { localStorage.setItem("agcUiTheme", theme); } catch (_e) {}
+  }
+  syncThemePickerTrigger(theme);
+  renderThemePopover();
+  redrawActiveCharts();
+}
 
 function updateTopbar() {
   const snap = AGCState.snapshot;
@@ -192,17 +294,33 @@ function bindGlobalShellEvents() {
     setTimeout(redrawActiveCharts, 200);
   });
 
-  // 主题切换（同步刷新 Canvas 调色板与 SVG 标注）
+  // 主题色卡选择器（14 套风格分组切换，同步刷新 Canvas 调色板）
+  const initTheme = document.documentElement.dataset.theme || "minimalist-light";
+  syncThemePickerTrigger(initTheme);
+  renderThemePopover();
+  const themeBtn = document.getElementById("themePickerBtn");
+  const themePop = document.getElementById("themePopover");
+  themeBtn?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    const open = themePop && themePop.hidden;
+    if (themePop) {
+      if (open) renderThemePopover();
+      themePop.hidden = !open;
+    }
+    themeBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  document.addEventListener("click", (ev) => {
+    if (!themePop || themePop.hidden) return;
+    if (themePop.contains(ev.target) || themeBtn?.contains(ev.target)) return;
+    closeThemePopover();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && themePop && !themePop.hidden) closeThemePopover();
+  });
   const themeSel = document.getElementById("themeSelector");
   if (themeSel) {
-    themeSel.value = document.documentElement.dataset.theme || "minimalist-light";
-    themeSel.addEventListener("change", () => {
-      const theme = themeSel.value;
-      document.documentElement.dataset.theme = theme;
-      document.documentElement.dataset.colorScheme = DARK_THEMES.has(theme) ? "dark" : "light";
-      try { localStorage.setItem("agcUiTheme", theme); } catch (_e) {}
-      redrawActiveCharts();
-    });
+    themeSel.value = initTheme;
+    themeSel.addEventListener("change", () => applyThemeChoice(themeSel.value, true));
   }
 
   // 语言切换
@@ -214,6 +332,8 @@ function bindGlobalShellEvents() {
       document.documentElement.dataset.lang = lang;
       try { localStorage.setItem("agcUiLang", lang); } catch (_e) {}
       applyI18n();
+      syncThemePickerTrigger(document.documentElement.dataset.theme || "minimalist-light");
+      renderThemePopover();
       updateTopbar();
       if (AGCState.page === "agc-control") renderAgcControlPage();
       else if (AGCState.page === "overview") renderOverviewPage();

@@ -492,10 +492,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="秦岭微电网 AGC 算法后台与 Web HMI 服务")
     parser.add_argument("--host", default="127.0.0.1", help="监听地址")
     parser.add_argument("--port", type=int, default=8765, help="监听端口")
-    parser.add_argument("--model-db", default=str(DEFAULT_MODEL_DB), help="输入模型库 (devices.sqlite3)")
-    parser.add_argument("--scada-db", default=str(DEFAULT_SCADA_DB), help="实时数据库 (scdfe_d.sqlite3)")
+    parser.add_argument("--model-db", default=str(DEFAULT_MODEL_DB), help="输入模型库 (devices.db)")
+    parser.add_argument("--scada-db", default=str(DEFAULT_SCADA_DB), help="实时数据库 (scdfe_d.db)")
     parser.add_argument("--svg", default=str(DEFAULT_SVG_PATH), help="SVG 接线图或关联 .e 路径")
-    parser.add_argument("--agc-db", default=str(DEFAULT_AGC_DB), help="AGC 持久化库 (agc.sqlite3)")
+    parser.add_argument("--agc-db", default=str(DEFAULT_AGC_DB), help="AGC 持久化库 (agc.db)")
     return parser.parse_args(argv)
 
 

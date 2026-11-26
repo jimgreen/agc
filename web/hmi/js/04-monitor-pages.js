@@ -702,7 +702,7 @@ function bindMonitorPageEvents() {
     const ok = await confirmDanger({
       title: isYk ? "确认下发人工遥控 (YK)？" : "确认下发人工遥调 (YT)？",
       target: `${devName} · ${setType} = ${val}`,
-      message: "该指令将写入 scdfe_d.sqlite3 控制列，并由独立线程异步等待回执状态与记录审计日志。",
+      message: "该指令将写入 scdfe_d.db 控制列，并由独立线程异步等待回执状态与记录审计日志。",
       confirmText: "确认下发"
     });
     if (!ok) return;
@@ -792,7 +792,7 @@ function bindMonitorPageEvents() {
   document.getElementById("pruneHistoryNowBtn")?.addEventListener("click", async () => {
     const ok = await confirmDanger({
       title: "确认立即清理过期历史数据？",
-      target: "agc.sqlite3",
+      target: "agc.db",
       message: "将按当前留存天数与最大周期上限裁剪过期历史策略、趋势与日志记录。",
       confirmText: "立即清理"
     });

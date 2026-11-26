@@ -952,7 +952,7 @@ function bindAgcControlEvents() {
       AGCState.control = res.control;
       document.getElementById("agcParamsDialog")?.close();
       renderAgcControlPage();
-      showToast("AGC 控制参数已保存至 agc.sqlite3", "ok");
+      showToast("AGC 控制参数已保存至 agc.db", "ok");
     } catch (err) {
       document.getElementById("agcParamsMessage").textContent = err.message;
     }

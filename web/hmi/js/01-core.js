@@ -169,19 +169,42 @@ function downloadCsv(filename, headers, rows) {
 function chartThemePalette() {
   const cs = getComputedStyle(document.documentElement);
   const dark = document.documentElement.dataset.colorScheme === "dark";
+  const theme = document.documentElement.dataset.theme || "minimalist-light";
+  const accent = cs.getPropertyValue("--accent").trim() || (dark ? "#38BDF8" : "#2563EB");
+  const ok = cs.getPropertyValue("--ok").trim() || (dark ? "#34D399" : "#0D9488");
+  const warn = cs.getPropertyValue("--warn").trim() || (dark ? "#FBBF24" : "#D97706");
+  const danger = cs.getPropertyValue("--danger").trim() || (dark ? "#FB7185" : "#DC2626");
+  const surface = cs.getPropertyValue("--bg-surface").trim() || (dark ? "#111827" : "#FFFFFF");
+  const darkLabelMap = {
+    "sci-fi-cyan": "rgba(6, 15, 30, 0.92)",
+    "sci-fi-purple": "rgba(16, 10, 32, 0.92)",
+    "sci-fi-matrix": "rgba(6, 20, 13, 0.92)",
+    "sci-fi-crimson": "rgba(24, 10, 16, 0.92)",
+    "obsidian-amber": "rgba(24, 21, 17, 0.92)",
+    "nord-slate": "rgba(33, 39, 52, 0.92)",
+    "glassmorphism": "rgba(13, 21, 38, 0.92)"
+  };
+  const labelBg = dark
+    ? (darkLabelMap[theme] || "rgba(15, 23, 42, 0.92)")
+    : (theme === "warm-paper" ? "rgba(252, 249, 242, 0.94)" : "rgba(255, 255, 255, 0.94)");
   return {
     dark,
-    bg: cs.getPropertyValue("--bg-surface").trim() || (dark ? "#111827" : "#FFFFFF"),
+    theme,
+    bg: surface,
+    accent,
+    ok,
+    warn,
+    danger,
     grid: dark ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.08)",
     axis: dark ? "rgba(255,255,255,0.20)" : "rgba(15,23,42,0.18)",
     text: cs.getPropertyValue("--text-secondary").trim() || (dark ? "#94A3B8" : "#64748B"),
     textPrimary: cs.getPropertyValue("--text-primary").trim() || (dark ? "#F8FAFC" : "#0F172A"),
-    labelBg: dark ? "rgba(15, 23, 42, 0.88)" : "rgba(255, 255, 255, 0.92)",
+    labelBg,
     labelBorder: cs.getPropertyValue("--border-color").trim() || (dark ? "rgba(255,255,255,0.15)" : "#CBD5E1"),
-    crosshair: cs.getPropertyValue("--accent").trim() || (dark ? "#38BDF8" : "#2563EB"),
+    crosshair: accent,
     colors: dark
-      ? ["#38BDF8", "#FBBF24", "#34D399", "#FB7185", "#A78BFA", "#22D3EE", "#FB923C", "#94A3B8"]
-      : ["#2563EB", "#D97706", "#0D9488", "#DC2626", "#7C3AED", "#0284C7", "#EA580C", "#64748B"]
+      ? [accent, warn, ok, danger, "#A78BFA", "#22D3EE", "#FB923C", "#94A3B8"]
+      : [accent, warn, ok, danger, "#7C3AED", "#0284C7", "#EA580C", "#64748B"]
   };
 }
 

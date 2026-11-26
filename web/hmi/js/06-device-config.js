@@ -611,28 +611,30 @@ function drawDeviceCurveCanvas() {
     let bx = w - padR - tw - 2;
     if (alignMode === "left") bx = padL + 4;
     else if (alignMode === "center") bx = padL + (plotW - tw) / 2;
-    const by = y - 14 < padT ? y + 2 : y - 14;
-    ctx.fillStyle = pal.bg || "rgba(15, 23, 42, 0.82)";
-    ctx.globalAlpha = 0.85;
-    ctx.fillRect(bx, by, tw, 13);
-    ctx.globalAlpha = 1;
+    const by = y - 15 < padT ? y + 2 : y - 15;
+    drawRoundedRect(ctx, bx, by, tw, 14, 3);
+    ctx.fillStyle = pal.labelBg;
+    ctx.fill();
+    ctx.strokeStyle = pal.labelBorder;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
     ctx.fillStyle = color;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText(label, bx + 4, by + 6.5);
+    ctx.fillText(label, bx + 4, by + 7);
     ctx.restore();
   };
   if (range.validBounds) {
-    drawLimitLine(c.effective_max, "#D97706", `MAX ${fmtNum(c.effective_max, 1)}`, "right");
-    drawLimitLine(c.effective_min, "#D97706", `MIN ${fmtNum(c.effective_min, 1)}`, "left");
+    drawLimitLine(c.effective_max, pal.warn, `MAX ${fmtNum(c.effective_max, 1)}`, "right");
+    drawLimitLine(c.effective_min, pal.warn, `MIN ${fmtNum(c.effective_min, 1)}`, "left");
   }
   if (c.current_kw !== null && c.current_kw !== undefined) {
-    drawLimitLine(c.current_kw, "#0D9488", `NOW ${fmtNum(c.current_kw, 1)}`, "center");
+    drawLimitLine(c.current_kw, pal.ok, `NOW ${fmtNum(c.current_kw, 1)}`, "center");
   }
 
   // 96 点预设曲线折线/阶梯 + 柔和面积填充
   const isStep = (c.curve_interp || "step") === "step";
-  const accent = pal.colors[0] || "#2563EB";
+  const accent = pal.accent || pal.colors[0];
   ctx.save();
   ctx.beginPath();
   for (let i = 0; i < 96; i++) {
@@ -655,7 +657,7 @@ function drawDeviceCurveCanvas() {
   const nowIdx = Math.max(0, Math.min(95, Number(c.current_slot_index || 0)));
   const nowX = xOf(nowIdx);
   const nowY = yOf(vals[nowIdx]);
-  ctx.strokeStyle = "#EF4444";
+  ctx.strokeStyle = pal.danger;
   ctx.setLineDash([3, 3]);
   ctx.lineWidth = 1.2;
   ctx.beginPath();
@@ -663,7 +665,7 @@ function drawDeviceCurveCanvas() {
   ctx.lineTo(nowX, h - padB);
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = "#EF4444";
+  ctx.fillStyle = pal.danger;
   ctx.beginPath();
   ctx.arc(nowX, nowY, 3.8, 0, Math.PI * 2);
   ctx.fill();
@@ -685,25 +687,26 @@ function drawDeviceCurveCanvas() {
     ctx.arc(hx, hy, DevCfgState.curveDragging ? 5.2 : 4.2, 0, Math.PI * 2);
     ctx.fill();
     if (DevCfgState.curveDragging) {
-      ctx.strokeStyle = "#FFFFFF";
+      ctx.strokeStyle = pal.textPrimary;
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
 
     const tip = `${c.labels[hIdx]}  ${fmtNum(vals[hIdx], 1)} ${c.unit || "kW"}`;
     ctx.font = "11px var(--font-mono), Consolas, monospace";
-    const tw = ctx.measureText(tip).width + 12;
+    const tw = ctx.measureText(tip).width + 14;
     const bx = Math.min(w - padR - tw, Math.max(padL, hx - tw / 2));
     const by = hy - 26 < padT ? Math.min(h - padB - 22, hy + 10) : hy - 26;
-    ctx.fillStyle = pal.bg || "#0F172A";
+    drawRoundedRect(ctx, bx, by, tw, 20, 5);
+    ctx.fillStyle = pal.labelBg;
+    ctx.fill();
     ctx.strokeStyle = accent;
     ctx.lineWidth = 1;
-    ctx.fillRect(bx, by, tw, 20);
-    ctx.strokeRect(bx, by, tw, 20);
-    ctx.fillStyle = pal.text;
+    ctx.stroke();
+    ctx.fillStyle = pal.textPrimary;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText(tip, bx + 6, by + 10);
+    ctx.fillText(tip, bx + 7, by + 10);
   }
   ctx.restore();
 }

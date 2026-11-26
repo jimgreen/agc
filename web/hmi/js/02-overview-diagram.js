@@ -222,11 +222,11 @@ function renderOverviewPage() {
   document.getElementById("ovSolarIrr").textContent = `${fmtNum(env.solar_irradiance, 1)} W/m²`;
   document.getElementById("ovAirTemp").textContent = `${fmtNum(env.air_temperature, 1)} °C`;
   const model = snap.model || {};
-  document.getElementById("ovModelDb").textContent = (model.model_db || "devices.sqlite3").split("\\").pop();
+  document.getElementById("ovModelDb").textContent = (model.model_db || "devices.db").split("\\").pop();
   document.getElementById("ovModelDb").title = model.model_db || "";
-  document.getElementById("ovScadaDb").textContent = (model.scada_db || "scdfe_d.sqlite3").split("\\").pop();
+  document.getElementById("ovScadaDb").textContent = (model.scada_db || "scdfe_d.db").split("\\").pop();
   document.getElementById("ovScadaDb").title = model.scada_db || "";
-  document.getElementById("ovAgcDb").textContent = (agc.agc_db || "agc.sqlite3").split("\\").pop();
+  document.getElementById("ovAgcDb").textContent = (agc.agc_db || "agc.db").split("\\").pop();
   document.getElementById("ovAgcDb").title = agc.agc_db || "";
   const sc = (snap.static_meta && snap.static_meta.scada_command) || {};
   const pendingAck = Number(agc.pending_ack_count || 0);

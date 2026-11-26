@@ -1,12 +1,12 @@
 """秦岭微电网模型库、实时库（scdfe_d）、SVG 接线图与四遥控制适配器。
 
 职责：
-1. 只读解析 ``devices.sqlite3``（兼容 RTDB ``rtdb_data_*`` 与原生表及 ``.e`` 文件回退），
+1. 只读解析 ``devices.db``（兼容 RTDB ``rtdb_data_*`` 与原生表及 ``.e`` 文件回退），
    构造 AGC 算法引擎与 Web HMI 所需的标准模型定义与设备列表。
-2. 只读轮询 ``scdfe_d.sqlite3``（WAL 友好），实时采集交直流发电、储能 SOC、负荷、
+2. 只读轮询 ``scdfe_d.db``（WAL 友好），实时采集交直流发电、储能 SOC、负荷、
    变流器、氢能系统、断路器与气象量（风速、辐照度），生成标准快照与测点列表。
 3. 解析 SVG 接线图路径（传入 ``qinling.e`` 时自动关联同目录 ``qinling.svg``）。
-4. 直接面向 ``scdfe_d.sqlite3`` 设备宽表控制列读取四遥控制点、直写 YT/YK 控制设定值，
+4. 直接面向 ``scdfe_d.db`` 设备宽表控制列读取四遥控制点、直写 YT/YK 控制设定值，
    并供独立回执监听线程批量只读查询 ``*_cmd_status / *_cmd_ack_time``，不直接与 ``scdfe_c`` 交互。
 """
 
@@ -46,13 +46,13 @@ SCDFE_D_YK_COLUMNS = frozenset({"run_stat", "status", "closed_status", "start_st
 DEFAULT_MODEL_DB = Path(
     os.environ.get(
         "AGC_MODEL_DB",
-        r"D:\codex\workspace\realtime\qinling\sqldb\model\devices.sqlite3",
+        r"D:\codex\workspace\realtime\qinling\sqldb\model\devices.db",
     )
 )
 DEFAULT_SCADA_DB = Path(
     os.environ.get(
         "AGC_SCADA_DB",
-        r"D:\codex\workspace\realtime\qinling\sqldb\scada\scdfe_d.sqlite3",
+        r"D:\codex\workspace\realtime\qinling\sqldb\scada\scdfe_d.db",
     )
 )
 DEFAULT_SVG_PATH = Path(
@@ -64,7 +64,7 @@ DEFAULT_SVG_PATH = Path(
 DEFAULT_AGC_DB = Path(
     os.environ.get(
         "AGC_DB",
-        r"D:\codex\workspace\realtime\qinling\sqldb\agc\agc.sqlite3",
+        r"D:\codex\workspace\realtime\qinling\sqldb\agc\agc.db",
     )
 )
 
@@ -258,7 +258,7 @@ def _coerce_scalar(raw: str) -> Any:
 
 
 def load_model_tables(model_db: Path, fallback_e_path: Optional[Path] = None) -> Dict[str, List[Dict[str, Any]]]:
-    """只读读取 ``devices.sqlite3`` 中的全部模型表（支持 RTDB ``rtdb_data_*`` 布局与原生表）。"""
+    """只读读取 ``devices.db`` 中的全部模型表（支持 RTDB ``rtdb_data_*`` 布局与原生表）。"""
     if model_db.is_file():
         conn = _sqlite_ro_connect(model_db)
         try:
@@ -320,7 +320,7 @@ def load_model_tables(model_db: Path, fallback_e_path: Optional[Path] = None) ->
 
 
 def _sqlite_rw_connect(path: Path, timeout: float = 5.0) -> sqlite3.Connection:
-    """以读写方式连接 scdfe_d.sqlite3（启用 WAL 兼容忙等待，用于写回控制设定列）。"""
+    """以读写方式连接 scdfe_d.db（启用 WAL 兼容忙等待，用于写回控制设定列）。"""
     resolved = Path(path).resolve()
     conn = sqlite3.connect(str(resolved), timeout=timeout, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -337,7 +337,7 @@ def _parse_positive_int(val: Any) -> Optional[int]:
 
 
 def load_control_point_catalog(scada_db: Path) -> Tuple[List[ScadaControlPoint], Dict[str, Any]]:
-    """从 ``scdfe_d.sqlite3`` 设备宽表控制列加载四遥控制点（绝不访问 ``scdfe_c``）；
+    """从 ``scdfe_d.db`` 设备宽表控制列加载四遥控制点（绝不访问 ``scdfe_c``）；
     若遇不含 ``*_cmd_status`` 列的最小测试库，则回退读取同目录 ``point_catalog.json``。
     """
     db_path = Path(scada_db)
@@ -459,7 +459,7 @@ class QinlingDataAdapter:
         self.scada_db = Path(scada_db)
         self.svg_input_path = Path(svg_path)
         self.svg_file, self.e_file = resolve_svg_file(self.svg_input_path)
-        # 保留参数签名兼容旧调用方，但严禁直接连接 scdfe_c；控制通道统一面向 scdfe_d.sqlite3
+        # 保留参数签名兼容旧调用方，但严禁直接连接 scdfe_c；控制通道统一面向 scdfe_d.db
         self.command_endpoint: Optional[Path] = self.scada_db
         self._custom_sender = command_sender
 
@@ -561,7 +561,7 @@ class QinlingDataAdapter:
         set_type: str,
         value: Any,
     ) -> Tuple[bool, str, str, Optional[ScadaControlPoint], Optional[int]]:
-        """将控制策略直写至 ``scdfe_d.sqlite3`` 对应设备宽表的控制列组，由 ``scdfe_d`` 统一转发与回执。
+        """将控制策略直写至 ``scdfe_d.db`` 对应设备宽表的控制列组，由 ``scdfe_d`` 统一转发与回执。
 
         返回 ``(ok, status_code, message, point, cmd_time_ms)``：
         - 写入成功返回 ``(True, "pending", "已写入 scdfe_d 待回执", pt, cmd_time_ms)``；
@@ -649,7 +649,7 @@ class QinlingDataAdapter:
         self,
         slots: Sequence[Tuple[str, int, str]],
     ) -> Dict[Tuple[str, int, str], Dict[str, Any]]:
-        """供独立回执监听线程以只读方式批量查询 ``scdfe_d.sqlite3`` 中在途指令的返回状态。"""
+        """供独立回执监听线程以只读方式批量查询 ``scdfe_d.db`` 中在途指令的返回状态。"""
         if not slots or not self.scada_db.is_file():
             return {}
         by_table: Dict[str, List[Tuple[int, str]]] = {}
@@ -706,12 +706,12 @@ class QinlingDataAdapter:
         set_type: str,
         value: Any,
     ) -> Tuple[bool, str, Optional[ScadaControlPoint]]:
-        """兼容入口：通过 ``scdfe_d.sqlite3`` 控制列下发单条 YT/YK 指令。"""
+        """兼容入口：通过 ``scdfe_d.db`` 控制列下发单条 YT/YK 指令。"""
         ok, _status, msg, pt, _cmd_time = self.write_scdfe_d_command(dev_type, dev_name, set_type, value)
         return ok, msg, pt
 
     def _read_scdfe_tables(self) -> Tuple[Dict[str, List[Dict[str, Any]]], Optional[float], str]:
-        """只读抓取 ``scdfe_d.sqlite3`` 全部实时表。"""
+        """只读抓取 ``scdfe_d.db`` 全部实时表。"""
         if not self.scada_db.is_file():
             return {}, None, f"实时数据库不存在: {self.scada_db}"
         try:

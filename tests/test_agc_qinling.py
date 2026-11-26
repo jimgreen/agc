@@ -98,8 +98,8 @@ def _build_fixture_env(root: Path) -> dict[str, Path]:
     e_file.write_text(MINI_MODEL_E, encoding="utf-8")
     svg_file.write_text(MINI_SVG, encoding="utf-8")
 
-    # 构造轻量 scdfe_d.sqlite3
-    scada_db = scada_dir / "scdfe_d.sqlite3"
+    # 构造轻量 scdfe_d.db
+    scada_db = scada_dir / "scdfe_d.db"
     conn = sqlite3.connect(scada_db)
     conn.executescript(
         """
@@ -135,10 +135,10 @@ def _build_fixture_env(root: Path) -> dict[str, Path]:
     (scada_dir / "point_catalog.json").write_text(json.dumps(catalog, ensure_ascii=False), encoding="utf-8")
 
     return {
-        "model_db": model_dir / "missing_devices.sqlite3",  # 触发 .e 回退加载
+        "model_db": model_dir / "missing_devices.db",  # 触发 .e 回退加载
         "scada_db": scada_db,
         "svg_path": e_file,  # 传 .e 应自动关联 qinling.svg
-        "agc_db": agc_dir / "agc.sqlite3",
+        "agc_db": agc_dir / "agc.db",
     }
 
 
@@ -513,10 +513,10 @@ class AGCRealtimeSystemTests(unittest.TestCase):
         self.assertTrue(q_ok.payload()["inputs"]["load"]["valid"])
 
     def test_scdfe_d_direct_write_and_async_ack_watcher(self):
-        """验证策略直写 scdfe_d.sqlite3 控制列，并由独立线程异步等待执行成功/失败/禁用/超时回执。"""
+        """验证策略直写 scdfe_d.db 控制列，并由独立线程异步等待执行成功/失败/禁用/超时回执。"""
         import time
 
-        # 为临时 scdfe_d.sqlite3 添加标准控制列组（对齐 scdfe_d 官方 9 列协议）
+        # 为临时 scdfe_d.db 添加标准控制列组（对齐 scdfe_d 官方 9 列协议）
         conn = sqlite3.connect(self.env["scada_db"])
         conn.executescript(
             """
@@ -555,7 +555,7 @@ class AGCRealtimeSystemTests(unittest.TestCase):
         )
         self.addCleanup(service.close)
 
-        # 确认独立回执线程已运行且控制点来自 scdfe_d.sqlite3（未连接 scdfe_c）
+        # 确认独立回执线程已运行且控制点来自 scdfe_d.db（未连接 scdfe_c）
         self.assertIsNotNone(service._ack_watcher_thread)
         self.assertTrue(service._ack_watcher_thread.is_alive())
         self.assertEqual(service.adapter.control_point_meta.get("channel"), "scdfe_d")
@@ -573,7 +573,7 @@ class AGCRealtimeSystemTests(unittest.TestCase):
         self.assertFalse(r3["ok"])
         self.assertEqual(r3["record"]["status"], "disabled")
 
-        # 验证 scdfe_d.sqlite3 宽表已被直写为 cmd_status=1 且值正确，idx=3 未被修改
+        # 验证 scdfe_d.db 宽表已被直写为 cmd_status=1 且值正确，idx=3 未被修改
         chk = sqlite3.connect(self.env["scada_db"])
         chk.row_factory = sqlite3.Row
         rows = {r["idx"]: dict(r) for r in chk.execute("SELECT idx, p_set, p_set_cmd_time, p_set_cmd_status FROM ACGenerator").fetchall()}

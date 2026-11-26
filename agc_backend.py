@@ -1,8 +1,8 @@
 """秦岭 AGC 独立算法后台进程入口。
 
-可独立于 Web 服务运行，按设定周期采集 ``scdfe_d.sqlite3``、执行交直流与氢能协同
+可独立于 Web 服务运行，按设定周期采集 ``scdfe_d.db``、执行交直流与氢能协同
 控制决策算法、在闭环模式下下发四遥指令，并将控制参数、计算策略、趋势曲线与日志
-持久化写入 ``D:\\codex\\workspace\\realtime\\qinling\\sqldb\\agc\\agc.sqlite3``。
+持久化写入 ``D:\\codex\\workspace\\realtime\\qinling\\sqldb\\agc\\agc.db``。
 
 示例：
     python agc_backend.py --once
@@ -29,8 +29,8 @@ from agc_service import AGCRealtimeService
 
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="秦岭微电网 AGC 独立算法后台")
-    parser.add_argument("--model-db", default=str(DEFAULT_MODEL_DB), help="输入模型数据库路径 (devices.sqlite3)")
-    parser.add_argument("--scada-db", default=str(DEFAULT_SCADA_DB), help="实时数据数据库路径 (scdfe_d.sqlite3)")
+    parser.add_argument("--model-db", default=str(DEFAULT_MODEL_DB), help="输入模型数据库路径 (devices.db)")
+    parser.add_argument("--scada-db", default=str(DEFAULT_SCADA_DB), help="实时数据数据库路径 (scdfe_d.db)")
     parser.add_argument("--svg", default=str(DEFAULT_SVG_PATH), help="SVG 接线图或关联 .e 模型路径")
     parser.add_argument("--agc-db", default=str(DEFAULT_AGC_DB), help="AGC 参数/策略/曲线/日志持久化库路径")
     parser.add_argument("--mode", choices=["open", "closed"], default=None, help="覆盖开环/闭环模式")
