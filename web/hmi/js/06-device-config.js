@@ -270,16 +270,16 @@ function renderDeviceConfigsTable() {
               </td>
               <td class="num" data-live-cur="${escapeHtml(key)}">${fmtNum(item.current_kw, 2)}</td>
               <td class="cell-edit num ${errs.p_min ? "is-invalid" : ""}">
-                <input type="number" step="0.1" class="grid-control num" data-cfg-key="${escapeHtml(key)}" data-cfg-field="p_min" value="${escapeHtml(draft.p_min)}" placeholder="${escapeHtml(minPh)}" />
+                <input type="number" step="any" class="grid-control num" data-cfg-key="${escapeHtml(key)}" data-cfg-field="p_min" value="${escapeHtml(draft.p_min)}" placeholder="${escapeHtml(minPh)}" />
               </td>
               <td class="cell-edit num ${errs.p_max ? "is-invalid" : ""}">
-                <input type="number" step="0.1" class="grid-control num" data-cfg-key="${escapeHtml(key)}" data-cfg-field="p_max" value="${escapeHtml(draft.p_max)}" placeholder="${escapeHtml(maxPh)}" />
+                <input type="number" step="any" class="grid-control num" data-cfg-key="${escapeHtml(key)}" data-cfg-field="p_max" value="${escapeHtml(draft.p_max)}" placeholder="${escapeHtml(maxPh)}" />
               </td>
               <td class="cell-edit num ${errs.control_step ? "is-invalid" : ""}">
-                <input type="number" min="0" step="0.1" class="grid-control num" data-cfg-key="${escapeHtml(key)}" data-cfg-field="control_step" value="${escapeHtml(draft.control_step)}" placeholder="${escapeHtml(stepPh)}" />
+                <input type="number" min="0" step="any" class="grid-control num" data-cfg-key="${escapeHtml(key)}" data-cfg-field="control_step" value="${escapeHtml(draft.control_step)}" placeholder="${escapeHtml(stepPh)}" />
               </td>
               <td class="cell-edit num ${errs.control_deadband ? "is-invalid" : ""}">
-                <input type="number" min="0" step="0.1" class="grid-control num" data-cfg-key="${escapeHtml(key)}" data-cfg-field="control_deadband" value="${escapeHtml(draft.control_deadband)}" placeholder="0" />
+                <input type="number" min="0" step="any" class="grid-control num" data-cfg-key="${escapeHtml(key)}" data-cfg-field="control_deadband" value="${escapeHtml(draft.control_deadband)}" placeholder="0" />
               </td>
               <td class="num ${draft.control_state === "track" ? "val-warn" : "muted"}" data-live-cnow="${escapeHtml(key)}">${cNowTxt}</td>
               <td>
@@ -586,10 +586,10 @@ function drawDeviceCurveCanvas() {
   const pal = chartThemePalette();
   ctx.clearRect(0, 0, w, h);
 
-  const padL = 46;
+  const padL = 50;
   const padR = 14;
   const padT = 16;
-  const padB = 26;
+  const padB = 28;
   const plotW = Math.max(40, w - padL - padR);
   const plotH = Math.max(40, h - padT - padB);
 
@@ -603,7 +603,7 @@ function drawDeviceCurveCanvas() {
   const yOf = (val) => padT + (1 - (val - minY) / (maxY - minY)) * plotH;
 
   // 水平网格与 Y 轴刻度
-  ctx.font = "10.5px var(--font-mono), Consolas, monospace";
+  ctx.font = "11.5px 'JetBrains Mono', Consolas, monospace";
   ctx.strokeStyle = pal.grid;
   ctx.lineWidth = 1;
   const yTicks = 4;
@@ -648,13 +648,13 @@ function drawDeviceCurveCanvas() {
     ctx.lineTo(w - padR, y);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.font = "10px var(--font-mono), Consolas, monospace";
-    const tw = ctx.measureText(label).width + 8;
+    ctx.font = "11px 'JetBrains Mono', Consolas, monospace";
+    const tw = ctx.measureText(label).width + 10;
     let bx = w - padR - tw - 2;
     if (alignMode === "left") bx = padL + 4;
     else if (alignMode === "center") bx = padL + (plotW - tw) / 2;
-    const by = y - 15 < padT ? y + 2 : y - 15;
-    drawRoundedRect(ctx, bx, by, tw, 14, 3);
+    const by = y - 16 < padT ? y + 2 : y - 16;
+    drawRoundedRect(ctx, bx, by, tw, 15, 4);
     ctx.fillStyle = pal.labelBg;
     ctx.fill();
     ctx.strokeStyle = pal.labelBorder;
@@ -663,7 +663,7 @@ function drawDeviceCurveCanvas() {
     ctx.fillStyle = color;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText(label, bx + 4, by + 7);
+    ctx.fillText(label, bx + 5, by + 7.5);
     ctx.restore();
   };
   if (range.validBounds) {
@@ -735,11 +735,11 @@ function drawDeviceCurveCanvas() {
     }
 
     const tip = `${c.labels[hIdx]}  ${fmtNum(vals[hIdx], 1)} ${c.unit || "kW"}`;
-    ctx.font = "11px var(--font-mono), Consolas, monospace";
-    const tw = ctx.measureText(tip).width + 14;
+    ctx.font = "12px 'JetBrains Mono', Consolas, monospace";
+    const tw = ctx.measureText(tip).width + 16;
     const bx = Math.min(w - padR - tw, Math.max(padL, hx - tw / 2));
-    const by = hy - 26 < padT ? Math.min(h - padB - 22, hy + 10) : hy - 26;
-    drawRoundedRect(ctx, bx, by, tw, 20, 5);
+    const by = hy - 28 < padT ? Math.min(h - padB - 24, hy + 10) : hy - 28;
+    drawRoundedRect(ctx, bx, by, tw, 22, 6);
     ctx.fillStyle = pal.labelBg;
     ctx.fill();
     ctx.strokeStyle = accent;
@@ -748,7 +748,7 @@ function drawDeviceCurveCanvas() {
     ctx.fillStyle = pal.textPrimary;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText(tip, bx + 7, by + 10);
+    ctx.fillText(tip, bx + 8, by + 11);
   }
   ctx.restore();
 }
@@ -771,7 +771,7 @@ function renderDeviceCurveGrid() {
       cells.push(`
         <td class="mono muted dc-slot-lbl ${isNow ? "is-now-slot" : ""}">${c.labels[idx]}</td>
         <td class="cell-edit num ${isNow ? "is-now-slot" : ""}">
-          <input type="number" step="0.1" class="grid-control num" data-curve-idx="${idx}" value="${escapeHtml(String(c.points[idx]))}" />
+          <input type="number" step="any" class="grid-control num" data-curve-idx="${idx}" value="${escapeHtml(String(c.points[idx]))}" />
         </td>`);
     }
     rowsHtml.push(`<tr>${cells.join("")}</tr>`);

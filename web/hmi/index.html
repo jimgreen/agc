@@ -44,7 +44,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20261127-fix33" />
+    <link rel="stylesheet" href="/styles.css?v=20261128-fix34" />
   </head>
   <body>
     <div class="app-shell">
@@ -741,20 +741,20 @@
                       </defs>
 
                       <!-- 顶部极简区段标题（无框） -->
-                      <text class="ef-zone-title" x="28" y="26">直流侧 750V</text>
-                      <text class="ef-zone-sub mono" id="efDcSummary" x="328" y="26" text-anchor="end">--</text>
+                      <text class="ef-zone-title" x="28" y="27" data-i18n="overview.dcSide">直流侧 (750V)</text>
+                      <text class="ef-zone-sub mono" id="efDcSummary" x="328" y="27" text-anchor="end">--</text>
 
                       <g class="ef-green-header">
-                        <circle id="efQualityDot" cx="404" cy="21" r="4" class="ef-q-dot is-ok"></circle>
-                        <text class="ef-green-line mono" x="415" y="25">
-                          <tspan class="ef-muted-t">绿电 </tspan><tspan id="efGreenPower" class="ef-strong-t">--</tspan>
-                          <tspan class="ef-muted-t"> · 占比 </tspan><tspan id="efGreenShare" class="ef-ok-t">--</tspan>
+                        <circle id="efQualityDot" cx="400" cy="22" r="4.2" class="ef-q-dot is-ok"></circle>
+                        <text class="ef-green-line mono" x="412" y="26">
+                          <tspan class="ef-muted-t" data-i18n="wb.kpiRen">绿电</tspan><tspan class="ef-muted-t"> </tspan><tspan id="efGreenPower" class="ef-strong-t">--</tspan>
+                          <tspan class="ef-muted-t"> · </tspan><tspan class="ef-muted-t" data-i18n="wb.kpiShare">绿电比</tspan><tspan class="ef-muted-t"> </tspan><tspan id="efGreenShare" class="ef-ok-t">--</tspan>
                         </text>
-                        <text id="efDataQualityBadge" class="ef-q-text mono" x="598" y="25" text-anchor="end">OK</text>
+                        <text id="efDataQualityBadge" class="ef-q-text mono" x="602" y="26" text-anchor="end">OK</text>
                       </g>
 
-                      <text class="ef-zone-title" x="672" y="26">交流侧 380V</text>
-                      <text class="ef-zone-sub mono" id="efAcSummary" x="972" y="26" text-anchor="end">--</text>
+                      <text class="ef-zone-title" x="672" y="27" data-i18n="overview.acSide">交流侧 (380V)</text>
+                      <text class="ef-zone-sub mono" id="efAcSummary" x="972" y="27" text-anchor="end">--</text>
 
                       <!-- 能量流连接支路（底层轨道 + 顶层流动虚线） -->
                       <g class="ef-links">
@@ -807,31 +807,31 @@
 
                       <!-- 两根垂直电气母线 -->
                       <g class="ef-buses">
-                        <rect x="342" y="54" width="6" height="372" rx="3" fill="url(#efDcBusGrad)" filter="url(#efSoftGlow)" />
-                        <text class="ef-bus-cap mono" x="345" y="48" text-anchor="middle" fill="#38BDF8">DC 750V</text>
-                        <text class="ef-bus-foot" x="345" y="443" text-anchor="middle">直流母线</text>
+                        <rect x="342" y="54" width="6" height="370" rx="3" fill="url(#efDcBusGrad)" filter="url(#efSoftGlow)" />
+                        <text class="ef-bus-cap ef-bus-cap-dc mono" x="345" y="47" text-anchor="middle">DC 750V</text>
+                        <text class="ef-bus-foot" x="345" y="444" text-anchor="middle" data-i18n="overview.dcBus">直流母线</text>
 
-                        <rect x="652" y="54" width="6" height="372" rx="3" fill="url(#efAcBusGrad)" filter="url(#efSoftGlow)" />
-                        <text class="ef-bus-cap mono" x="655" y="48" text-anchor="middle" fill="#34D399">AC 380V</text>
-                        <text class="ef-bus-foot" x="655" y="443" text-anchor="middle">交流母线</text>
+                        <rect x="652" y="54" width="6" height="370" rx="3" fill="url(#efAcBusGrad)" filter="url(#efSoftGlow)" />
+                        <text class="ef-bus-cap ef-bus-cap-ac mono" x="655" y="47" text-anchor="middle">AC 380V</text>
+                        <text class="ef-bus-foot" x="655" y="444" text-anchor="middle" data-i18n="overview.acBus">交流母线</text>
                       </g>
 
                       <!-- 直流侧节点（左） -->
                       <g class="ef-node" id="efDcWind">
                         <circle class="ef-node-disc" cx="240" cy="88" r="21" stroke="#0EA5E9" />
                         <path class="ef-icon" stroke="#0EA5E9" d="M240 88 L240 74 M240 88 L252 95 M240 88 L228 95 M240 88 L240 101" />
-                        <text class="ef-n-title" x="208" y="75" text-anchor="end"><tspan data-i18n="cat.dcWind">直流风电</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 10台</tspan></text>
-                        <text class="ef-n-val mono" x="208" y="96" text-anchor="end" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="208" y="112" text-anchor="end" data-ef-sub>--</text>
+                        <text class="ef-n-title" x="208" y="73" text-anchor="end"><tspan data-i18n="cat.dcWind">直流风电</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 10台</tspan></text>
+                        <text class="ef-n-val mono" x="208" y="95" text-anchor="end" data-ef-cur>--</text>
+                        <text class="ef-n-sub mono" x="208" y="114" text-anchor="end" data-ef-sub>--</text>
                       </g>
 
                       <g class="ef-node" id="efDcPv">
                         <circle class="ef-node-disc" cx="240" cy="190" r="21" stroke="#F59E0B" />
                         <circle class="ef-icon" cx="240" cy="190" r="5.5" stroke="#F59E0B" />
                         <path class="ef-icon" stroke="#F59E0B" d="M240 179 v-3 M240 204 v-3 M229 190 h-3 M254 190 h-3 M232 182 l-2-2 M250 200 l-2-2 M248 182 l2-2 M230 200 l2-2" />
-                        <text class="ef-n-title" x="208" y="177" text-anchor="end"><tspan data-i18n="cat.dcPv">直流光伏</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 3台</tspan></text>
-                        <text class="ef-n-val mono" x="208" y="198" text-anchor="end" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="208" y="214" text-anchor="end" data-ef-sub>--</text>
+                        <text class="ef-n-title" x="208" y="175" text-anchor="end"><tspan data-i18n="cat.dcPv">直流光伏</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 3台</tspan></text>
+                        <text class="ef-n-val mono" x="208" y="197" text-anchor="end" data-ef-cur>--</text>
+                        <text class="ef-n-sub mono" x="208" y="216" text-anchor="end" data-ef-sub>--</text>
                       </g>
 
                       <g class="ef-node" id="efDcStorage">
@@ -839,72 +839,72 @@
                         <circle class="ef-soc-ring" data-ef-ring cx="240" cy="292" r="21" stroke="#10B981" stroke-dasharray="131.95" stroke-dashoffset="131.95" transform="rotate(-90 240 292)" />
                         <rect class="ef-icon" x="231" y="286" width="16" height="12" rx="2" stroke="#10B981" />
                         <path class="ef-icon" stroke="#10B981" d="M249 289 v6" />
-                        <text class="ef-n-title" x="208" y="279" text-anchor="end"><tspan data-i18n="cat.dcStorage">直流储能</tspan><tspan class="ef-n-meta mono" data-ef-meta> · SOC --</tspan></text>
-                        <text class="ef-n-val mono" x="208" y="300" text-anchor="end" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="208" y="316" text-anchor="end" data-ef-sub>--</text>
+                        <text class="ef-n-title" x="208" y="277" text-anchor="end"><tspan data-i18n="cat.dcStorage">直流储能</tspan><tspan class="ef-n-meta mono" data-ef-meta> · SOC --</tspan></text>
+                        <text class="ef-n-val mono" x="208" y="299" text-anchor="end" data-ef-cur>--</text>
+                        <text class="ef-n-sub mono" x="208" y="318" text-anchor="end" data-ef-sub>--</text>
                       </g>
 
                       <g class="ef-node" id="efDcLoad">
                         <circle class="ef-node-disc" cx="240" cy="394" r="21" stroke="#8B5CF6" />
                         <path class="ef-icon" stroke="#8B5CF6" d="M242 383 l-7 11 h6 l-2 10 8-12 h-6 z" />
-                        <text class="ef-n-title" x="208" y="381" text-anchor="end"><tspan data-i18n="cat.dcLoad">直流负荷</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 750V</tspan></text>
-                        <text class="ef-n-val mono" x="208" y="402" text-anchor="end" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="208" y="418" text-anchor="end" data-ef-sub>--</text>
+                        <text class="ef-n-title" x="208" y="379" text-anchor="end"><tspan data-i18n="cat.dcLoad">直流负荷</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 750V</tspan></text>
+                        <text class="ef-n-val mono" x="208" y="401" text-anchor="end" data-ef-cur>--</text>
+                        <text class="ef-n-sub mono" x="208" y="420" text-anchor="end" data-ef-sub>--</text>
                       </g>
 
                       <!-- 中枢耦合节点：DC/AC 变流 + 氢能闭环 -->
                       <g class="ef-node" id="efAcdc">
-                        <circle class="ef-node-disc ef-node-hub" cx="500" cy="134" r="25" stroke="#38BDF8" />
+                        <circle class="ef-node-disc ef-node-hub" cx="500" cy="134" r="25" stroke="var(--accent)" />
                         <text class="ef-hub-tag mono" x="500" y="131" text-anchor="middle">DC/AC</text>
-                        <text class="ef-hub-dir mono" data-ef-dir x="500" y="146" text-anchor="middle">↔</text>
-                        <text class="ef-n-title" x="500" y="96" text-anchor="middle"><tspan data-i18n="cat.converter">DC/AC 变流</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 2×300 kW</tspan></text>
+                        <text class="ef-hub-dir mono" data-ef-dir x="500" y="147" text-anchor="middle">↔</text>
+                        <text class="ef-n-title" x="500" y="95" text-anchor="middle"><tspan data-i18n="cat.converter">DC/AC 变流</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 2×300 kW</tspan></text>
                         <text class="ef-n-val mono" x="500" y="180" text-anchor="middle" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="500" y="196" text-anchor="middle" data-ef-sub>--</text>
+                        <text class="ef-n-sub mono" x="500" y="199" text-anchor="middle" data-ef-sub>--</text>
                       </g>
 
                       <!-- 电制氢 -->
                       <g class="ef-node" id="efElectrolyzer">
                         <circle class="ef-node-disc" cx="582" cy="246" r="20" stroke="#06B6D4" />
                         <text class="ef-hub-tag mono" x="582" y="250" text-anchor="middle" fill="#06B6D4">H₂↑</text>
-                        <text class="ef-n-title" x="554" y="232" text-anchor="end" data-i18n="cat.electrolyzer">电制氢</text>
+                        <text class="ef-n-title" x="554" y="230" text-anchor="end" data-i18n="cat.electrolyzer">电制氢</text>
                         <text class="ef-n-val-sm mono" x="554" y="250" text-anchor="end" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="554" y="266" text-anchor="end" data-ef-meta>--</text>
+                        <text class="ef-n-sub mono" x="554" y="268" text-anchor="end" data-ef-meta>--</text>
                       </g>
 
                       <!-- 储氢罐（中央环形 SOC 仪表） -->
                       <g class="ef-node" id="efHydroTank">
-                        <circle class="ef-node-disc ef-node-hub" cx="500" cy="324" r="30" stroke="rgba(56,189,248,0.25)" />
-                        <circle class="ef-soc-ring" data-ef-ring cx="500" cy="324" r="30" stroke="#38BDF8" stroke-dasharray="188.50" stroke-dashoffset="188.50" transform="rotate(-90 500 324)" />
-                        <text class="ef-tank-pct mono" x="500" y="321" text-anchor="middle" data-ef-cur>--</text>
-                        <text class="ef-tank-sub mono" x="500" y="337" text-anchor="middle" data-ef-meta>--</text>
-                        <text class="ef-n-title" x="460" y="328" text-anchor="end" data-i18n="cat.hydroTank">储氢罐</text>
+                        <circle class="ef-node-disc ef-node-hub" cx="500" cy="324" r="32" stroke="rgba(56,189,248,0.28)" />
+                        <circle class="ef-soc-ring" data-ef-ring cx="500" cy="324" r="32" stroke="var(--accent)" stroke-dasharray="201.06" stroke-dashoffset="201.06" transform="rotate(-90 500 324)" />
+                        <text class="ef-tank-pct mono" x="500" y="320" text-anchor="middle" data-ef-cur>--</text>
+                        <text class="ef-tank-sub mono" x="500" y="339" text-anchor="middle" data-ef-meta>--</text>
+                        <text class="ef-n-title" x="456" y="328" text-anchor="end" data-i18n="cat.hydroTank">储氢罐</text>
                       </g>
 
                       <!-- 燃料电池 -->
                       <g class="ef-node" id="efFuelCell">
                         <circle class="ef-node-disc" cx="418" cy="402" r="20" stroke="#10B981" />
                         <text class="ef-hub-tag mono" x="418" y="406" text-anchor="middle" fill="#10B981">FC</text>
-                        <text class="ef-n-title" x="448" y="390" text-anchor="start" data-i18n="cat.fuelCell">燃料电池</text>
+                        <text class="ef-n-title" x="448" y="388" text-anchor="start" data-i18n="cat.fuelCell">燃料电池</text>
                         <text class="ef-n-val-sm mono" x="448" y="408" text-anchor="start" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="448" y="424" text-anchor="start" data-ef-meta>--</text>
+                        <text class="ef-n-sub mono" x="448" y="426" text-anchor="start" data-ef-meta>--</text>
                       </g>
 
                       <!-- 交流侧节点（右） -->
                       <g class="ef-node" id="efAcWind">
                         <circle class="ef-node-disc" cx="760" cy="82" r="20" stroke="#0EA5E9" />
                         <path class="ef-icon" stroke="#0EA5E9" d="M760 82 L760 69 M760 82 L771 89 M760 82 L749 89 M760 82 L760 95" />
-                        <text class="ef-n-title" x="792" y="70" text-anchor="start"><tspan data-i18n="cat.acWind">交流风电</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 1台</tspan></text>
-                        <text class="ef-n-val mono" x="792" y="90" text-anchor="start" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="792" y="106" text-anchor="start" data-ef-sub>--</text>
+                        <text class="ef-n-title" x="792" y="68" text-anchor="start"><tspan data-i18n="cat.acWind">交流风电</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 1台</tspan></text>
+                        <text class="ef-n-val mono" x="792" y="89" text-anchor="start" data-ef-cur>--</text>
+                        <text class="ef-n-sub mono" x="792" y="108" text-anchor="start" data-ef-sub>--</text>
                       </g>
 
                       <g class="ef-node" id="efAcPv">
                         <circle class="ef-node-disc" cx="760" cy="160" r="20" stroke="#F59E0B" />
                         <circle class="ef-icon" cx="760" cy="160" r="5" stroke="#F59E0B" />
                         <path class="ef-icon" stroke="#F59E0B" d="M760 150 v-3 M760 173 v-3 M750 160 h-3 M773 160 h-3" />
-                        <text class="ef-n-title" x="792" y="148" text-anchor="start"><tspan data-i18n="cat.acPv">交流光伏</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 1台</tspan></text>
-                        <text class="ef-n-val mono" x="792" y="168" text-anchor="start" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="792" y="184" text-anchor="start" data-ef-sub>--</text>
+                        <text class="ef-n-title" x="792" y="146" text-anchor="start"><tspan data-i18n="cat.acPv">交流光伏</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 1台</tspan></text>
+                        <text class="ef-n-val mono" x="792" y="167" text-anchor="start" data-ef-cur>--</text>
+                        <text class="ef-n-sub mono" x="792" y="186" text-anchor="start" data-ef-sub>--</text>
                       </g>
 
                       <g class="ef-node" id="efAcStorage">
@@ -912,25 +912,25 @@
                         <circle class="ef-soc-ring" data-ef-ring cx="760" cy="238" r="20" stroke="#10B981" stroke-dasharray="125.66" stroke-dashoffset="125.66" transform="rotate(-90 760 238)" />
                         <rect class="ef-icon" x="751" y="232" width="16" height="12" rx="2" stroke="#10B981" />
                         <path class="ef-icon" stroke="#10B981" d="M769 235 v6" />
-                        <text class="ef-n-title" x="792" y="226" text-anchor="start"><tspan data-i18n="cat.acStorage">交流储能</tspan><tspan class="ef-n-meta mono" data-ef-meta> · SOC --</tspan></text>
-                        <text class="ef-n-val mono" x="792" y="246" text-anchor="start" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="792" y="262" text-anchor="start" data-ef-sub>--</text>
+                        <text class="ef-n-title" x="792" y="224" text-anchor="start"><tspan data-i18n="cat.acStorage">交流储能</tspan><tspan class="ef-n-meta mono" data-ef-meta> · SOC --</tspan></text>
+                        <text class="ef-n-val mono" x="792" y="245" text-anchor="start" data-ef-cur>--</text>
+                        <text class="ef-n-sub mono" x="792" y="264" text-anchor="start" data-ef-sub>--</text>
                       </g>
 
                       <g class="ef-node" id="efDiesel">
                         <circle class="ef-node-disc" cx="760" cy="316" r="20" stroke="#EF4444" />
                         <text class="ef-hub-tag mono" x="760" y="320" text-anchor="middle" fill="#EF4444">DG</text>
-                        <text class="ef-n-title" x="792" y="304" text-anchor="start"><tspan data-i18n="cat.diesel">柴油发电</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 下限 --</tspan></text>
-                        <text class="ef-n-val mono" x="792" y="324" text-anchor="start" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="792" y="340" text-anchor="start" data-ef-sub>--</text>
+                        <text class="ef-n-title" x="792" y="302" text-anchor="start"><tspan data-i18n="cat.diesel">柴油发电</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 下限 --</tspan></text>
+                        <text class="ef-n-val mono" x="792" y="323" text-anchor="start" data-ef-cur>--</text>
+                        <text class="ef-n-sub mono" x="792" y="342" text-anchor="start" data-ef-sub>--</text>
                       </g>
 
                       <g class="ef-node" id="efAcLoad">
                         <circle class="ef-node-disc" cx="760" cy="394" r="20" stroke="#8B5CF6" />
                         <path class="ef-icon" stroke="#8B5CF6" d="M762 383 l-7 11 h6 l-2 10 8-12 h-6 z" />
-                        <text class="ef-n-title" x="792" y="382" text-anchor="start"><tspan data-i18n="cat.acLoad">交流负荷</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 380V</tspan></text>
-                        <text class="ef-n-val mono" x="792" y="402" text-anchor="start" data-ef-cur>--</text>
-                        <text class="ef-n-sub mono" x="792" y="418" text-anchor="start" data-ef-sub>--</text>
+                        <text class="ef-n-title" x="792" y="380" text-anchor="start"><tspan data-i18n="cat.acLoad">交流负荷</tspan><tspan class="ef-n-meta mono" data-ef-meta> · 380V</tspan></text>
+                        <text class="ef-n-val mono" x="792" y="401" text-anchor="start" data-ef-cur>--</text>
+                        <text class="ef-n-sub mono" x="792" y="420" text-anchor="start" data-ef-sub>--</text>
                       </g>
                     </svg>
                   </div>
@@ -1667,14 +1667,14 @@
           <div>
             <h3 data-i18n="derating.charge">充电功率上限 (SOC %)</h3>
             <table class="data-table">
-              <thead><tr><th>SOC (%)</th><th data-i18n="derating.ratio">功率上限 (%)</th></tr></thead>
+              <thead><tr><th class="num">SOC (%)</th><th class="num" data-i18n="derating.ratio">功率上限 (%)</th></tr></thead>
               <tbody id="chargeDeratingBody"></tbody>
             </table>
           </div>
           <div>
             <h3 data-i18n="derating.discharge">放电功率上限 (SOC %)</h3>
             <table class="data-table">
-              <thead><tr><th>SOC (%)</th><th data-i18n="derating.ratio">功率上限 (%)</th></tr></thead>
+              <thead><tr><th class="num">SOC (%)</th><th class="num" data-i18n="derating.ratio">功率上限 (%)</th></tr></thead>
               <tbody id="dischargeDeratingBody"></tbody>
             </table>
           </div>
@@ -1722,9 +1722,9 @@
           <div id="mcYtBox" class="form-field">
             <label>
               <span data-i18n="cmd.targetVal">目标设定值</span>
-              <input id="mcYtInput" type="number" step="0.1" class="cell-input" />
+              <input id="mcYtInput" type="number" step="any" />
             </label>
-            <div class="inline-btn-group">
+            <div class="inline-btn-group" style="margin-top: 8px;">
               <button type="button" class="btn btn-xs" data-yt-quick="zero">0</button>
               <button type="button" class="btn btn-xs" data-yt-quick="minus10">-10%</button>
               <button type="button" class="btn btn-xs" data-yt-quick="cur" data-i18n="lbl.current">当前</button>
@@ -1734,7 +1734,7 @@
           <div id="mcYkBox" class="form-field" hidden>
             <label>
               <span data-i18n="cmd.targetState">目标状态</span>
-              <select id="mcYkSelect" class="cell-input">
+              <select id="mcYkSelect">
                 <option value="1" data-i18n="state.on">投入 / 合闸 (1)</option>
                 <option value="0" data-i18n="state.off">退出 / 分闸 (0)</option>
               </select>
@@ -1798,7 +1798,7 @@
                 <tr>
                   <td data-i18n="params.backendRefresh">后台数据刷新周期</td>
                   <td id="curBackendRefresh" class="num mono">1</td>
-                  <td class="cell-edit"><input id="inpBackendRefresh" type="number" min="0.3" max="60" step="0.1" class="grid-control num" /></td>
+                  <td class="cell-edit"><input id="inpBackendRefresh" type="number" min="0.3" max="60" step="any" class="grid-control num" /></td>
                   <td>s</td>
                 </tr>
                 <tr>
@@ -1886,7 +1886,7 @@
                 <tr>
                   <td data-i18n="params.webRefresh">前端数据刷新周期</td>
                   <td id="curWebRefresh" class="num mono">1.5</td>
-                  <td class="cell-edit"><input id="inpWebRefresh" type="number" min="0.5" max="60" step="0.5" class="grid-control num" /></td>
+                  <td class="cell-edit"><input id="inpWebRefresh" type="number" min="0.5" max="60" step="any" class="grid-control num" /></td>
                   <td>s</td>
                 </tr>
                 <tr>
@@ -1905,13 +1905,13 @@
                 <tr>
                   <td data-i18n="params.diagElectricThreshold">电功率箭头显示门槛</td>
                   <td id="curDiagElectric" class="num mono">0.1</td>
-                  <td class="cell-edit"><input id="inpDiagElectric" type="number" min="0" max="1000" step="0.05" class="grid-control num" /></td>
+                  <td class="cell-edit"><input id="inpDiagElectric" type="number" min="0" max="1000" step="any" class="grid-control num" /></td>
                   <td>kW</td>
                 </tr>
                 <tr>
                   <td data-i18n="params.diagHydroThreshold">氢流量箭头显示门槛</td>
                   <td id="curDiagHydro" class="num mono">0.1</td>
-                  <td class="cell-edit"><input id="inpDiagHydro" type="number" min="0" max="1000" step="0.05" class="grid-control num" /></td>
+                  <td class="cell-edit"><input id="inpDiagHydro" type="number" min="0" max="1000" step="any" class="grid-control num" /></td>
                   <td>Nm³/h</td>
                 </tr>
                 <tr>
@@ -1946,13 +1946,13 @@
 
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-    <script defer src="/js/00-i18n.js?v=20261127-fix33"></script>
-    <script defer src="/js/01-core.js?v=20261127-fix33"></script>
-    <script defer src="/js/02-overview-diagram.js?v=20261127-fix33"></script>
-    <script defer src="/js/03-agc-control.js?v=20261127-fix33"></script>
-    <script defer src="/js/04-monitor-pages.js?v=20261127-fix33"></script>
-    <script defer src="/js/06-device-config.js?v=20261127-fix33"></script>
-    <script defer src="/js/07-wallboard.js?v=20261127-fix33"></script>
-    <script defer src="/js/05-bootstrap.js?v=20261127-fix33"></script>
+    <script defer src="/js/00-i18n.js?v=20261128-fix34"></script>
+    <script defer src="/js/01-core.js?v=20261128-fix34"></script>
+    <script defer src="/js/02-overview-diagram.js?v=20261128-fix34"></script>
+    <script defer src="/js/03-agc-control.js?v=20261128-fix34"></script>
+    <script defer src="/js/04-monitor-pages.js?v=20261128-fix34"></script>
+    <script defer src="/js/06-device-config.js?v=20261128-fix34"></script>
+    <script defer src="/js/07-wallboard.js?v=20261128-fix34"></script>
+    <script defer src="/js/05-bootstrap.js?v=20261128-fix34"></script>
   </body>
 </html>

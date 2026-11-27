@@ -865,8 +865,8 @@ function renderDeratingRows(tbodyId, curve) {
     const ratio = Number(pt.power_ratio ?? pt[1]) * 100;
     return `
       <tr>
-        <td><input type="number" class="cell-input" data-derate-soc="${idx}" min="0" max="100" step="1" value="${soc.toFixed(0)}" /></td>
-        <td><input type="number" class="cell-input" data-derate-ratio="${idx}" min="0" max="100" step="1" value="${ratio.toFixed(0)}" /></td>
+        <td class="cell-edit num"><input type="number" class="grid-control num" data-derate-soc="${idx}" min="0" max="100" step="any" value="${Number(soc.toFixed(1))}" /></td>
+        <td class="cell-edit num"><input type="number" class="grid-control num" data-derate-ratio="${idx}" min="0" max="100" step="any" value="${Number(ratio.toFixed(1))}" /></td>
       </tr>`;
   }).join("");
 }

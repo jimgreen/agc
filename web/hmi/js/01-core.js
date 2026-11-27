@@ -239,16 +239,16 @@ function drawLineChart(canvas, { labels = [], series = [], leftUnit = "kW", righ
   ctx.clearRect(0, 0, width, height);
 
   const hasRight = series.some((s) => s.axis === "right");
-  const padL = 56;
-  const padR = hasRight ? 52 : 18;
+  const padL = 58;
+  const padR = hasRight ? 54 : 18;
   const padT = 16;
-  const padB = 26;
+  const padB = 28;
   const plotW = Math.max(40, width - padL - padR);
   const plotH = Math.max(40, height - padT - padB);
 
   if (!labels.length || !series.length) {
     ctx.fillStyle = pal.text;
-    ctx.font = "12px Inter, sans-serif";
+    ctx.font = "12.5px Inter, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(emptyText, width / 2, height / 2);
@@ -279,7 +279,7 @@ function drawLineChart(canvas, { labels = [], series = [], leftUnit = "kW", righ
   const rBounds = rightSeries.length ? { min: 0, max: 100 } : null;
 
   // 水平虚线网格 + 坐标轴刻度
-  ctx.font = "11px JetBrains Mono, Consolas, monospace";
+  ctx.font = "11.5px 'JetBrains Mono', Consolas, monospace";
   const ticks = 4;
   for (let i = 0; i <= ticks; i++) {
     const ratio = i / ticks;
@@ -445,14 +445,14 @@ function drawChartHover(canvas, idx) {
     }
   });
 
-  ctx.font = "11px JetBrains Mono, Consolas, monospace";
-  const boxW = Math.min(240, Math.max(130, ...lines.map((l) => ctx.measureText(typeof l === "string" ? l : `${l.label}: ${l.val}`).width + 24)));
-  const boxH = 14 + lines.length * 16;
+  ctx.font = "12px 'JetBrains Mono', Consolas, monospace";
+  const boxW = Math.min(260, Math.max(142, ...lines.map((l) => ctx.measureText(typeof l === "string" ? l : `${l.label}: ${l.val}`).width + 28)));
+  const boxH = 16 + lines.length * 18;
   const bx = x + 12 + boxW > padL + plotW ? Math.max(padL + 4, x - boxW - 12) : x + 12;
   const by = padT + 8;
 
   ctx.save();
-  drawRoundedRect(ctx, bx, by, boxW, boxH, 7);
+  drawRoundedRect(ctx, bx, by, boxW, boxH, 9);
   ctx.fillStyle = pal.labelBg;
   ctx.fill();
   ctx.strokeStyle = pal.labelBorder;
@@ -461,20 +461,20 @@ function drawChartHover(canvas, idx) {
 
   ctx.textBaseline = "top";
   lines.forEach((line, i) => {
-    const ly = by + 7 + i * 16;
+    const ly = by + 8 + i * 18;
     if (typeof line === "string") {
       ctx.fillStyle = pal.textPrimary;
       ctx.textAlign = "left";
-      ctx.fillText(line, bx + 8, ly);
+      ctx.fillText(line, bx + 9, ly);
     } else {
       ctx.fillStyle = line.color;
-      ctx.fillRect(bx + 8, ly + 3, 6, 6);
+      ctx.fillRect(bx + 9, ly + 4, 6, 6);
       ctx.fillStyle = pal.text;
       ctx.textAlign = "left";
-      ctx.fillText(line.label, bx + 18, ly);
+      ctx.fillText(line.label, bx + 20, ly);
       ctx.fillStyle = pal.textPrimary;
       ctx.textAlign = "right";
-      ctx.fillText(line.val, bx + boxW - 8, ly);
+      ctx.fillText(line.val, bx + boxW - 9, ly);
     }
   });
   ctx.restore();

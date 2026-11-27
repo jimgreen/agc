@@ -872,10 +872,10 @@ function renderWallboardTrendChart() {
     const rect = (canvas.parentElement || canvas).getBoundingClientRect();
     const width = Math.max(260, Math.floor(rect.width || 600));
     const height = Math.max(120, Math.floor(rect.height || 220));
-    const padL = 56;
-    const padR = 52;
+    const padL = 58;
+    const padR = 54;
     const padT = 16;
-    const padB = 26;
+    const padB = 28;
     const plotW = Math.max(40, width - padL - padR);
     const idx = Math.max(0, Math.min(pts.length - 1, Math.round(wbHoverRatio * (pts.length - 1))));
     const x = pts.length === 1 ? padL + plotW / 2 : padL + (idx / (pts.length - 1)) * plotW;
@@ -1027,8 +1027,8 @@ function bindWallboardEvents() {
   if (canvas) {
     canvas.addEventListener("mousemove", (ev) => {
       const rect = canvas.getBoundingClientRect();
-      const padL = 56;
-      const padR = 52;
+      const padL = 58;
+      const padR = 54;
       const plotW = Math.max(40, rect.width - padL - padR);
       const relX = ev.clientX - rect.left - padL;
       if (relX < -4 || relX > plotW + 4) {
