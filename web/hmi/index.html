@@ -28,18 +28,25 @@
           document.documentElement.dataset.colorScheme = darkThemes.has(theme) ? "dark" : "light";
         } catch (_e) {}
         try {
-          if (localStorage.getItem("agcSidebarCollapsed") === "1") {
-            document.documentElement.dataset.sidebarCollapsed = "true";
-          }
-        } catch (_e) {}
+          const sbMode = localStorage.getItem("agcSidebarMode") === "embed" ? "embed" : "float";
+          const embedHidden = localStorage.getItem("agcSidebarEmbedHidden") === "1";
+          document.documentElement.dataset.sidebarMode = sbMode;
+          document.documentElement.dataset.sidebarOpen = sbMode === "embed" && !embedHidden ? "true" : "false";
+        } catch (_e) {
+          document.documentElement.dataset.sidebarMode = "float";
+          document.documentElement.dataset.sidebarOpen = "false";
+        }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20261127-fix21" />
+    <link rel="stylesheet" href="/styles.css?v=20261127-fix26" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
         <div class="brand">
+          <button id="topbarSidebarBtn" class="topbar-sidebar-btn" type="button" data-i18n-title="nav.toggleSidebar" title="显示 / 隐藏左栏" aria-label="Toggle Sidebar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+          </button>
           <span class="brand-mark" aria-hidden="true"></span>
           <div class="brand-text">
             <h1 data-i18n="app.title">秦岭微电网 AGC 控制台</h1>
@@ -75,6 +82,9 @@
           <button id="topbarAlertBadge" class="topbar-alert-badge" type="button" hidden>
             <span class="alert-pulse-dot" aria-hidden="true"></span>
             <span id="topbarAlertBadgeText">异常</span>
+          </button>
+          <button id="topbarWallboardBtn" class="btn btn-sm btn-primary" type="button" data-i18n-title="wb.enterScreen" title="全屏大屏">
+            <span id="topbarWallboardBtnLabel" data-i18n="wb.enterScreen">全屏大屏</span>
           </button>
           <button id="topbarEmergencyStopBtn" class="btn btn-sm btn-danger-ghost" type="button" data-i18n-title="topbar.estopTip" title="停止自动控制并强制退回开环">
             <span data-i18n="topbar.estop">紧急停控</span>
@@ -120,9 +130,14 @@
       </header>
 
       <div class="app-body">
+        <div id="sidebarEdgeTrigger" class="sidebar-edge-trigger" aria-hidden="true"></div>
         <aside id="appSidebar" class="app-sidebar">
           <nav class="page-nav" aria-label="Primary">
-            <button type="button" data-nav-page="overview" class="is-active" data-i18n-title="nav.overview">
+            <button type="button" data-nav-page="wallboard" class="is-active" data-i18n-title="nav.wallboard">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4M6 12l3-3 3 2 5-5"/></svg>
+              <span class="nav-label" data-i18n="nav.wallboard">大屏主画面</span>
+            </button>
+            <button type="button" data-nav-page="overview" data-i18n-title="nav.overview">
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
               <span class="nav-label" data-i18n="nav.overview">主页</span>
             </button>
@@ -160,16 +175,349 @@
             </button>
           </nav>
           <div class="sidebar-footer">
-            <button id="appSidebarToggle" class="sidebar-toggle-btn" type="button" data-i18n-title="nav.collapse">
+            <div class="segmented sidebar-mode-seg" id="sidebarModeGroup" role="group">
+              <button type="button" class="is-active" data-set-sidebar-mode="float" data-i18n="nav.modeFloat">悬浮</button>
+              <button type="button" data-set-sidebar-mode="embed" data-i18n="nav.modeEmbed">内嵌</button>
+            </div>
+            <button id="appSidebarToggle" class="sidebar-toggle-btn" type="button" data-i18n-title="nav.hideSidebar">
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 18l-6-6 6-6"/><path d="M4 5v14"/></svg>
-              <span class="nav-label" data-i18n="nav.collapse">收起侧栏</span>
+              <span class="nav-label" data-i18n="nav.hideSidebar">隐藏侧栏</span>
             </button>
           </div>
         </aside>
 
         <main class="page-main">
+          <!-- ==================== 0. AGC 态势监控大屏主画面 ==================== -->
+          <section class="page-section is-active" data-page="wallboard">
+            <div class="wb-layout">
+              <section class="panel wb-kpi-strip">
+                <div class="wb-kpi-cell">
+                  <span class="wb-kpi-lbl" data-i18n="wb.kpiLoad">总负荷</span>
+                  <span class="wb-kpi-val mono"><strong id="wbKpiLoad">--</strong><small>kW</small></span>
+                </div>
+                <div class="wb-kpi-cell">
+                  <span class="wb-kpi-lbl" data-i18n="wb.kpiRen">新能源 实发/目标</span>
+                  <span class="wb-kpi-val mono"><strong id="wbKpiRen" class="is-accent">--</strong><small>kW</small></span>
+                </div>
+                <div class="wb-kpi-cell">
+                  <span class="wb-kpi-lbl" data-i18n="wb.kpiUtil">绿电消纳率</span>
+                  <span class="wb-kpi-val mono"><strong id="wbKpiUtil" class="is-ok">--</strong><small>%</small></span>
+                </div>
+                <div class="wb-kpi-cell">
+                  <span class="wb-kpi-lbl" data-i18n="wb.kpiShare">绿电占荷比</span>
+                  <span class="wb-kpi-val mono"><strong id="wbKpiShare" class="is-ok">--</strong><small>%</small></span>
+                </div>
+                <div class="wb-kpi-cell">
+                  <span class="wb-kpi-lbl" data-i18n="wb.kpiDiesel">柴发 实发/下限</span>
+                  <span class="wb-kpi-val mono"><strong id="wbKpiDiesel">--</strong><small>kW</small></span>
+                </div>
+                <div class="wb-kpi-cell">
+                  <span class="wb-kpi-lbl" data-i18n="wb.kpiStorage">储能净出力</span>
+                  <span class="wb-kpi-val mono"><strong id="wbKpiStorage">--</strong><small id="wbKpiStorageSub">kW</small></span>
+                </div>
+                <div class="wb-kpi-cell">
+                  <span class="wb-kpi-lbl" data-i18n="wb.kpiHydro">电氢 净功率/罐压</span>
+                  <span class="wb-kpi-val mono"><strong id="wbKpiHydro">--</strong><small id="wbKpiHydroSub">MPa</small></span>
+                </div>
+                <div class="wb-kpi-cell">
+                  <span class="wb-kpi-lbl" data-i18n="wb.kpiDispatch">本轮调控</span>
+                  <span class="wb-kpi-val mono"><strong id="wbKpiDispatch">0 / 0</strong><small id="wbKpiAck">--</small></span>
+                </div>
+              </section>
+
+              <div class="wb-main-grid">
+                <!-- 左栏：受控资源出力包络 + 安全裕度与环境通道 -->
+                <div class="wb-col">
+                  <section class="panel wb-card wb-card-pool">
+                    <div class="panel-head">
+                      <h2 data-i18n="wb.poolTitle">受控资源出力包络</h2>
+                      <span id="wbStateSummary" class="badge badge-neutral mono">--</span>
+                    </div>
+                    <div id="wbResourcePool" class="wb-pool-list"></div>
+                  </section>
+
+                  <section class="panel wb-card wb-card-guard">
+                    <div class="panel-head">
+                      <h2 data-i18n="wb.guardTitle">安全裕度与环境通道</h2>
+                      <span id="wbIslandBadge" class="badge badge-neutral">--</span>
+                    </div>
+                    <div class="wb-guard-body">
+                      <div id="wbGuardMeters" class="wb-guard-list"></div>
+                      <div class="wb-env-grid">
+                        <div class="wb-env-box"><span data-i18n="env.windSpeed">风速</span><strong id="wbEnvWind" class="mono">--</strong></div>
+                        <div class="wb-env-box"><span data-i18n="env.solar">辐照度</span><strong id="wbEnvSolar" class="mono">--</strong></div>
+                        <div class="wb-env-box"><span data-i18n="env.temp">气温</span><strong id="wbEnvTemp" class="mono">--</strong></div>
+                        <div class="wb-env-box"><span data-i18n="overview.measCount">有效量测</span><strong id="wbEnvMeas" class="mono">--</strong></div>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+
+                <!-- 中栏：AGC 闭环控制态势主图 + 多源协同实时跟踪曲线 -->
+                <div class="wb-col">
+                  <section class="panel wb-card wb-card-cockpit">
+                    <div class="panel-head">
+                      <div class="panel-title-inline">
+                        <h2 data-i18n="wb.cockpitTitle">源网荷储氢 AGC 闭环控制态势</h2>
+                        <span id="wbLoopBadge" class="badge badge-info">开环</span>
+                      </div>
+                      <div class="inline-btn-group">
+                        <button id="wbQuickCalcBtn" type="button" class="btn btn-primary btn-xs" data-i18n="agc.calcOnce">单次计算</button>
+                        <button id="wbOpenAgcBtn" type="button" class="btn btn-xs" data-i18n="overview.openAgc">进入控制</button>
+                        <button id="wbOpenDiagBtn" type="button" class="btn btn-xs" data-i18n="nav.diagram">接线图</button>
+                      </div>
+                    </div>
+                    <div class="wb-cockpit-stage">
+                      <svg id="wbCockpitSvg" class="wb-cockpit-svg" viewBox="0 0 1040 426" preserveAspectRatio="xMidYMid meet" role="img" aria-label="AGC 闭环控制态势主图">
+                        <!-- 顶部区段栏 -->
+                        <text class="ef-zone-title" x="20" y="22" data-i18n="overview.dcSide">直流侧 (750V)</text>
+                        <text id="wbDcSummary" class="ef-zone-sub mono" x="324" y="22" text-anchor="end">--</text>
+                        <text id="wbCenterBanner" class="ef-zone-sub mono" x="520" y="22" text-anchor="middle">--</text>
+                        <text class="ef-zone-title" x="716" y="22" data-i18n="overview.acSide">交流侧 (380V)</text>
+                        <text id="wbAcSummary" class="ef-zone-sub mono" x="1020" y="22" text-anchor="end">--</text>
+
+                        <!-- 能量流连接支路 -->
+                        <g class="ef-links">
+                          <!-- DC 4 支路 -->
+                          <path class="ef-rail" d="M 252 81 L 332 81" />
+                          <path id="wbFlowDcWind" class="ef-flow" stroke="#0EA5E9" d="M 252 81 L 332 81" />
+                          <path class="ef-rail" d="M 252 171 L 332 171" />
+                          <path id="wbFlowDcPv" class="ef-flow" stroke="#F59E0B" d="M 252 171 L 332 171" />
+                          <path class="ef-rail" d="M 252 261 L 332 261" />
+                          <path id="wbFlowDcStorage" class="ef-flow" stroke="#10B981" d="M 252 261 L 332 261" />
+                          <path class="ef-rail" d="M 332 351 L 252 351" />
+                          <path id="wbFlowDcLoad" class="ef-flow" stroke="#8B5CF6" d="M 332 351 L 252 351" />
+
+                          <!-- 中枢上桥：DC/AC 双向变流 -->
+                          <path class="ef-rail" d="M 338 84 L 424 84" />
+                          <path id="wbFlowAcdcL" class="ef-flow" stroke="#38BDF8" d="M 338 84 L 424 84" />
+                          <path class="ef-rail" d="M 616 84 L 702 84" />
+                          <path id="wbFlowAcdcR" class="ef-flow" stroke="#38BDF8" d="M 616 84 L 702 84" />
+
+                          <!-- 中枢 AGC 脉冲控制信号线 -->
+                          <path class="wb-ctrl-pulse" d="M 520 148 L 520 120" />
+                          <path class="wb-ctrl-pulse" d="M 520 232 L 520 294" />
+                          <path class="wb-ctrl-pulse" d="M 412 190 L 338 190" />
+                          <path class="wb-ctrl-pulse" d="M 628 190 L 702 190" />
+
+                          <!-- 中枢下环：电氢耦合链 AC -> ELZ -> H2 -> FC -> DC -->
+                          <path class="ef-rail" d="M 702 332 L 684 332" />
+                          <path id="wbFlowElzIn" class="ef-flow" stroke="#06B6D4" d="M 702 332 L 684 332" />
+                          <path class="ef-rail" d="M 576 332 L 552 332" />
+                          <path id="wbFlowElzH2" class="ef-flow" stroke="#38BDF8" d="M 576 332 L 552 332" />
+                          <path class="ef-rail" d="M 488 332 L 464 332" />
+                          <path id="wbFlowFcH2" class="ef-flow" stroke="#38BDF8" d="M 488 332 L 464 332" />
+                          <path class="ef-rail" d="M 356 332 L 338 332" />
+                          <path id="wbFlowFcOut" class="ef-flow" stroke="#10B981" d="M 356 332 L 338 332" />
+
+                          <!-- AC 5 支路 -->
+                          <path class="ef-rail" d="M 788 74 L 708 74" />
+                          <path id="wbFlowAcWind" class="ef-flow" stroke="#0EA5E9" d="M 788 74 L 708 74" />
+                          <path class="ef-rail" d="M 788 148 L 708 148" />
+                          <path id="wbFlowAcPv" class="ef-flow" stroke="#F59E0B" d="M 788 148 L 708 148" />
+                          <path class="ef-rail" d="M 788 222 L 708 222" />
+                          <path id="wbFlowAcStorage" class="ef-flow" stroke="#10B981" d="M 788 222 L 708 222" />
+                          <path class="ef-rail" d="M 788 296 L 708 296" />
+                          <path id="wbFlowDiesel" class="ef-flow" stroke="#EF4444" d="M 788 296 L 708 296" />
+                          <path class="ef-rail" d="M 708 370 L 788 370" />
+                          <path id="wbFlowAcLoad" class="ef-flow" stroke="#8B5CF6" d="M 708 370 L 788 370" />
+                        </g>
+
+                        <!-- 双垂直母线 -->
+                        <g class="ef-buses">
+                          <rect x="332" y="38" width="6" height="362" rx="3" fill="url(#efDcBusGrad)" />
+                          <text class="ef-bus-foot" x="335" y="416" text-anchor="middle" data-i18n="overview.dcBus">直流母线</text>
+                          <rect x="702" y="38" width="6" height="362" rx="3" fill="url(#efAcBusGrad)" />
+                          <text class="ef-bus-foot" x="705" y="416" text-anchor="middle" data-i18n="overview.acBus">交流母线</text>
+                        </g>
+
+                        <!-- 左翼 4 个直流节点 -->
+                        <g class="wb-svg-node" id="wbNodeDcWind" data-wb-tab="dc-wind">
+                          <rect class="wb-svg-card" x="20" y="44" width="232" height="74" rx="8" />
+                          <text class="wb-svg-title" x="32" y="63" data-i18n="cat.dcWind">直流风电</text>
+                          <text class="wb-svg-meta" x="240" y="63" text-anchor="end" data-wb-meta>10台</text>
+                          <text class="wb-svg-val" x="32" y="88" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="32" y="107" data-wb-tgt>目标 --</text>
+                          <text class="wb-svg-tgt" x="240" y="107" text-anchor="end" data-wb-delta>Δ0.0</text>
+                        </g>
+
+                        <g class="wb-svg-node" id="wbNodeDcPv" data-wb-tab="dc-pv">
+                          <rect class="wb-svg-card" x="20" y="134" width="232" height="74" rx="8" />
+                          <text class="wb-svg-title" x="32" y="153" data-i18n="cat.dcPv">直流光伏</text>
+                          <text class="wb-svg-meta" x="240" y="153" text-anchor="end" data-wb-meta>3台</text>
+                          <text class="wb-svg-val" x="32" y="178" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="32" y="197" data-wb-tgt>目标 --</text>
+                          <text class="wb-svg-tgt" x="240" y="197" text-anchor="end" data-wb-delta>Δ0.0</text>
+                        </g>
+
+                        <g class="wb-svg-node" id="wbNodeDcStorage" data-wb-tab="dc-grid-storage">
+                          <rect class="wb-svg-card" x="20" y="224" width="232" height="74" rx="8" />
+                          <text class="wb-svg-title" x="32" y="243" data-i18n="cat.dcStorage">直流储能</text>
+                          <text class="wb-svg-meta" x="196" y="243" text-anchor="end" data-wb-meta>SOC --%</text>
+                          <text class="wb-svg-val" x="32" y="268" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="32" y="287" data-wb-tgt>目标 --</text>
+                          <text class="wb-svg-tgt" x="196" y="287" text-anchor="end" data-wb-delta>Δ0.0</text>
+                          <circle class="ef-ring-track" cx="224" cy="261" r="17" />
+                          <circle class="ef-ring-prog" data-wb-ring cx="224" cy="261" r="17" stroke="#10B981" transform="rotate(-90 224 261)" />
+                        </g>
+
+                        <g class="wb-svg-node" id="wbNodeDcLoad" data-wb-diag="DCLoad">
+                          <rect class="wb-svg-card" x="20" y="314" width="232" height="74" rx="8" />
+                          <text class="wb-svg-title" x="32" y="333" data-i18n="cat.dcLoad">直流负荷</text>
+                          <text class="wb-svg-meta" x="240" y="333" text-anchor="end">750V</text>
+                          <text class="wb-svg-val" x="32" y="358" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="32" y="377" data-wb-tgt>负荷占比 --%</text>
+                        </g>
+
+                        <!-- 中枢上桥：DC/AC 双向变流器 -->
+                        <g class="wb-svg-node" id="wbNodeAcdc" data-wb-tab="converter">
+                          <rect class="wb-svg-card" x="424" y="50" width="192" height="68" rx="8" />
+                          <text class="wb-svg-title" x="436" y="68" data-i18n="cat.converter">ACDC变流</text>
+                          <text class="ef-hub-dir mono" x="604" y="68" text-anchor="end" data-wb-dir>◀━▶</text>
+                          <text class="wb-svg-val" x="436" y="91" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="436" y="109" data-wb-tgt>目标 --</text>
+                          <text class="wb-svg-tgt" x="604" y="109" text-anchor="end" data-wb-delta>Δ0.0</text>
+                        </g>
+
+                        <!-- 中枢核心：AGC 协调优化引擎 -->
+                        <g class="wb-svg-node" id="wbCoreEngine" data-wb-tab="all">
+                          <rect class="wb-svg-core" x="412" y="148" width="216" height="84" rx="10" />
+                          <text class="wb-svg-title" x="520" y="169" text-anchor="middle">AGC 协调优化中枢</text>
+                          <text id="wbCoreMain" class="wb-svg-val" x="520" y="195" text-anchor="middle">--</text>
+                          <text id="wbCoreSub" class="wb-svg-tgt" x="520" y="217" text-anchor="middle">--</text>
+                        </g>
+
+                        <!-- 中枢下环：燃料电池 <- 储氢罐 <- 电制氢 -->
+                        <g class="wb-svg-node" id="wbNodeFc" data-wb-tab="hydrogen">
+                          <rect class="wb-svg-card" x="356" y="294" width="108" height="76" rx="8" />
+                          <text class="wb-svg-title" x="410" y="313" text-anchor="middle" data-i18n="cat.fuelCell">燃料电池</text>
+                          <text class="wb-svg-val" x="410" y="338" text-anchor="middle" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="410" y="357" text-anchor="middle" data-wb-tgt>-- Nm³/h</text>
+                        </g>
+
+                        <g class="wb-svg-node" id="wbNodeH2Tank" data-wb-tab="hydrogen">
+                          <circle class="ef-node-ring" cx="520" cy="332" r="30" />
+                          <circle class="ef-ring-track" cx="520" cy="332" r="26" />
+                          <circle class="ef-ring-prog" data-wb-ring cx="520" cy="332" r="26" stroke="#06B6D4" transform="rotate(-90 520 332)" />
+                          <text class="ef-tank-pct mono" x="520" y="329" text-anchor="middle" data-wb-cur>--%</text>
+                          <text class="ef-tank-sub mono" x="520" y="344" text-anchor="middle" data-wb-tgt>-- MPa</text>
+                          <text class="ef-bus-foot" x="520" y="378" text-anchor="middle" data-i18n="cat.hydroTank">储氢罐</text>
+                        </g>
+
+                        <g class="wb-svg-node" id="wbNodeElz" data-wb-tab="hydrogen">
+                          <rect class="wb-svg-card" x="576" y="294" width="108" height="76" rx="8" />
+                          <text class="wb-svg-title" x="630" y="313" text-anchor="middle" data-i18n="cat.electrolyzer">电制氢</text>
+                          <text class="wb-svg-val" x="630" y="338" text-anchor="middle" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="630" y="357" text-anchor="middle" data-wb-tgt>-- Nm³/h</text>
+                        </g>
+
+                        <!-- 右翼 5 个交流节点 -->
+                        <g class="wb-svg-node" id="wbNodeAcWind" data-wb-tab="ac-wind">
+                          <rect class="wb-svg-card" x="788" y="42" width="232" height="64" rx="8" />
+                          <text class="wb-svg-title" x="800" y="60" data-i18n="cat.acWind">交流风电</text>
+                          <text class="wb-svg-meta" x="1008" y="60" text-anchor="end" data-wb-meta>1台</text>
+                          <text class="wb-svg-val" x="800" y="82" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="800" y="98" data-wb-tgt>目标 --</text>
+                          <text class="wb-svg-tgt" x="1008" y="98" text-anchor="end" data-wb-delta>Δ0.0</text>
+                        </g>
+
+                        <g class="wb-svg-node" id="wbNodeAcPv" data-wb-tab="ac-pv">
+                          <rect class="wb-svg-card" x="788" y="116" width="232" height="64" rx="8" />
+                          <text class="wb-svg-title" x="800" y="134" data-i18n="cat.acPv">交流光伏</text>
+                          <text class="wb-svg-meta" x="1008" y="134" text-anchor="end" data-wb-meta>1台</text>
+                          <text class="wb-svg-val" x="800" y="156" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="800" y="172" data-wb-tgt>目标 --</text>
+                          <text class="wb-svg-tgt" x="1008" y="172" text-anchor="end" data-wb-delta>Δ0.0</text>
+                        </g>
+
+                        <g class="wb-svg-node" id="wbNodeAcStorage" data-wb-tab="ac-grid-storage">
+                          <rect class="wb-svg-card" x="788" y="190" width="232" height="64" rx="8" />
+                          <text class="wb-svg-title" x="800" y="208" data-i18n="cat.acStorage">交流储能</text>
+                          <text class="wb-svg-meta" x="968" y="208" text-anchor="end" data-wb-meta>SOC --%</text>
+                          <text class="wb-svg-val" x="800" y="230" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="800" y="246" data-wb-tgt>目标 --</text>
+                          <text class="wb-svg-tgt" x="968" y="246" text-anchor="end" data-wb-delta>Δ0.0</text>
+                          <circle class="ef-ring-track" cx="994" cy="222" r="15" />
+                          <circle class="ef-ring-prog" data-wb-ring cx="994" cy="222" r="15" stroke="#10B981" transform="rotate(-90 994 222)" />
+                        </g>
+
+                        <g class="wb-svg-node" id="wbNodeDiesel" data-wb-tab="diesel">
+                          <rect class="wb-svg-card" x="788" y="264" width="232" height="64" rx="8" />
+                          <text class="wb-svg-title" x="800" y="282" data-i18n="cat.diesel">柴发</text>
+                          <text class="wb-svg-meta" x="1008" y="282" text-anchor="end" data-wb-meta>下限 --</text>
+                          <text class="wb-svg-val" x="800" y="304" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="800" y="320" data-wb-tgt>目标 --</text>
+                          <text class="wb-svg-tgt" x="1008" y="320" text-anchor="end" data-wb-delta>Δ0.0</text>
+                        </g>
+
+                        <g class="wb-svg-node" id="wbNodeAcLoad" data-wb-diag="ACLoad">
+                          <rect class="wb-svg-card" x="788" y="338" width="232" height="64" rx="8" />
+                          <text class="wb-svg-title" x="800" y="356" data-i18n="cat.acLoad">交流负荷</text>
+                          <text class="wb-svg-meta" x="1008" y="356" text-anchor="end">380V</text>
+                          <text class="wb-svg-val" x="800" y="378" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="800" y="394" data-wb-tgt>负荷占比 --%</text>
+                        </g>
+                      </svg>
+                    </div>
+                  </section>
+
+                  <section class="panel wb-card wb-card-trend">
+                    <div class="panel-head">
+                      <div class="panel-title-inline">
+                        <h2 data-i18n="wb.trendTitle">多源协同功率与 SOC 实时跟踪</h2>
+                        <div id="wbTrendLegend" class="wb-trend-legend"></div>
+                      </div>
+                      <div class="segmented" id="wbTrendWindowGroup" role="group">
+                        <button type="button" data-wb-win="15">15m</button>
+                        <button type="button" class="is-active" data-wb-win="60">1h</button>
+                        <button type="button" data-wb-win="360">6h</button>
+                      </div>
+                    </div>
+                    <div class="wb-chart-wrap">
+                      <canvas id="wbTrendCanvas"></canvas>
+                      <div id="wbTrendTooltip" class="wb-chart-tooltip mono" hidden></div>
+                    </div>
+                  </section>
+                </div>
+
+                <!-- 右栏：本周期调节指令执行榜 + AGC 实时决策流 -->
+                <div class="wb-col">
+                  <section class="panel wb-card wb-card-rank">
+                    <div class="panel-head">
+                      <h2 data-i18n="wb.cmdRankTitle">本周期调节指令执行榜</h2>
+                      <span id="wbCmdRankMeta" class="badge badge-info mono">0 / 0</span>
+                    </div>
+                    <div class="table-scroll">
+                      <table class="data-table wb-rank-table">
+                        <thead>
+                          <tr>
+                            <th data-i18n="col.device">设备</th>
+                            <th data-i18n="wb.colStatus">状态</th>
+                            <th class="num" data-i18n="lbl.current">当前</th>
+                            <th class="num" data-i18n="lbl.target">目标</th>
+                            <th class="num">ΔP</th>
+                            <th data-i18n="wb.colAck">回执</th>
+                          </tr>
+                        </thead>
+                        <tbody id="wbCmdRankBody"></tbody>
+                      </table>
+                    </div>
+                  </section>
+
+                  <section class="panel wb-card wb-card-stream">
+                    <div class="panel-head">
+                      <h2 data-i18n="wb.decisionTitle">AGC 实时决策流</h2>
+                      <span id="wbLastCalcTime" class="muted mono">--</span>
+                    </div>
+                    <div id="wbDecisionStream" class="wb-stream-body"></div>
+                  </section>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <!-- ==================== 1. 主页总览 ==================== -->
-          <section class="page-section is-active" data-page="overview">
+          <section class="page-section" data-page="overview">
             <div class="overview-grid">
               <section class="panel overview-kpi-bar">
                 <div class="kpi-item">
@@ -489,29 +837,35 @@
                       <button id="agcCalcOnceBtn" type="button" class="btn" data-i18n="agc.calcOnce">单次计算</button>
                       <button id="agcPreviewBtn" type="button" class="btn" data-i18n="agc.preview" title="内存试算一拍，零写库零下发">策略预演</button>
                     </div>
-                    <div class="agc-setting-row">
-                      <span data-i18n="agc.loopMode">控制方式</span>
-                      <div class="segmented" id="agcLoopModeGroup" role="group">
-                        <button type="button" class="is-active" data-loop-mode="open" data-i18n="mode.open">开环</button>
-                        <button type="button" data-loop-mode="closed" data-i18n="mode.closed">闭环</button>
+                    <div class="agc-ctrl-card">
+                      <div class="agc-setting-row">
+                        <span data-i18n="agc.loopMode">控制方式</span>
+                        <div class="segmented" id="agcLoopModeGroup" role="group">
+                          <button type="button" class="is-active" data-loop-mode="open" data-i18n="mode.open">开环</button>
+                          <button type="button" data-loop-mode="closed" data-i18n="mode.closed">闭环</button>
+                        </div>
                       </div>
-                    </div>
-                    <div id="agcDualLayerHint" class="dual-layer-strip mono"></div>
-                    <div class="agc-setting-row">
-                      <span data-i18n="agc.strategyParams">策略参数</span>
-                      <div class="inline-btn-group">
+                      <div class="agc-quick-tools">
                         <button id="openAgcParamsBtn" type="button" class="btn btn-sm" data-i18n="agc.editParams">控制参数</button>
                         <button id="openDeratingQuickBtn" type="button" class="btn btn-sm" data-i18n="agc.deratingCurve">降额曲线</button>
                         <button id="openDeviceConfigFromAgcBtn" type="button" class="btn btn-sm" data-i18n="nav.deviceConfig">设备配置</button>
                       </div>
                     </div>
-                    <div class="agc-env-strip">
-                      <div><span data-i18n="env.windSpeed">风速</span><strong id="agcEnvWind" class="mono">--</strong><small>m/s</small></div>
-                      <div><span data-i18n="env.solar">辐照度</span><strong id="agcEnvSolar" class="mono">--</strong><small>W/m²</small></div>
-                    </div>
-                    <div class="agc-meta-line">
-                      <span data-i18n="agc.lastCalc">最近计算</span>
-                      <strong id="agcLastCalc" class="mono">--</strong>
+                    <div class="agc-ctrl-card agc-telemetry-card">
+                      <div class="agc-telemetry-grid">
+                        <div class="agc-telemetry-cell">
+                          <span data-i18n="env.windSpeed">风速</span>
+                          <span class="agc-telemetry-val"><strong id="agcEnvWind" class="mono">--</strong><small>m/s</small></span>
+                        </div>
+                        <div class="agc-telemetry-cell">
+                          <span data-i18n="env.solar">辐照度</span>
+                          <span class="agc-telemetry-val"><strong id="agcEnvSolar" class="mono">--</strong><small>W/m²</small></span>
+                        </div>
+                      </div>
+                      <div class="agc-meta-line">
+                        <span data-i18n="agc.lastCalc">最近计算</span>
+                        <strong id="agcLastCalc" class="mono">--</strong>
+                      </div>
                     </div>
                     <p id="agcStatusLine" class="status-note">--</p>
                   </div>
@@ -557,7 +911,6 @@
                     <span id="agcModeBannerText"></span>
                     <button id="agcExitSpecialModeBtn" type="button" class="btn btn-xs btn-primary" data-i18n="agc.backRealtime">返回实时</button>
                   </div>
-                  <div id="agcBusBalanceStrip" class="bus-balance-strip mono"></div>
                   <div id="agcStrategyTableWrap" class="table-scroll"></div>
                 </section>
               </div>
@@ -1334,6 +1687,17 @@
                   <td class="cell-edit"><input id="inpDiagHydro" type="number" min="0" max="1000" step="0.05" class="grid-control num" /></td>
                   <td>Nm³/h</td>
                 </tr>
+                <tr>
+                  <td data-i18n="params.sidebarMode">左栏导航模式</td>
+                  <td id="curSidebarMode" class="num mono">悬浮</td>
+                  <td class="cell-edit">
+                    <select id="inpSidebarMode" class="grid-control">
+                      <option value="float" data-i18n="nav.modeFloat">悬浮</option>
+                      <option value="embed" data-i18n="nav.modeEmbed">内嵌</option>
+                    </select>
+                  </td>
+                  <td>—</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -1355,12 +1719,13 @@
 
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-    <script defer src="/js/00-i18n.js?v=20261127-fix21"></script>
-    <script defer src="/js/01-core.js?v=20261127-fix21"></script>
-    <script defer src="/js/02-overview-diagram.js?v=20261127-fix21"></script>
-    <script defer src="/js/03-agc-control.js?v=20261127-fix21"></script>
-    <script defer src="/js/04-monitor-pages.js?v=20261127-fix21"></script>
-    <script defer src="/js/06-device-config.js?v=20261127-fix21"></script>
-    <script defer src="/js/05-bootstrap.js?v=20261127-fix21"></script>
+    <script defer src="/js/00-i18n.js?v=20261127-fix26"></script>
+    <script defer src="/js/01-core.js?v=20261127-fix26"></script>
+    <script defer src="/js/02-overview-diagram.js?v=20261127-fix26"></script>
+    <script defer src="/js/03-agc-control.js?v=20261127-fix26"></script>
+    <script defer src="/js/04-monitor-pages.js?v=20261127-fix26"></script>
+    <script defer src="/js/06-device-config.js?v=20261127-fix26"></script>
+    <script defer src="/js/07-wallboard.js?v=20261127-fix26"></script>
+    <script defer src="/js/05-bootstrap.js?v=20261127-fix26"></script>
   </body>
 </html>

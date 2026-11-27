@@ -625,6 +625,8 @@ async function refreshRuntimeSettingsPage() {
   bind("curLogPageSize", "inpLogPageSize", w.runtime_log_page_size);
   bind("curDiagElectric", "inpDiagElectric", w.diagram_flow_electric_threshold_kw);
   bind("curDiagHydro", "inpDiagHydro", w.diagram_flow_hydrogen_threshold_nm3_h);
+  const curSbMode = document.documentElement.dataset.sidebarMode === "embed" ? "embed" : "float";
+  bind("curSidebarMode", "inpSidebarMode", curSbMode, curSbMode === "embed" ? t("nav.modeEmbed") : t("nav.modeFloat"));
 }
 
 // ==================== 9. 运行日志 ====================
@@ -895,6 +897,10 @@ function bindMonitorPageEvents() {
   });
 
   document.getElementById("saveWebParamsBtn")?.addEventListener("click", async () => {
+    const sbSel = document.getElementById("inpSidebarMode");
+    if (sbSel && typeof setSidebarMode === "function") {
+      setSidebarMode(sbSel.value === "embed" ? "embed" : "float", true);
+    }
     await apiPost("/api/runtime-settings", {
       web: {
         frontend_refresh_seconds: Number(document.getElementById("inpWebRefresh").value),
@@ -911,9 +917,12 @@ function bindMonitorPageEvents() {
     const ok = await confirmDanger({
       title: "确认恢复默认 WEB 运行参数？",
       target: "web_runtime_settings",
-      message: "前端刷新周期与日志分页将恢复为默认值。"
+      message: "前端刷新周期、日志分页及左栏模式将恢复为默认值。"
     });
     if (!ok) return;
+    if (typeof setSidebarMode === "function") {
+      setSidebarMode("float", true);
+    }
     await apiPost("/api/runtime-settings", { reset_scope: "web" });
     await refreshRuntimeSettingsPage();
     showToast("WEB 运行参数已恢复默认", "ok");

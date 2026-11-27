@@ -1,6 +1,6 @@
 // 全局状态、HTTP 工具、高危确认、分级提示与全主题自适应 Canvas 2D 图表引擎
 const AGCState = {
-  page: "overview",
+  page: "wallboard",
   snapshot: null,
   modelData: null,
   control: null,

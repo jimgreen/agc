@@ -1193,7 +1193,7 @@ class AGCRealtimeSystemTests(unittest.TestCase):
         self.assertEqual(lite_snap["devices"], [])
         self.assertGreater(lite_snap["agc_status"]["valid_meas_count"], 0)
 
-        # 3. 静态文件 ETag 与 304 Not Modified 协商缓存
+        # 3. 静态文件 ETag 与 304 Not Modified 协商缓存，以及 /screen 大屏直达路由
         with urlopen(f"{base}/styles.css", timeout=5) as resp:
             etag = resp.headers.get("ETag")
             self.assertTrue(bool(etag))
@@ -1202,6 +1202,15 @@ class AGCRealtimeSystemTests(unittest.TestCase):
             urlopen(cond_req, timeout=5)
         self.assertEqual(ctx.exception.code, 304)
         ctx.exception.close()
+
+        with urlopen(f"{base}/screen", timeout=5) as resp:
+            screen_html = resp.read().decode("utf-8")
+            self.assertEqual(resp.status, 200)
+            self.assertIn('data-page="wallboard"', screen_html)
+            self.assertIn("07-wallboard.js", screen_html)
+        with urlopen(f"{base}/js/07-wallboard.js", timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertIn("renderWallboardPage", resp.read().decode("utf-8"))
 
         # 4. 闭环状态下触发 POST /api/agc/preview：验证返回完整预演且零写库、周期号维持 #1、零下发指令
         service.set_loop_mode("closed")

@@ -171,7 +171,8 @@ async function refreshSnapshot(forceFull = false) {
       AGCState.runtimeSettings = AGCState.snapshot.runtime_settings;
     }
     updateTopbar();
-    if (AGCState.page === "overview") renderOverviewPage();
+    if (AGCState.page === "wallboard") renderWallboardPage();
+    else if (AGCState.page === "overview") renderOverviewPage();
     else if (AGCState.page === "diagram") updateDiagramTelemetryOverlay();
     else if (AGCState.page === "measurements") {
       renderMeasurementsPage();
@@ -193,7 +194,10 @@ async function switchPage(pageName) {
   });
 
   try {
-    if (pageName === "overview") {
+    if (pageName === "wallboard") {
+      renderWallboardPage();
+      await refreshWallboardExtraData();
+    } else if (pageName === "overview") {
       renderOverviewPage();
     } else if (pageName === "agc-control") {
       await refreshAgcControlData();
@@ -223,7 +227,10 @@ async function switchPage(pageName) {
 }
 
 function redrawActiveCharts() {
-  if (AGCState.page === "agc-control" && AGCState.detailTab === "trend") {
+  if (AGCState.page === "wallboard") {
+    renderWallboardPage();
+    renderWallboardTrendChart();
+  } else if (AGCState.page === "agc-control" && AGCState.detailTab === "trend") {
     renderAgcMetricsTable();
     renderAgcTrendChart();
   } else if (AGCState.page === "measurements") {
@@ -239,11 +246,134 @@ function redrawActiveCharts() {
   }
 }
 
-function bindGlobalShellEvents() {
-  // 导航切换
-  document.querySelectorAll(".page-nav button").forEach((btn) => {
-    btn.addEventListener("click", () => switchPage(btn.dataset.navPage));
+let _sidebarHideTimer = null;
+let _sidebarCooldownUntil = 0;
+
+function getSidebarMode() {
+  return document.documentElement.dataset.sidebarMode === "embed" ? "embed" : "float";
+}
+
+function syncSidebarModeControls() {
+  const mode = getSidebarMode();
+  document.querySelectorAll("#sidebarModeGroup button").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.setSidebarMode === mode);
   });
+}
+
+function setSidebarOpen(open, { manual = false, persistEmbed = true } = {}) {
+  if (_sidebarHideTimer) {
+    clearTimeout(_sidebarHideTimer);
+    _sidebarHideTimer = null;
+  }
+  const flag = Boolean(open);
+  const mode = getSidebarMode();
+  if (!flag && manual) {
+    _sidebarCooldownUntil = Date.now() + 450;
+  }
+  const changed = (document.documentElement.dataset.sidebarOpen === "true") !== flag;
+  document.documentElement.dataset.sidebarOpen = flag ? "true" : "false";
+  if (mode === "embed" && persistEmbed) {
+    try { localStorage.setItem("agcSidebarEmbedHidden", flag ? "0" : "1"); } catch (_e) {}
+  }
+  if (changed && mode === "embed") {
+    setTimeout(redrawActiveCharts, 200);
+  }
+}
+
+function setSidebarMode(mode, persist = true) {
+  const target = mode === "embed" ? "embed" : "float";
+  const prev = getSidebarMode();
+  document.documentElement.dataset.sidebarMode = target;
+  if (persist) {
+    try { localStorage.setItem("agcSidebarMode", target); } catch (_e) {}
+  }
+  syncSidebarModeControls();
+  if (target === "embed") {
+    // 切换至内嵌模式时立即常驻展示（用户仍可随时点击隐藏）
+    setSidebarOpen(true, { persistEmbed: persist });
+  } else if (prev === "embed") {
+    // 从内嵌切至悬浮模式时保持当前打开以便用户看见切换反馈，移出左栏后自动隐藏
+    setTimeout(redrawActiveCharts, 200);
+  }
+}
+
+function openFloatingSidebar() {
+  if (Date.now() < _sidebarCooldownUntil) return;
+  setSidebarOpen(true, { persistEmbed: false });
+}
+
+function closeFloatingSidebar(manual = false) {
+  setSidebarOpen(false, { manual, persistEmbed: true });
+}
+
+function scheduleCloseFloatingSidebar(delayMs = 150) {
+  if (getSidebarMode() !== "float") return;
+  if (_sidebarHideTimer) clearTimeout(_sidebarHideTimer);
+  _sidebarHideTimer = setTimeout(() => {
+    _sidebarHideTimer = null;
+    if (getSidebarMode() === "float") {
+      document.documentElement.dataset.sidebarOpen = "false";
+    }
+  }, delayMs);
+}
+
+function bindGlobalShellEvents() {
+  syncSidebarModeControls();
+
+  // 顶栏左侧显隐切换按钮（悬浮/内嵌双模式通用）
+  document.getElementById("topbarSidebarBtn")?.addEventListener("click", () => {
+    const isOpen = document.documentElement.dataset.sidebarOpen === "true";
+    setSidebarOpen(!isOpen, { manual: isOpen, persistEmbed: true });
+  });
+
+  // 左栏底部分段模式切换（悬浮 / 内嵌）
+  document.querySelectorAll("#sidebarModeGroup button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setSidebarMode(btn.dataset.setSidebarMode, true);
+    });
+  });
+
+  // 导航切换（悬浮模式下选中后自动收起；内嵌模式下保持常驻）
+  document.querySelectorAll(".page-nav button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      switchPage(btn.dataset.navPage);
+      if (getSidebarMode() === "float") {
+        scheduleCloseFloatingSidebar(100);
+      }
+    });
+  });
+
+  // 左边缘感应与离开自动隐藏
+  const sidebarEl = document.getElementById("appSidebar");
+  const edgeTriggerEl = document.getElementById("sidebarEdgeTrigger");
+  edgeTriggerEl?.addEventListener("mouseenter", () => {
+    if (getSidebarMode() === "float") openFloatingSidebar();
+  });
+  edgeTriggerEl?.addEventListener("click", () => {
+    setSidebarOpen(true, { persistEmbed: true });
+  });
+  sidebarEl?.addEventListener("mouseenter", () => {
+    if (_sidebarHideTimer) {
+      clearTimeout(_sidebarHideTimer);
+      _sidebarHideTimer = null;
+    }
+  });
+  sidebarEl?.addEventListener("mouseleave", (ev) => {
+    if (getSidebarMode() !== "float") return;
+    if (ev.clientX <= 4) return;
+    scheduleCloseFloatingSidebar(150);
+  });
+  document.addEventListener("mousemove", (ev) => {
+    if (getSidebarMode() !== "float") return;
+    const isOpen = document.documentElement.dataset.sidebarOpen === "true";
+    if (!isOpen) {
+      if (ev.clientX <= 14 && ev.clientY >= 40 && !document.querySelector("dialog[open]")) {
+        openFloatingSidebar();
+      }
+    } else if (ev.clientX > 212) {
+      scheduleCloseFloatingSidebar(140);
+    }
+  }, { passive: true });
 
   // 主页快捷按钮与底部多标签分页切换
   document.getElementById("ovGoAgcBtn")?.addEventListener("click", () => switchPage("agc-control"));
@@ -306,12 +436,9 @@ function bindGlobalShellEvents() {
     }
   });
 
-  // 侧栏折叠
+  // 侧栏手动立即收起按钮（悬浮/内嵌两种模式下均可一键隐藏）
   document.getElementById("appSidebarToggle")?.addEventListener("click", () => {
-    const collapsed = document.documentElement.dataset.sidebarCollapsed === "true";
-    document.documentElement.dataset.sidebarCollapsed = collapsed ? "false" : "true";
-    try { localStorage.setItem("agcSidebarCollapsed", collapsed ? "0" : "1"); } catch (_e) {}
-    setTimeout(redrawActiveCharts, 200);
+    closeFloatingSidebar(true);
   });
 
   // 主题色卡选择器（14 套风格分组切换，同步刷新 Canvas 调色板）
@@ -352,10 +479,14 @@ function bindGlobalShellEvents() {
       document.documentElement.dataset.lang = lang;
       try { localStorage.setItem("agcUiLang", lang); } catch (_e) {}
       applyI18n();
+      syncWallboardShellControls();
       syncThemePickerTrigger(document.documentElement.dataset.theme || "minimalist-light");
       renderThemePopover();
       updateTopbar();
-      if (AGCState.page === "agc-control") renderAgcControlPage();
+      if (AGCState.page === "wallboard") {
+        renderWallboardPage();
+        renderWallboardTrendChart();
+      } else if (AGCState.page === "agc-control") renderAgcControlPage();
       else if (AGCState.page === "overview") renderOverviewPage();
       else if (AGCState.page === "model") renderModelPage();
       else if (AGCState.page === "measurements") renderMeasurementsPage();
@@ -381,10 +512,16 @@ function bindGlobalShellEvents() {
   });
 }
 
+let _wbExtraTickCounter = 0;
 async function pollingTick() {
   if (document.hidden) return;
   await refreshSnapshot();
-  if (AGCState.page === "agc-control") {
+  if (AGCState.page === "wallboard") {
+    _wbExtraTickCounter = (_wbExtraTickCounter + 1) % 3;
+    if (_wbExtraTickCounter === 0) {
+      await refreshWallboardExtraData();
+    }
+  } else if (AGCState.page === "agc-control") {
     await refreshAgcControlData();
     if (AGCState.detailTab === "trend" && !AGCState.trendEndMs) {
       await refreshAgcTrendData();
@@ -404,8 +541,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindAgcControlEvents();
   bindDeviceConfigEvents();
   bindMonitorPageEvents();
+  bindWallboardEvents();
 
-  await Promise.all([refreshSnapshot(true), refreshAgcControlData()]);
+  const urlParams = new URLSearchParams(window.location.search);
+  const pathName = window.location.pathname;
+  const autoImmersive = pathName === "/screen" || pathName === "/wallboard" || urlParams.get("screen") === "1";
+  if (autoImmersive) {
+    document.documentElement.dataset.wallboardImmersive = "true";
+    syncWallboardShellControls();
+  }
+
+  await Promise.all([refreshSnapshot(true), refreshAgcControlData(), refreshWallboardExtraData()]);
+  renderWallboardPage();
+  renderWallboardTrendChart();
   renderOverviewPage();
 
   document.addEventListener("visibilitychange", () => {

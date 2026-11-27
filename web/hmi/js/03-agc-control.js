@@ -228,41 +228,6 @@ function renderAgcCycleReplayNav() {
   }
 }
 
-function renderAgcDualLayerAndBusBalance() {
-  const c = AGCState.control;
-  const dualEl = document.getElementById("agcDualLayerHint");
-  if (dualEl && c) {
-    const isClosed = c.loop_mode === "closed";
-    dualEl.innerHTML = `<span>决策: 闭环/跟踪/开环</span><span>→</span><strong style="color:var(${isClosed ? "--warn" : "--accent"})">${isClosed ? "通道: 闭环下发" : "通道: 开环仅算"}</strong>`;
-  }
-  const busEl = document.getElementById("agcBusBalanceStrip");
-  const strat = activeAgcStrategy();
-  if (!busEl) return;
-  const m = (strat && strat.metrics) || {};
-  if (!strat || m.loadKw === undefined) {
-    busEl.innerHTML = `<span class="muted">交/直流分母线功率闭合：待计算</span>`;
-    return;
-  }
-  const acRen = Number(m.acRenewableTargetKw ?? m.acRenewableCurrentKw ?? 0);
-  const acDg = Number(m.acDieselTargetKw ?? m.dieselTargetKw ?? m.dieselCurrentKw ?? 0);
-  const acSt = Number(m.acStorageTargetKw ?? m.acStorageCurrentKw ?? 0);
-  const acLoad = Number(m.acLoadKw ?? 0);
-  const elz = Number(m.electrolyzerTargetKw ?? m.electrolyzerCurrentKw ?? 0);
-  const acdc = Number(m.acdcTargetKw ?? m.acdcCurrentKw ?? 0);
-
-  const dcRen = Number(m.dcRenewableTargetKw ?? m.dcRenewableCurrentKw ?? 0);
-  const fc = Number(m.fuelCellTargetKw ?? m.fuelCellCurrentKw ?? 0);
-  const dcSt = Number(m.dcStorageTargetKw ?? m.dcStorageCurrentKw ?? 0);
-  const dcLoad = Number(m.dcLoadKw ?? 0);
-  const dgDelta = Number(m.totalDieselTargetKw ?? m.dieselTargetKw ?? 0) - Number(m.totalDieselCurrentKw ?? m.dieselCurrentKw ?? 0);
-
-  busEl.innerHTML = `
-    <span class="bus-balance-item">AC 380V: <strong>发 ${fmtNum(acRen + acDg + Math.max(0, acSt), 1)}</strong> (绿 ${fmtNum(acRen, 1)} + 柴 ${fmtNum(acDg, 1)}) = 荷 ${fmtNum(acLoad, 1)}${elz > 0.1 ? ` + 氢 ${fmtNum(elz, 1)}` : ""}${acSt < -0.1 ? ` + 储充 ${fmtNum(-acSt, 1)}` : ""} ${acdc >= 0 ? `← DC ${fmtNum(acdc, 1)}` : `→ DC ${fmtNum(-acdc, 1)}`} kW</span>
-    <span class="bus-balance-item">DC 750V: <strong>发 ${fmtNum(dcRen + fc + Math.max(0, dcSt), 1)}</strong> = 荷 ${fmtNum(dcLoad, 1)}${dcSt < -0.1 ? ` + 储充 ${fmtNum(-dcSt, 1)}` : ""} kW</span>
-    <span class="bus-balance-item">火电变动: <strong class="${dgDelta <= -0.1 ? "val-neg" : (dgDelta >= 0.1 ? "val-pos" : "")}">${dgDelta >= 0 ? "+" : ""}${fmtNum(dgDelta, 1)} kW</strong></span>
-  `;
-}
-
 async function refreshAgcControlData() {
   const data = await apiGet("/api/agc/control");
   AGCState.control = data;
@@ -328,7 +293,6 @@ function renderAgcControlPage(forceTableRebuild = false) {
 
   renderAgcIslandBadge();
   renderAgcCycleReplayNav();
-  renderAgcDualLayerAndBusBalance();
   renderAgcMetricsTable();
   renderAgcStrategyTable(forceTableRebuild);
 }

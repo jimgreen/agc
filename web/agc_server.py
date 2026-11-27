@@ -120,7 +120,10 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
             return parsed
 
         def _serve_static(self, rel_path: str) -> None:
-            clean = rel_path.lstrip("/") or "index.html"
+            if rel_path in {"/", "/screen", "/wallboard"}:
+                clean = "index.html"
+            else:
+                clean = rel_path.lstrip("/") or "index.html"
             candidate = (resolved_static / clean).resolve()
             if not str(candidate).startswith(str(resolved_static)) or not candidate.is_file():
                 self._send_json({"error": "Not Found", "path": rel_path}, HTTPStatus.NOT_FOUND)
