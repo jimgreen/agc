@@ -408,6 +408,24 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
                     self._send_json(res)
                     return
 
+                if path == "/api/agc/environment":
+                    action = str(body.get("action") or "apply").strip().lower()
+                    recalc = bool(body.get("recalculate", True))
+                    if action == "reset":
+                        res = service.reset_environment_override(recalculate=recalc)
+                    else:
+                        res = service.set_environment_override(
+                            preset=str(body.get("preset") or "custom"),
+                            wind_speed=body.get("wind_speed"),
+                            solar_irradiance=body.get("solar_irradiance"),
+                            air_temperature=body.get("air_temperature"),
+                            icing_ratio=body.get("icing_ratio"),
+                            load_thermal_pct=body.get("load_thermal_pct"),
+                            recalculate=recalc,
+                        )
+                    self._send_json(res)
+                    return
+
                 if path == "/api/commands/manual":
                     res = service.execute_manual_command(
                         dev_type=str(body.get("dev_type") or ""),

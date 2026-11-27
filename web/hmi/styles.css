@@ -2843,23 +2843,83 @@ html[data-wallboard-immersive="true"] .page-main {
   min-width: 0;
 }
 
-.wb-card-pool { flex: 1.24; }
-.wb-card-guard { flex: 0.96; }
+.wb-card-polar { flex: 1.02; }
+.wb-card-pool { flex: 1.18; }
 .wb-card-cockpit { flex: 1.32; }
 .wb-card-trend { flex: 1; }
 .wb-card-rank { flex: 1.28; }
 .wb-card-stream { flex: 0.92; }
 
-/* 左上：分大类受控资源包络列表 */
+/* 左上：南极极端气象展示、输入与源荷耦合舱 */
+.wb-polar-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow-y: auto;
+}
+
+.wb-polar-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: var(--border);
+  background: var(--bg-subtle);
+  flex-shrink: 0;
+}
+
+.wb-polar-select {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  font-size: 11.5px;
+  height: 26px;
+}
+
+.wb-polar-table th,
+.wb-polar-table td {
+  padding: 3px 7px;
+  height: 26px;
+  font-size: 11.5px;
+}
+
+.wb-polar-table .grid-control {
+  height: 26px;
+  padding: 0 6px;
+  font-size: 11.5px;
+}
+
+.wb-coupling-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  padding: 5px 8px 6px;
+  border-top: var(--border);
+  background: var(--bg-subtle);
+  flex-shrink: 0;
+}
+
+/* 左下：分大类受控资源包络列表 + 2×2 紧凑安全裕度尺 */
+.wb-pool-guard-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow-y: auto;
+}
+
 .wb-pool-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 6px 10px;
+  padding: 5px 10px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 5px;
+  gap: 4px;
 }
 
 .wb-pool-row {
@@ -2958,9 +3018,12 @@ html[data-wallboard-immersive="true"] .page-main {
 }
 
 .wb-guard-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  padding: 6px 10px 7px;
+  border-top: 1px dashed var(--border-color);
+  flex-shrink: 0;
 }
 
 .wb-guard-item {

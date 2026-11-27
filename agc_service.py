@@ -73,6 +73,139 @@ STRATEGY_PRESETS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+# 南极秦岭站典型极端气象与环境耦合预设工况（切入 3 m/s · 额定 12 m/s · 抗强下降风切出 35 m/s）
+ANTARCTIC_ENV_PRESETS: Dict[str, Dict[str, Any]] = {
+    "polar_day_gale": {
+        "wind_speed": 15.5,
+        "solar_irradiance": 820.0,
+        "air_temperature": -8.0,
+        "icing_ratio": 0.05,
+        "load_thermal_pct": 0.0,
+    },
+    "katabatic_blizzard": {
+        "wind_speed": 36.5,
+        "solar_irradiance": 35.0,
+        "air_temperature": -28.0,
+        "icing_ratio": 0.25,
+        "load_thermal_pct": 22.0,
+    },
+    "polar_night_calm": {
+        "wind_speed": 1.6,
+        "solar_irradiance": 0.0,
+        "air_temperature": -42.0,
+        "icing_ratio": 0.12,
+        "load_thermal_pct": 35.0,
+    },
+    "polar_transition_gust": {
+        "wind_speed": 8.8,
+        "solar_irradiance": 260.0,
+        "air_temperature": -18.0,
+        "icing_ratio": 0.08,
+        "load_thermal_pct": 12.0,
+    },
+    "antarctic_icing_derate": {
+        "wind_speed": 11.2,
+        "solar_irradiance": 180.0,
+        "air_temperature": -32.0,
+        "icing_ratio": 0.30,
+        "load_thermal_pct": 25.0,
+    },
+}
+
+
+def compute_antarctic_coupling(
+    raw_env: Mapping[str, Any],
+    env_override: Optional[Mapping[str, Any]] = None,
+    *,
+    base_load_kw: float = 0.0,
+    cut_in_mps: float = 3.0,
+    rated_mps: float = 12.0,
+    cut_out_mps: float = 35.0,
+) -> Dict[str, Any]:
+    """解算南极极端气象与微电网源-网-荷-储-氢多能耦合指标。"""
+    ov = env_override or {}
+    active = bool(ov.get("enabled"))
+    preset = str(ov.get("preset") or "custom") if active else "scada_live"
+
+    ws = _finite(ov.get("wind_speed") if active else raw_env.get("wind_speed"))
+    irr = _finite(ov.get("solar_irradiance") if active else raw_env.get("solar_irradiance"))
+    temp_raw = ov.get("air_temperature") if active else raw_env.get("air_temperature", raw_env.get("temperature"))
+    temp = _finite(temp_raw)
+    if temp is None:
+        temp = -12.0
+    icing = max(0.0, min(0.6, _finite(ov.get("icing_ratio")) or 0.0)) if active else 0.0
+    load_pct = max(-30.0, min(80.0, _finite(ov.get("load_thermal_pct")) or 0.0)) if active else 0.0
+
+    # 1. WMO 标准南极风寒体感温度 T_wc (°C)
+    ws_val = max(0.0, ws if ws is not None else 0.0)
+    v_kmh = ws_val * 3.6
+    if temp <= 10.0 and v_kmh > 4.8:
+        v16 = v_kmh ** 0.16
+        wind_chill = 13.12 + 0.6215 * temp - 11.37 * v16 + 0.3965 * temp * v16
+    else:
+        wind_chill = temp
+
+    # 2. 风况工作区间与覆冰气动折损后可发率
+    if ws is None:
+        wind_regime = "unknown"
+        base_wind_factor = 0.0
+    elif ws_val < cut_in_mps:
+        wind_regime = "calm_cutin"
+        base_wind_factor = 0.0
+    elif ws_val >= cut_out_mps:
+        wind_regime = "katabatic_cutout"
+        base_wind_factor = 0.0
+    elif ws_val >= rated_mps:
+        wind_regime = "rated_full"
+        base_wind_factor = 1.0
+    else:
+        wind_regime = "ramp_cubic"
+        base_wind_factor = ((ws_val - cut_in_mps) / max(0.1, rated_mps - cut_in_mps)) ** 3
+    wind_cap_factor = max(0.0, min(1.0, base_wind_factor * (1.0 - icing)))
+
+    # 3. 极昼/极夜光照分区与单晶低温增益 + 积雪遮挡后可发率
+    irr_val = max(0.0, irr if irr is not None else 0.0)
+    if irr is None or irr_val <= 5.0:
+        polar_light_regime = "polar_night"
+        pv_cap_factor = 0.0
+    else:
+        polar_light_regime = "twilight_weak" if irr_val <= 200.0 else "polar_day"
+        cold_gain = min(1.18, max(0.75, 1.0 - 0.004 * (temp - 25.0)))
+        pv_cap_factor = max(0.0, min(1.0, (irr_val / 1000.0) * cold_gain * (1.0 - icing * 0.85)))
+
+    # 4. 极寒电芯充放电倍率保护系数（-5°C ~ -45°C 线性折减至 55%）
+    if temp >= -5.0:
+        bess_cold_factor = 1.0
+    elif temp <= -45.0:
+        bess_cold_factor = 0.55
+    else:
+        bess_cold_factor = 1.0 - 0.45 * ((-5.0 - temp) / 40.0)
+
+    # 5. 极寒站区采暖与舱体伴热耦合电负荷增量
+    thermal_delta_kw = max(0.0, float(base_load_kw)) * (load_pct / 100.0)
+
+    return {
+        "override_active": active,
+        "preset": preset,
+        "presets": list(ANTARCTIC_ENV_PRESETS.keys()),
+        "wind_speed": round(ws_val, 2) if ws is not None else None,
+        "solar_irradiance": round(irr_val, 1) if irr is not None else None,
+        "air_temperature": round(temp, 1),
+        "wind_chill_c": round(wind_chill, 1),
+        "icing_ratio": round(icing, 3),
+        "load_thermal_pct": round(load_pct, 1),
+        "thermal_delta_kw": round(thermal_delta_kw, 2),
+        "wind_regime": wind_regime,
+        "polar_light_regime": polar_light_regime,
+        "wind_cap_pct": round(wind_cap_factor * 100.0, 1),
+        "pv_cap_pct": round(pv_cap_factor * 100.0, 1),
+        "bess_cold_pct": round(bess_cold_factor * 100.0, 1),
+        "bess_cold_factor": round(bess_cold_factor, 4),
+        "cut_in_mps": cut_in_mps,
+        "rated_mps": rated_mps,
+        "cut_out_mps": cut_out_mps,
+    }
+
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -160,6 +293,9 @@ class AGCRealtimeService:
         self._meas_history: Dict[Tuple[str, str, str], Deque[Dict[str, Any]]] = {}
         self._meas_history_limit: int = 600
         self._latest_manual_commands: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        self._env_override: Dict[str, Any] = {"enabled": False, "preset": "scada_live"}
+        self._raw_environment: Dict[str, Any] = {}
+        self._raw_base_load_kw: float = 0.0
 
         # 初始化时立即做一次只读采集（不写库不发令）
         self.refresh_telemetry()
@@ -489,17 +625,192 @@ class AGCRealtimeService:
     # 实时数据采集与测点历史
     # ------------------------------------------------------------------
 
+    def _classify_model_unit(self, block: str, item: Mapping[str, Any]) -> Tuple[str, float]:
+        """识别机组技术类型（wind / pv / storage / other）及额定容量 kW。"""
+        kind = str(item.get("dev_type") or "").strip().lower()
+        name = str(item.get("name") or "").strip()
+        cap = max(
+            0.0,
+            _finite(item.get("rated_capacity"))
+            or _finite(item.get("p_max"))
+            or 0.0,
+        )
+        if "wind" in kind or "风" in name:
+            return "wind", cap
+        if "pv" in kind or "solar" in kind or "光" in name:
+            return "pv", cap
+        if "storage" in kind or "储" in name:
+            return "storage", cap
+        return "other", cap
+
+    def _apply_env_override_to_snapshot(
+        self,
+        snapshot: Dict[str, Any],
+        coupling: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        """在内存快照上应用南极极端气象与热电负荷耦合覆盖（绝不修改外部实时数据库）。"""
+        now_iso = _now_iso()
+        env_dict = dict(snapshot.get("environment") or {})
+        ws = coupling.get("wind_speed")
+        irr = coupling.get("solar_irradiance")
+        temp = coupling.get("air_temperature")
+        env_dict["wind_speed"] = ws
+        env_dict["solar_irradiance"] = irr
+        env_dict["air_temperature"] = temp
+        env_dict["override_active"] = True
+        env_dict["preset"] = coupling.get("preset", "custom")
+        snapshot["environment"] = env_dict
+
+        # 构建风/光机组额定容量映射
+        unit_tech_cap: Dict[Tuple[str, str], Tuple[str, float]] = {}
+        for blk in ("ACGenerator", "DCGenerator"):
+            for item in self.adapter.model_tables.get(blk, []):
+                nm = str(item.get("name") or "").strip()
+                if nm:
+                    unit_tech_cap[(blk, nm)] = self._classify_model_unit(blk, item)
+
+        scada = list((snapshot.get("measurements") or {}).get("scada") or [])
+        load_scale = max(0.2, 1.0 + float(coupling.get("load_thermal_pct") or 0.0) / 100.0)
+        wind_ratio = max(0.0, min(1.0, float(coupling.get("wind_cap_pct") or 0.0) / 100.0))
+        pv_ratio = max(0.0, min(1.0, float(coupling.get("pv_cap_pct") or 0.0) / 100.0))
+
+        seen_env_types: set[str] = set()
+        new_scada: List[Dict[str, Any]] = []
+        for m in scada:
+            mc = dict(m)
+            dt = str(mc.get("dev_type") or "")
+            dn = str(mc.get("dev_name") or "")
+            mt = str(mc.get("meas_type") or "")
+            if dt == "Environment" and dn == "weather":
+                seen_env_types.add(mt)
+                if mt == "WIND_SPEED" and ws is not None:
+                    mc["value"] = float(ws)
+                    mc["valid"] = 1
+                elif mt == "SOLAR_IRRADIANCE" and irr is not None:
+                    mc["value"] = float(irr)
+                    mc["valid"] = 1
+                elif mt == "AIR_TEMP" and temp is not None:
+                    mc["value"] = float(temp)
+                    mc["valid"] = 1
+            elif dt in {"ACLoad", "DCLoad"} and mt == "P_LOAD" and _finite(mc.get("value")) is not None:
+                mc["value"] = round(float(mc["value"]) * load_scale, 3)
+            elif dt in {"ACGenerator", "DCGenerator"} and mt == "P_GEN" and (dt, dn) in unit_tech_cap:
+                tech, cap = unit_tech_cap[(dt, dn)]
+                cur_v = max(0.0, _finite(mc.get("value")) or 0.0)
+                if tech == "wind" and cap > 0:
+                    avail = cap * wind_ratio
+                    mc["value"] = 0.0 if avail <= 0.05 else round(min(avail, cur_v if cur_v >= 0.1 else avail * 0.72), 3)
+                elif tech == "pv" and cap > 0:
+                    avail = cap * pv_ratio
+                    mc["value"] = 0.0 if avail <= 0.05 else round(min(avail, cur_v if cur_v >= 0.1 else avail * 0.72), 3)
+            new_scada.append(mc)
+
+        for mt, val, unit in (
+            ("WIND_SPEED", ws, "m/s"),
+            ("SOLAR_IRRADIANCE", irr, "W/m2"),
+            ("AIR_TEMP", temp, "°C"),
+        ):
+            if mt not in seen_env_types and val is not None:
+                new_scada.append(
+                    {
+                        "dev_type": "Environment",
+                        "dev_name": "weather",
+                        "meas_type": mt,
+                        "value": float(val),
+                        "valid": 1,
+                        "quality": 0,
+                        "unit": unit,
+                        "timestamp": now_iso,
+                        "rtu_id": None,
+                        "pnt_no": None,
+                    }
+                )
+        if "measurements" in snapshot and isinstance(snapshot["measurements"], dict):
+            snapshot["measurements"]["scada"] = new_scada
+        return snapshot
+
+    def _apply_antarctic_coupling_to_device_configs(
+        self,
+        device_configs_map: Dict[Tuple[str, str, str], Dict[str, Any]],
+        coupling: Mapping[str, Any],
+    ) -> Dict[Tuple[str, str, str], Dict[str, Any]]:
+        """当南极工况注入激活时，将叶片覆冰折损与极寒电芯充放电倍率限幅映射至本次求解边界。"""
+        if not coupling.get("override_active"):
+            return device_configs_map
+        bess_factor = float(coupling.get("bess_cold_factor") or 1.0)
+        icing = float(coupling.get("icing_ratio") or 0.0)
+        wind_ratio = float(coupling.get("wind_cap_pct") or 0.0) / 100.0
+        pv_ratio = float(coupling.get("pv_cap_pct") or 0.0) / 100.0
+        if bess_factor >= 0.999 and icing <= 0.001:
+            return device_configs_map
+
+        out = {k: dict(v) for k, v in device_configs_map.items()}
+        for blk in ("ACGenerator", "DCGenerator"):
+            for item in self.adapter.model_tables.get(blk, []):
+                nm = str(item.get("name") or "").strip()
+                if not nm:
+                    continue
+                tech, cap = self._classify_model_unit(blk, item)
+                if cap <= 0:
+                    continue
+                key = (blk, nm, "p_set")
+                cfg = dict(
+                    out.get(
+                        key,
+                        {
+                            "dev_type": blk,
+                            "dev_name": nm,
+                            "set_type": "p_set",
+                            "control_state": "closed",
+                            "p_min": None,
+                            "p_max": None,
+                            "control_step": None,
+                            "control_deadband": 0.0,
+                            "curve_interp": "step",
+                        },
+                    )
+                )
+                if tech == "storage" and bess_factor < 0.999:
+                    cold_hi = round(cap * bess_factor, 3)
+                    cold_lo = -cold_hi
+                    u_min = _finite(cfg.get("p_min"))
+                    u_max = _finite(cfg.get("p_max"))
+                    cfg["p_min"] = max(u_min, cold_lo) if u_min is not None else cold_lo
+                    cfg["p_max"] = min(u_max, cold_hi) if u_max is not None else cold_hi
+                    out[key] = cfg
+                elif tech in {"wind", "pv"} and icing > 0.001:
+                    eff_hi = round(cap * (wind_ratio if tech == "wind" else pv_ratio), 3)
+                    u_max = _finite(cfg.get("p_max"))
+                    cfg["p_max"] = min(u_max, eff_hi) if u_max is not None else eff_hi
+                    out[key] = cfg
+        return out
+
     def refresh_telemetry(self) -> Dict[str, Any]:
         """只读拉取一次秦岭实时库，刷新内存快照与测点跟踪历史。"""
         snapshot, age_seconds, err = self.adapter.read_snapshot()
+        raw_env = dict(snapshot.get("environment") or {})
+        raw_scada = (snapshot.get("measurements") or {}).get("scada") or []
+        raw_load = sum(
+            float(m["value"])
+            for m in raw_scada
+            if m.get("dev_type") in {"ACLoad", "DCLoad"}
+            and m.get("meas_type") == "P_LOAD"
+            and int(m.get("valid", 0)) == 1
+            and _finite(m.get("value")) is not None
+        )
         epoch_ms = int(round(time.time() * 1000))
         time_label = snapshot.get("clock", {}).get("time", datetime.now().strftime("%H:%M:%S"))
         with self.lock:
+            self._raw_environment = raw_env
+            self._raw_base_load_kw = raw_load
             if self._topology_ctx is None:
                 try:
                     self._topology_ctx = prepare_resource_topology_static_context(snapshot)
                 except Exception:
                     self._topology_ctx = None
+            if self._env_override.get("enabled"):
+                coupling = compute_antarctic_coupling(raw_env, self._env_override, base_load_kw=raw_load)
+                snapshot = self._apply_env_override_to_snapshot(snapshot, coupling)
             self._last_snapshot = snapshot
             self._last_age_seconds = age_seconds
             self._last_scada_error = err
@@ -547,9 +858,15 @@ class AGCRealtimeService:
             )
             topo_ctx = self._topology_ctx
             runtime_memory = self._runtime_memory
+            env_ov = dict(self._env_override)
+            raw_env = dict(self._raw_environment)
+            raw_load = self._raw_base_load_kw
 
         self._last_control_monotonic = time.monotonic()
-        device_configs_map = self._load_effective_device_configs_map()
+        coupling = compute_antarctic_coupling(raw_env, env_ov, base_load_kw=raw_load)
+        device_configs_map = self._apply_antarctic_coupling_to_device_configs(
+            self._load_effective_device_configs_map(), coupling
+        )
 
         plan = calculate_renewable_control_plan(
             snapshot,
@@ -564,6 +881,7 @@ class AGCRealtimeService:
         dq = plan.get("dataQuality") if isinstance(plan.get("dataQuality"), Mapping) else {}
         stale_blocked = age_seconds > frame_age_limit
         dispatch_allowed = bool(dq.get("dispatchAllowed")) and not stale_blocked and not scada_err
+        env_sim_active = bool(env_ov.get("enabled"))
 
         command_rows = list(plan.get("commandRows") or [])
         commands_to_send = list(plan.get("commands") or [])
@@ -585,9 +903,9 @@ class AGCRealtimeService:
         now_iso = _now_iso()
         now_ms = int(round(time.time() * 1000))
 
-        # 仅在闭环模式且数据质量允许时写回 scdfe_d.db 并交由独立线程异步等待回执
+        # 仅在闭环模式、数据质量允许且未开启南极仿真工况覆盖时写回 scdfe_d.db
         pending_to_watch: List[Tuple[int, Dict[str, Any]]] = []
-        if loop_mode == "closed" and dispatch_allowed:
+        if loop_mode == "closed" and dispatch_allowed and not env_sim_active:
             for cmd in commands_to_send:
                 d_type = str(cmd.get("dev_type", ""))
                 d_name = str(cmd.get("dev_name", ""))
@@ -810,6 +1128,9 @@ class AGCRealtimeService:
             topo_ctx = self._topology_ctx
             mem_copy = copy.deepcopy(self._runtime_memory)
             cur_cycle = self._last_cycle
+            env_ov = dict(self._env_override)
+            raw_env = dict(self._raw_environment)
+            raw_load = self._raw_base_load_kw
 
         if preset and preset in STRATEGY_PRESETS and not override_settings:
             sim_settings = RenewableControlSettings().updated(STRATEGY_PRESETS[preset])
@@ -819,7 +1140,10 @@ class AGCRealtimeService:
             sim_settings = base_settings
         sim_settings.validate()
 
-        device_configs_map = self._load_effective_device_configs_map()
+        coupling = compute_antarctic_coupling(raw_env, env_ov, base_load_kw=raw_load)
+        device_configs_map = self._apply_antarctic_coupling_to_device_configs(
+            self._load_effective_device_configs_map(), coupling
+        )
         if override_device_configs:
             for item in override_device_configs:
                 dt = str(item.get("dev_type") or "").strip()
@@ -915,6 +1239,100 @@ class AGCRealtimeService:
         }
 
     # ------------------------------------------------------------------
+    # 南极极端气象与环境工况注入（内存级耦合仿真，零污染 scdfe_d.db）
+    # ------------------------------------------------------------------
+
+    def set_environment_override(
+        self,
+        *,
+        preset: str = "custom",
+        wind_speed: Any = None,
+        solar_irradiance: Any = None,
+        air_temperature: Any = None,
+        icing_ratio: Any = None,
+        load_thermal_pct: Any = None,
+        recalculate: bool = True,
+    ) -> Dict[str, Any]:
+        """注入南极极端气象与环境工况（若处于闭环则自动安全退回开环），可选立即重算一拍 AGC 策略。"""
+        p_key = str(preset or "custom").strip()
+        if p_key == "scada_live":
+            return self.reset_environment_override(recalculate=recalculate)
+
+        base_tpl = dict(ANTARCTIC_ENV_PRESETS.get(p_key, {}))
+        with self.lock:
+            raw_env = dict(self._raw_environment)
+            cur_ov = dict(self._env_override)
+
+        def _pick(user_val: Any, fld: str, fallback: float, lo: float, hi: float) -> float:
+            fv = _finite(user_val)
+            if fv is None and fld in base_tpl:
+                fv = _finite(base_tpl[fld])
+            if fv is None and cur_ov.get("enabled"):
+                fv = _finite(cur_ov.get(fld))
+            if fv is None:
+                fv = _finite(raw_env.get(fld))
+            if fv is None:
+                fv = fallback
+            return max(lo, min(hi, float(fv)))
+
+        ws = _pick(wind_speed, "wind_speed", 10.0, 0.0, 50.0)
+        irr = _pick(solar_irradiance, "solar_irradiance", 300.0, 0.0, 1400.0)
+        temp = _pick(air_temperature, "air_temperature", -15.0, -70.0, 35.0)
+        icing = _pick(icing_ratio, "icing_ratio", 0.0, 0.0, 0.6)
+        load_pct = _pick(load_thermal_pct, "load_thermal_pct", 0.0, -30.0, 80.0)
+
+        reverted_open = False
+        with self.lock:
+            self._env_override = {
+                "enabled": True,
+                "preset": p_key if p_key in ANTARCTIC_ENV_PRESETS else "custom",
+                "wind_speed": round(ws, 2),
+                "solar_irradiance": round(irr, 1),
+                "air_temperature": round(temp, 1),
+                "icing_ratio": round(icing, 3),
+                "load_thermal_pct": round(load_pct, 1),
+            }
+            if self.loop_mode == "closed":
+                self.loop_mode = "open"
+                self.store.save_control_mode("open", self.auto_enabled)
+                reverted_open = True
+
+        self.refresh_telemetry()
+        self.store.append_runtime_log(
+            level="warn" if reverted_open else "info",
+            log_type="environment",
+            target=f"南极工况注入 ({self._env_override['preset']})",
+            result="已生效（自动退开环）" if reverted_open else "已生效",
+            summary=f"风速 {ws:.1f}m/s, 辐照 {irr:.0f}W/m², 气温 {temp:.1f}°C, 覆冰 {icing*100:.0f}%, 供暖负荷 {load_pct:+.0f}%",
+        )
+        ctrl = self.run_control_cycle(trigger="env_sim") if recalculate else self.get_agc_control_payload()
+        return {
+            "ok": True,
+            "reverted_to_open": reverted_open,
+            "control": ctrl,
+            "antarctic_coupling": ctrl.get("antarctic_coupling"),
+        }
+
+    def reset_environment_override(self, *, recalculate: bool = True) -> Dict[str, Any]:
+        """恢复 SCADA 实时实测气象与负荷数据源。"""
+        with self.lock:
+            self._env_override = {"enabled": False, "preset": "scada_live"}
+        self.refresh_telemetry()
+        self.store.append_runtime_log(
+            level="info",
+            log_type="environment",
+            target="SCADA 实时气象",
+            result="已恢复实测",
+            summary="已退出南极人工环境工况覆盖，恢复实时数据库遥测输入",
+        )
+        ctrl = self.run_control_cycle(trigger="manual") if recalculate else self.get_agc_control_payload()
+        return {
+            "ok": True,
+            "control": ctrl,
+            "antarctic_coupling": ctrl.get("antarctic_coupling"),
+        }
+
+    # ------------------------------------------------------------------
     # 控制参数、模式、启停与人工四遥操作
     # ------------------------------------------------------------------
 
@@ -943,9 +1361,15 @@ class AGCRealtimeService:
 
     def set_loop_mode(self, loop_mode: str) -> Dict[str, Any]:
         normalized = "closed" if str(loop_mode).strip().lower() == "closed" else "open"
+        reset_sim = False
         with self.lock:
             self.loop_mode = normalized
+            if normalized == "closed" and self._env_override.get("enabled"):
+                self._env_override = {"enabled": False, "preset": "scada_live"}
+                reset_sim = True
             self.store.save_control_mode(self.loop_mode, self.auto_enabled)
+        if reset_sim:
+            self.refresh_telemetry()
         label = "闭环控制（允许下发四遥）" if normalized == "closed" else "开环控制（仅计算不下发）"
         self.store.append_control_log(
             level="warn" if normalized == "closed" else "info",
@@ -1118,11 +1542,17 @@ class AGCRealtimeService:
                 and int(since_cycle) == self._last_cycle
                 and (since_rev is None or int(since_rev) == self._strategy_revision)
             )
+            coupling = compute_antarctic_coupling(
+                self._raw_environment or snap.get("environment") or {},
+                self._env_override,
+                base_load_kw=self._raw_base_load_kw,
+            )
             payload: Dict[str, Any] = {
                 "model": snap.get("model", self.adapter.model_meta),
                 "clock": snap.get("clock", {}),
                 "measurement_clock": snap.get("measurement_clock", {}),
                 "environment": snap.get("environment", {}),
+                "antarctic_coupling": coupling,
                 "devices": [] if lite else snap.get("devices", []),
                 "device_states": snap.get("device_states", []),
                 "measurements": (
@@ -1237,6 +1667,11 @@ class AGCRealtimeService:
         latest = self._get_cached_latest_strategy()
         with self.lock:
             env = (self._last_snapshot or {}).get("environment", {})
+            coupling = compute_antarctic_coupling(
+                self._raw_environment or env,
+                self._env_override,
+                base_load_kw=self._raw_base_load_kw,
+            )
             return {
                 "auto_enabled": self.auto_enabled,
                 "loop_mode": self.loop_mode,
@@ -1248,6 +1683,7 @@ class AGCRealtimeService:
                 "last_calculated_at": self._last_calculated_at,
                 "last_dispatched_at": self._last_dispatched_at,
                 "environment": env,
+                "antarctic_coupling": coupling,
                 "age_seconds": round(self._last_age_seconds, 2),
                 "scada_error": self._last_scada_error,
                 "agc_db": str(self.store.path),

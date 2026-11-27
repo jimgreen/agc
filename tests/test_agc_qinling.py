@@ -1230,6 +1230,86 @@ class AGCRealtimeSystemTests(unittest.TestCase):
         self.assertEqual(service.store.latest_cycle(), 1)
         self.assertEqual(len(service.store.query_command_records(limit=100)), prev_cmd_records)
 
+    def test_antarctic_environment_override_and_coupling(self):
+        """验证南极极端气象工况注入（下降风超速切出、极夜低温储能倍率降额、采暖负荷耦合与闭环自动退开环保护）及复位。"""
+        import threading
+        from urllib.request import Request, urlopen
+
+        server, service = create_server(
+            host="127.0.0.1",
+            port=0,
+            model_db=self.env["model_db"],
+            scada_db=self.env["scada_db"],
+            svg_path=self.env["svg_path"],
+            agc_db=self.env["agc_db"],
+            start_background=False,
+        )
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        self.addCleanup(service.close)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_port}"
+
+        # 基准实测态
+        service.run_control_cycle(trigger="manual")
+        snap0 = service.get_snapshot_payload()
+        self.assertFalse(snap0["antarctic_coupling"]["override_active"])
+        base_load = float(snap0["latest_strategy"]["metrics"]["loadKw"])
+
+        # 切入闭环后注入南极下降风暴雪（36.5 m/s >= 35 m/s 切出），验证自动退回开环且零真实下发四遥
+        service.set_loop_mode("closed")
+        sent_before = sum(
+            1 for r in service.store.query_command_records(limit=200) if r.get("status") in {"pending", "dispatched"}
+        )
+        req_bliz = Request(
+            f"{base}/api/agc/environment",
+            data=json.dumps({"action": "apply", "preset": "katabatic_blizzard", "recalculate": True}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req_bliz, timeout=5) as resp:
+            res_bliz = json.loads(resp.read().decode("utf-8"))
+        self.assertTrue(res_bliz["ok"])
+        self.assertTrue(res_bliz["reverted_to_open"])
+        self.assertEqual(res_bliz["control"]["loop_mode"], "open")
+        sent_after = sum(
+            1 for r in service.store.query_command_records(limit=200) if r.get("status") in {"pending", "dispatched"}
+        )
+        self.assertEqual(sent_after, sent_before)
+
+        cpl_bliz = res_bliz["antarctic_coupling"]
+        self.assertTrue(cpl_bliz["override_active"])
+        self.assertEqual(cpl_bliz["wind_regime"], "katabatic_cutout")
+        self.assertEqual(cpl_bliz["wind_cap_pct"], 0.0)
+        self.assertLess(cpl_bliz["wind_chill_c"], -45.0)
+        bliz_metrics = res_bliz["control"]["latest"]["metrics"]
+        self.assertAlmostEqual(
+            float(bliz_metrics.get("acWindMaxAvailableKw", 0.0)) + float(bliz_metrics.get("dcWindMaxAvailableKw", 0.0)),
+            0.0,
+            places=2,
+        )
+        self.assertAlmostEqual(float(bliz_metrics["loadKw"]), base_load * 1.22, delta=1.5)
+
+        # 注入极夜静风极寒（-42°C），验证极夜判定与储能低温充放电倍率限幅生效
+        res_night = service.set_environment_override(preset="polar_night_calm", recalculate=True)
+        cpl_night = res_night["antarctic_coupling"]
+        self.assertEqual(cpl_night["polar_light_regime"], "polar_night")
+        self.assertLess(cpl_night["bess_cold_pct"], 65.0)
+
+        # 一键复位 SCADA 实测
+        req_rst = Request(
+            f"{base}/api/agc/environment",
+            data=json.dumps({"action": "reset", "recalculate": True}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req_rst, timeout=5) as resp:
+            res_rst = json.loads(resp.read().decode("utf-8"))
+        self.assertTrue(res_rst["ok"])
+        self.assertFalse(res_rst["antarctic_coupling"]["override_active"])
+        self.assertAlmostEqual(float(res_rst["control"]["latest"]["metrics"]["loadKw"]), base_load, delta=1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
