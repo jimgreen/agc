@@ -245,6 +245,9 @@ async function switchPage(pageName) {
   document.querySelectorAll(".page-section").forEach((sec) => {
     sec.classList.toggle("is-active", sec.dataset.page === pageName);
   });
+  if (typeof syncWallboardShellControls === "function") {
+    syncWallboardShellControls();
+  }
 
   try {
     if (pageName === "wallboard") {

@@ -584,7 +584,7 @@ function renderAgcStrategyTable(forceRebuild = false) {
         <tr>
           <th>分类</th>
           <th>${t("col.device")}</th>
-          <th style="width:82px;">${t("devcfg.ctrlState")}</th>
+          <th style="width:96px;">${t("devcfg.ctrlState")}</th>
           <th>模式</th>
           ${sortTh("current_kw", `${t("lbl.current")} (kW)`)}
           <th class="num">${t("lbl.maxAvail")} (kW)</th>

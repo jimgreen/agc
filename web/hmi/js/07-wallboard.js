@@ -27,19 +27,20 @@ const WB_POOL_GROUPS = [
 ];
 
 function isWallboardImmersive() {
-  return document.documentElement.dataset.wallboardImmersive === "true";
+  return Boolean(document.fullscreenElement) || document.documentElement.dataset.wallboardImmersive === "true";
 }
 
 function syncWallboardShellControls() {
   const immersive = isWallboardImmersive();
   const titleEl = document.querySelector(".brand-text h1");
   if (titleEl) {
-    const key = immersive ? "wb.title" : "app.title";
+    const key = immersive && AGCState.page === "wallboard" ? "wb.title" : "app.title";
     titleEl.dataset.i18n = key;
     titleEl.textContent = t(key);
   }
   const btn = document.getElementById("topbarWallboardBtn");
   const lbl = document.getElementById("topbarWallboardBtnLabel");
+  const ico = document.getElementById("topbarFullscreenIco");
   if (btn && lbl) {
     const key = immersive ? "wb.exitScreen" : "wb.enterScreen";
     lbl.dataset.i18n = key;
@@ -47,21 +48,22 @@ function syncWallboardShellControls() {
     btn.title = t(key);
     btn.className = immersive ? "btn btn-sm btn-warn-outline" : "btn btn-sm btn-primary";
   }
+  if (ico) {
+    ico.innerHTML = immersive
+      ? '<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>'
+      : '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>';
+  }
 }
 
 async function setWallboardImmersive(enabled, toggleBrowserFs = false) {
   const flag = Boolean(enabled);
   document.documentElement.dataset.wallboardImmersive = flag ? "true" : "false";
-  syncWallboardShellControls();
   if (typeof setSidebarOpen === "function" && typeof getSidebarMode === "function") {
     if (flag) {
       setSidebarOpen(false, { manual: true, persistEmbed: false });
     } else if (getSidebarMode() === "embed" && localStorage.getItem("agcSidebarEmbedHidden") !== "1") {
       setSidebarOpen(true, { persistEmbed: false });
     }
-  }
-  if (flag && AGCState.page !== "wallboard") {
-    await switchPage("wallboard");
   }
   if (toggleBrowserFs) {
     try {
@@ -71,9 +73,10 @@ async function setWallboardImmersive(enabled, toggleBrowserFs = false) {
         await document.exitFullscreen();
       }
     } catch (_e) {
-      // 浏览器策略限制全屏时保持无侧栏沉浸布局
+      // 浏览器策略限制全屏时保持无侧栏满屏沉浸布局
     }
   }
+  syncWallboardShellControls();
   setTimeout(redrawActiveCharts, 120);
 }
 
@@ -521,7 +524,6 @@ function renderWallboardResourcePool(rows) {
 
   host.querySelectorAll("[data-wb-pool-tab]").forEach((rowEl) => {
     rowEl.addEventListener("click", async () => {
-      if (isWallboardImmersive()) await setWallboardImmersive(false, false);
       jumpToAgcStrategyTab(rowEl.dataset.wbPoolTab);
     });
   });
@@ -768,7 +770,6 @@ function renderWallboardCommandRank(rows) {
 
   body.querySelectorAll("button[data-wb-audit-name]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (isWallboardImmersive()) await setWallboardImmersive(false, false);
       if (typeof jumpToDeviceTrackingAudit === "function") {
         jumpToDeviceTrackingAudit(btn.dataset.wbAuditType, btn.dataset.wbAuditName, btn.dataset.wbAuditSet);
       }
@@ -911,11 +912,15 @@ function bindWallboardEvents() {
   });
 
   document.addEventListener("fullscreenchange", () => {
-    if (!document.fullscreenElement && isWallboardImmersive()) {
-      document.documentElement.dataset.wallboardImmersive = "false";
-      syncWallboardShellControls();
-      setTimeout(redrawActiveCharts, 100);
+    const fsActive = Boolean(document.fullscreenElement);
+    document.documentElement.dataset.wallboardImmersive = fsActive ? "true" : "false";
+    if (!fsActive && typeof setSidebarOpen === "function" && typeof getSidebarMode === "function") {
+      if (getSidebarMode() === "embed" && localStorage.getItem("agcSidebarEmbedHidden") !== "1") {
+        setSidebarOpen(true, { persistEmbed: false });
+      }
     }
+    syncWallboardShellControls();
+    setTimeout(redrawActiveCharts, 100);
   });
   document.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape" && isWallboardImmersive() && !document.querySelector("dialog[open]")) {
@@ -983,18 +988,15 @@ function bindWallboardEvents() {
     }
   });
   document.getElementById("wbOpenAgcBtn")?.addEventListener("click", async () => {
-    if (isWallboardImmersive()) await setWallboardImmersive(false, false);
     switchPage("agc-control");
   });
   document.getElementById("wbOpenDiagBtn")?.addEventListener("click", async () => {
-    if (isWallboardImmersive()) await setWallboardImmersive(false, false);
     switchPage("diagram");
   });
 
   // 态势 SVG 节点点击下钻
   document.querySelectorAll("#wbCockpitSvg .wb-svg-node").forEach((node) => {
     node.addEventListener("click", async () => {
-      if (isWallboardImmersive()) await setWallboardImmersive(false, false);
       const tab = node.dataset.wbTab;
       const diagType = node.dataset.wbDiag;
       if (tab) {
