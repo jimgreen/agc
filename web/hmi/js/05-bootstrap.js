@@ -2,32 +2,39 @@
 
 const THEME_CATALOG = [
   {
-    groupKey: "theme.group.light",
+    groupKey: "theme.group.celestial",
     items: [
-      { id: "minimalist-light", dark: false, canvas: "#F4F6F8", surface: "#FFFFFF", accent: "#2563EB", ok: "#0D9488" },
-      { id: "bento-grid", dark: false, canvas: "#F5F5F7", surface: "#FFFFFF", accent: "#0071E3", ok: "#0D9488" },
-      { id: "editorial", dark: false, canvas: "#FAF9F6", surface: "#FFFFFF", accent: "#9F1239", ok: "#15803D" },
-      { id: "nordic-frost", dark: false, canvas: "#ECF2F7", surface: "#F9FBFD", accent: "#0284C7", ok: "#0F766E" },
-      { id: "warm-paper", dark: false, canvas: "#F4EFE6", surface: "#FCF9F2", accent: "#2E6F40", ok: "#2E6F40" },
-      { id: "blueprint-light", dark: false, canvas: "#EAF2FB", surface: "#F7FBFF", accent: "#1D4ED8", ok: "#0F766E" }
-    ]
-  },
-  {
-    groupKey: "theme.group.dark",
-    items: [
-      { id: "precision-dark", dark: true, canvas: "#0B0F19", surface: "#111827", accent: "#38BDF8", ok: "#34D399" },
+      { id: "celestial-aurora", dark: true, canvas: "#081020", surface: "#11223E", accent: "#38E8DF", ok: "#34D399" },
+      { id: "celestial-mist", dark: false, canvas: "#F1F7FC", surface: "#FFFFFF", accent: "#0EA5E9", ok: "#0D9488" },
       { id: "glassmorphism", dark: true, canvas: "#101A2E", surface: "#223452", accent: "#60A5FA", ok: "#34D399" },
-      { id: "obsidian-amber", dark: true, canvas: "#11100E", surface: "#1A1815", accent: "#F59E0B", ok: "#34D399" },
-      { id: "nord-slate", dark: true, canvas: "#1D222D", surface: "#252C3A", accent: "#88C0D0", ok: "#A3BE8C" }
+      { id: "sci-fi-purple", dark: true, canvas: "#0B081A", surface: "#161030", accent: "#C084FC", ok: "#2DD4BF" }
     ]
   },
   {
     groupKey: "theme.group.scifi",
     items: [
-      { id: "sci-fi-cyan", dark: true, canvas: "#040812", surface: "#081121", accent: "#00E5FF", ok: "#00E6A8" },
-      { id: "sci-fi-purple", dark: true, canvas: "#090614", surface: "#120C24", accent: "#C084FC", ok: "#2DD4BF" },
-      { id: "sci-fi-matrix", dark: true, canvas: "#040D08", surface: "#081810", accent: "#00E676", ok: "#00E676" },
-      { id: "sci-fi-crimson", dark: true, canvas: "#10070B", surface: "#1A0C12", accent: "#FF4757", ok: "#2ED573" }
+      { id: "sci-fi-cyan", dark: true, canvas: "#060D1C", surface: "#0C1930", accent: "#22D3EE", ok: "#34D399" },
+      { id: "sci-fi-matrix", dark: true, canvas: "#06110C", surface: "#0C2017", accent: "#34D399", ok: "#34D399" },
+      { id: "sci-fi-crimson", dark: true, canvas: "#120910", surface: "#1E101A", accent: "#FB7185", ok: "#34D399" },
+      { id: "precision-dark", dark: true, canvas: "#0B101D", surface: "#131C2E", accent: "#38BDF8", ok: "#34D399" }
+    ]
+  },
+  {
+    groupKey: "theme.group.light",
+    items: [
+      { id: "minimalist-light", dark: false, canvas: "#F5F8FC", surface: "#FFFFFF", accent: "#3B82F6", ok: "#0D9488" },
+      { id: "bento-grid", dark: false, canvas: "#F5F5F7", surface: "#FFFFFF", accent: "#0071E3", ok: "#0D9488" },
+      { id: "nordic-frost", dark: false, canvas: "#ECF4FA", surface: "#F9FCFF", accent: "#0284C7", ok: "#0F766E" },
+      { id: "warm-paper", dark: false, canvas: "#F5F0E7", surface: "#FCF9F2", accent: "#2E6F40", ok: "#2E6F40" },
+      { id: "blueprint-light", dark: false, canvas: "#ECF4FC", surface: "#F8FBFF", accent: "#2563EB", ok: "#0F766E" },
+      { id: "editorial", dark: false, canvas: "#FAF9F6", surface: "#FFFFFF", accent: "#9F1239", ok: "#15803D" }
+    ]
+  },
+  {
+    groupKey: "theme.group.dark",
+    items: [
+      { id: "nord-slate", dark: true, canvas: "#1E2430", surface: "#272F3F", accent: "#88C0D0", ok: "#A3BE8C" },
+      { id: "obsidian-amber", dark: true, canvas: "#13110F", surface: "#1D1A16", accent: "#F59E0B", ok: "#34D399" }
     ]
   }
 ];
@@ -36,7 +43,7 @@ const THEME_BY_ID = new Map(THEME_CATALOG.flatMap((g) => g.items).map((it) => [i
 const DARK_THEMES = new Set(Array.from(THEME_BY_ID.values()).filter((it) => it.dark).map((it) => it.id));
 
 function syncThemePickerTrigger(themeId) {
-  const item = THEME_BY_ID.get(themeId) || THEME_BY_ID.get("minimalist-light");
+  const item = THEME_BY_ID.get(themeId) || THEME_BY_ID.get("celestial-aurora");
   if (!item) return;
   const lbl = document.getElementById("themePickerLabel");
   if (lbl) {
@@ -48,15 +55,64 @@ function syncThemePickerTrigger(themeId) {
     dots[0].style.background = item.canvas;
     dots[1].style.background = item.surface;
     dots[2].style.background = item.accent;
+  } else if (dots.length === 2) {
+    dots[0].style.background = item.canvas;
+    dots[1].style.background = item.accent;
   }
   const hiddenSel = document.getElementById("themeSelector");
   if (hiddenSel && hiddenSel.value !== item.id) hiddenSel.value = item.id;
 }
 
+function syncLangControls(lang) {
+  const activeLang = ["zh-CN", "en-US", "ru-RU"].includes(lang) ? lang : "zh-CN";
+  document.querySelectorAll("#langSegmented button[data-set-lang]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.setLang === activeLang);
+  });
+  const langSel = document.getElementById("langSelector");
+  if (langSel && langSel.value !== activeLang) langSel.value = activeLang;
+}
+
+function applyLangChoice(lang) {
+  const nextLang = ["zh-CN", "en-US", "ru-RU"].includes(lang) ? lang : "zh-CN";
+  document.documentElement.dataset.lang = nextLang;
+  try { localStorage.setItem("agcUiLang", nextLang); } catch (_e) {}
+  syncLangControls(nextLang);
+  applyI18n();
+  syncWallboardShellControls();
+  syncThemePickerTrigger(document.documentElement.dataset.theme || "celestial-aurora");
+  renderThemePopover();
+  updateTopbar();
+  if (AGCState.page === "wallboard") {
+    renderWallboardPage();
+    renderWallboardTrendChart();
+  } else if (AGCState.page === "agc-control") renderAgcControlPage();
+  else if (AGCState.page === "overview") renderOverviewPage();
+  else if (AGCState.page === "model") renderModelPage();
+  else if (AGCState.page === "measurements") renderMeasurementsPage();
+  else if (AGCState.page === "commands") renderCommandsPage();
+  else if (AGCState.page === "device-config") {
+    renderDeviceConfigsToolbar();
+    renderDeviceConfigsTable();
+    renderDeviceCurveHeader();
+    drawDeviceCurveCanvas();
+  }
+}
+
+function closeAllPopMenus(exceptId = null) {
+  document.querySelectorAll(".pop-menu-panel").forEach((panel) => {
+    if (exceptId && panel.id === exceptId) return;
+    panel.hidden = true;
+  });
+  document.querySelectorAll("[data-pop-trigger]").forEach((btn) => {
+    const targetId = btn.dataset.popTrigger;
+    btn.setAttribute("aria-expanded", exceptId && targetId === exceptId ? "true" : "false");
+  });
+}
+
 function renderThemePopover() {
   const pop = document.getElementById("themePopover");
   if (!pop) return;
-  const active = document.documentElement.dataset.theme || "minimalist-light";
+  const active = document.documentElement.dataset.theme || "celestial-aurora";
   pop.innerHTML = THEME_CATALOG.map((grp) => `
     <div class="theme-group">
       <h3 class="theme-group-title">${escapeHtml(t(grp.groupKey))}</h3>
@@ -80,20 +136,17 @@ function renderThemePopover() {
   pop.querySelectorAll("[data-pick-theme]").forEach((btn) => {
     btn.addEventListener("click", () => {
       applyThemeChoice(btn.dataset.pickTheme, true);
-      closeThemePopover();
+      closeAllPopMenus();
     });
   });
 }
 
 function closeThemePopover() {
-  const pop = document.getElementById("themePopover");
-  const btn = document.getElementById("themePickerBtn");
-  if (pop) pop.hidden = true;
-  if (btn) btn.setAttribute("aria-expanded", "false");
+  closeAllPopMenus();
 }
 
 function applyThemeChoice(themeId, persist = true) {
-  const theme = THEME_BY_ID.has(themeId) ? themeId : "minimalist-light";
+  const theme = THEME_BY_ID.has(themeId) ? themeId : "celestial-aurora";
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.colorScheme = DARK_THEMES.has(theme) ? "dark" : "light";
   if (persist) {
@@ -441,63 +494,61 @@ function bindGlobalShellEvents() {
     closeFloatingSidebar(true);
   });
 
-  // 主题色卡选择器（14 套风格分组切换，同步刷新 Canvas 调色板）
-  const initTheme = document.documentElement.dataset.theme || "minimalist-light";
+  // 顶栏三合一偏好菜单（语言 + 16套风格 + 系统参数）与全站通用收纳弹出层
+  const initTheme = document.documentElement.dataset.theme || "celestial-aurora";
+  const initLang = document.documentElement.dataset.lang || "zh-CN";
   syncThemePickerTrigger(initTheme);
+  syncLangControls(initLang);
   renderThemePopover();
-  const themeBtn = document.getElementById("themePickerBtn");
-  const themePop = document.getElementById("themePopover");
-  themeBtn?.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    const open = themePop && themePop.hidden;
-    if (themePop) {
-      if (open) renderThemePopover();
-      themePop.hidden = !open;
-    }
-    themeBtn.setAttribute("aria-expanded", open ? "true" : "false");
+
+  document.querySelectorAll("[data-pop-trigger]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const targetId = btn.dataset.popTrigger;
+      const panel = targetId ? document.getElementById(targetId) : null;
+      if (!panel) return;
+      const willOpen = panel.hidden;
+      closeAllPopMenus(willOpen ? targetId : null);
+      if (willOpen && targetId === "prefsPopover") {
+        syncLangControls(document.documentElement.dataset.lang || "zh-CN");
+        renderThemePopover();
+      }
+      panel.hidden = !willOpen;
+    });
   });
+
+  document.querySelectorAll(".pop-menu-panel").forEach((panel) => {
+    panel.addEventListener("click", (ev) => {
+      const closeTarget = ev.target.closest("[data-pop-close]");
+      if (closeTarget && !closeTarget.disabled) {
+        setTimeout(() => closeAllPopMenus(), 0);
+      }
+    });
+  });
+
   document.addEventListener("click", (ev) => {
-    if (!themePop || themePop.hidden) return;
-    if (themePop.contains(ev.target) || themeBtn?.contains(ev.target)) return;
-    closeThemePopover();
+    if (ev.target.closest(".pop-menu-wrap")) return;
+    closeAllPopMenus();
   });
+
   document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape" && themePop && !themePop.hidden) closeThemePopover();
+    if (ev.key === "Escape") closeAllPopMenus();
   });
+
   const themeSel = document.getElementById("themeSelector");
   if (themeSel) {
     themeSel.value = initTheme;
     themeSel.addEventListener("change", () => applyThemeChoice(themeSel.value, true));
   }
 
-  // 语言切换
+  document.querySelectorAll("#langSegmented button[data-set-lang]").forEach((btn) => {
+    btn.addEventListener("click", () => applyLangChoice(btn.dataset.setLang));
+  });
+
   const langSel = document.getElementById("langSelector");
   if (langSel) {
-    langSel.value = document.documentElement.dataset.lang || "zh-CN";
-    langSel.addEventListener("change", () => {
-      const lang = langSel.value;
-      document.documentElement.dataset.lang = lang;
-      try { localStorage.setItem("agcUiLang", lang); } catch (_e) {}
-      applyI18n();
-      syncWallboardShellControls();
-      syncThemePickerTrigger(document.documentElement.dataset.theme || "minimalist-light");
-      renderThemePopover();
-      updateTopbar();
-      if (AGCState.page === "wallboard") {
-        renderWallboardPage();
-        renderWallboardTrendChart();
-      } else if (AGCState.page === "agc-control") renderAgcControlPage();
-      else if (AGCState.page === "overview") renderOverviewPage();
-      else if (AGCState.page === "model") renderModelPage();
-      else if (AGCState.page === "measurements") renderMeasurementsPage();
-      else if (AGCState.page === "commands") renderCommandsPage();
-      else if (AGCState.page === "device-config") {
-        renderDeviceConfigsToolbar();
-        renderDeviceConfigsTable();
-        renderDeviceCurveHeader();
-        drawDeviceCurveCanvas();
-      }
-    });
+    langSel.value = initLang;
+    langSel.addEventListener("change", () => applyLangChoice(langSel.value));
   }
 
   // 通用关闭弹窗按钮

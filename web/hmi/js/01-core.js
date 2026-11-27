@@ -82,20 +82,20 @@ function escapeHtml(str) {
 function cmdStatusMeta(status) {
   const s = String(status || "idle").trim().toLowerCase();
   const map = {
-    pending: { cls: "badge-warn is-pending", label: "待回执" },
-    dispatched: { cls: "badge-ok", label: "执行成功" },
-    failed: { cls: "badge-danger", label: "执行失败" },
-    timeout: { cls: "badge-danger", label: "回执超时" },
-    disabled: { cls: "badge-danger", label: "控制禁用" },
-    unconfigured: { cls: "badge-danger", label: "无配置" },
-    blocked: { cls: "badge-danger", label: "已闭锁" },
-    superseded: { cls: "badge-neutral", label: "已覆盖" },
-    device_open: { cls: "badge-neutral", label: "开环停发" },
-    open_loop_only: { cls: "badge-info", label: "开环未发" },
-    preview: { cls: "badge-info", label: "沙盒预演" },
-    unchanged: { cls: "badge-neutral", label: "维持不变" },
-    calculated: { cls: "badge-info", label: "已计算" },
-    idle: { cls: "badge-neutral", label: "空闲" }
+    pending: { cls: "badge-warn is-pending", label: "⏳ 待回执" },
+    dispatched: { cls: "badge-ok", label: "✓ 已执行" },
+    failed: { cls: "badge-danger", label: "✕ 失败" },
+    timeout: { cls: "badge-danger", label: "⏱ 超时" },
+    disabled: { cls: "badge-danger", label: "⊘ 禁用" },
+    unconfigured: { cls: "badge-danger", label: "⊘ 无配置" },
+    blocked: { cls: "badge-danger", label: "⊘ 闭锁" },
+    superseded: { cls: "badge-neutral", label: "↻ 覆盖" },
+    device_open: { cls: "badge-neutral", label: "○ 停发" },
+    open_loop_only: { cls: "badge-info", label: "◌ 仅算" },
+    preview: { cls: "badge-info", label: "✦ 预演" },
+    unchanged: { cls: "badge-neutral", label: "— 保持" },
+    calculated: { cls: "badge-info", label: "◈ 已算" },
+    idle: { cls: "badge-neutral", label: "· 空闲" }
   };
   return map[s] || { cls: "badge-neutral", label: status || "--" };
 }
@@ -177,6 +177,7 @@ function chartThemePalette() {
   const danger = cs.getPropertyValue("--danger").trim() || (dark ? "#FB7185" : "#DC2626");
   const surface = cs.getPropertyValue("--bg-surface").trim() || (dark ? "#111827" : "#FFFFFF");
   const darkLabelMap = {
+    "celestial-aurora": "rgba(10, 20, 38, 0.90)",
     "sci-fi-cyan": "rgba(6, 15, 30, 0.92)",
     "sci-fi-purple": "rgba(16, 10, 32, 0.92)",
     "sci-fi-matrix": "rgba(6, 20, 13, 0.92)",
@@ -187,7 +188,7 @@ function chartThemePalette() {
   };
   const labelBg = dark
     ? (darkLabelMap[theme] || "rgba(15, 23, 42, 0.92)")
-    : (theme === "warm-paper" ? "rgba(252, 249, 242, 0.94)" : "rgba(255, 255, 255, 0.94)");
+    : (theme === "warm-paper" ? "rgba(252, 249, 242, 0.94)" : "rgba(250, 253, 255, 0.93)");
   return {
     dark,
     theme,

@@ -279,7 +279,7 @@ function renderCommandsPage() {
   if (ackBadge) {
     const pCnt = Number(data.pending_ack_count || 0);
     ackBadge.hidden = pCnt <= 0;
-    ackBadge.textContent = `待回执 ${pCnt}`;
+    ackBadge.textContent = `⏳ ${pCnt}`;
   }
   const rows = AGCState.cmdKind === "yk" ? (data.yk || []) : (data.yt || []);
   const treeFilter = document.getElementById("cmdTreeFilter")?.value || "";

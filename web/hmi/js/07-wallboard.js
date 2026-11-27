@@ -120,13 +120,13 @@ function setWbSvgNode(id, { cur, tgt, deltaKw, meta, dir, ringPct }) {
 function windRegimeMeta(regime) {
   switch (regime) {
     case "katabatic_cutout":
-      return { cls: "badge-danger", txt: t("wb.regCutout") };
+      return { cls: "badge-danger", txt: `⚠ ${t("wb.regCutout")}` };
     case "rated_full":
-      return { cls: "badge-ok", txt: t("wb.regRated") };
+      return { cls: "badge-ok", txt: `✦ ${t("wb.regRated")}` };
     case "ramp_cubic":
-      return { cls: "badge-info", txt: t("wb.regRamp") };
+      return { cls: "badge-info", txt: `↗ ${t("wb.regRamp")}` };
     case "calm_cutin":
-      return { cls: "badge-neutral", txt: t("wb.regCalm") };
+      return { cls: "badge-neutral", txt: `◌ ${t("wb.regCalm")}` };
     default:
       return { cls: "badge-neutral", txt: "--" };
   }
@@ -135,12 +135,12 @@ function windRegimeMeta(regime) {
 function lightRegimeMeta(regime) {
   switch (regime) {
     case "polar_day":
-      return { cls: "badge-ok", txt: t("wb.regDay") };
+      return { cls: "badge-ok", txt: `☀ ${t("wb.regDay")}` };
     case "twilight_weak":
-      return { cls: "badge-info", txt: t("wb.regWeak") };
+      return { cls: "badge-info", txt: `◐ ${t("wb.regWeak")}` };
     case "polar_night":
     default:
-      return { cls: "badge-neutral", txt: t("wb.regNight") };
+      return { cls: "badge-neutral", txt: `☾ ${t("wb.regNight")}` };
   }
 }
 
@@ -297,8 +297,8 @@ function renderWallboardPage() {
   document.getElementById("wbKpiHydroSub").textContent = `kW · ${fmtNum(h2Press, 2)}MPa`;
   document.getElementById("wbKpiDispatch").textContent = `${changedCnt} / ${rows.length}`;
   document.getElementById("wbKpiAck").textContent = agc.loop_mode === "closed"
-    ? (pendingCnt > 0 ? `待回执 ${pendingCnt}` : `已发 ${okCnt}`)
-    : (cpl.override_active ? t("wb.srcSim") : t("mode.open"));
+    ? (pendingCnt > 0 ? `⏳ ${pendingCnt}` : `✓ ${okCnt}`)
+    : (cpl.override_active ? `✦ ${t("wb.srcSim")}` : `◌ ${t("mode.open")}`);
 
   // 3. 左上：南极极端气象与多能耦合舱
   renderWallboardPolarPanel({ env, cpl, agc, scada });
@@ -375,7 +375,8 @@ function renderWallboardPolarPanel({ env, cpl, agc, scada }) {
   const chillEl = document.getElementById("wbWindChillTag");
   if (chillEl) {
     const wc = Number(cpl.wind_chill_c ?? -12);
-    chillEl.textContent = `${t("wb.windChill")} ${fmtNum(wc, 1)}°C`;
+    chillEl.textContent = `❄ ${fmtNum(wc, 1)}°C`;
+    chillEl.title = `${t("wb.windChill")} ${fmtNum(wc, 1)}°C`;
     chillEl.style.color = wc <= -35 ? "var(--danger)" : (wc <= -20 ? "var(--warn)" : "var(--text-secondary)");
   }
 
@@ -472,8 +473,9 @@ function renderWallboardResourcePool(rows) {
   });
   if (summaryBadge) {
     summaryBadge.textContent = rows.length
-      ? `${t("devcfg.stateClosed")}${cntClosed}·${t("devcfg.stateTrack")}${cntTrack}·${t("devcfg.stateOpen")}${cntOpen}`
+      ? `◉${cntClosed} · ∿${cntTrack} · ○${cntOpen}`
       : "--";
+    summaryBadge.title = `${t("devcfg.stateClosed")} ${cntClosed} / ${t("devcfg.stateTrack")} ${cntTrack} / ${t("devcfg.stateOpen")} ${cntOpen}`;
   }
 
   if (!rows.length) {
@@ -575,14 +577,14 @@ function renderWallboardCockpitSvg(ctx) {
   const loopBadge = document.getElementById("wbLoopBadge");
   const isClosed = ctx.agc.loop_mode === "closed";
   if (loopBadge) {
-    loopBadge.textContent = isClosed ? t("mode.closed") : t("mode.open");
+    loopBadge.textContent = isClosed ? `◉ ${t("mode.closed")}` : `◌ ${t("mode.open")}`;
     loopBadge.className = `badge ${isClosed ? "badge-warn" : "badge-info"}`;
   }
 
   const dcGen = ctx.dcWindCur + ctx.dcPvCur + Math.max(0, ctx.dcStCur) + Math.max(0, ctx.fcCur);
   const acGen = ctx.acWindCur + ctx.acPvCur + Math.max(0, ctx.acStCur) + Math.max(0, ctx.dieselCur);
-  document.getElementById("wbDcSummary").textContent = `发 ${fmtNum(dcGen, 1)} / 荷 ${fmtNum(ctx.dcLoadKw, 1)} kW`;
-  document.getElementById("wbAcSummary").textContent = `发 ${fmtNum(acGen, 1)} / 荷 ${fmtNum(ctx.acLoadKw, 1)} kW`;
+  document.getElementById("wbDcSummary").textContent = `⚡ ${fmtNum(dcGen, 1)} ⇢ ${fmtNum(ctx.dcLoadKw, 1)} kW`;
+  document.getElementById("wbAcSummary").textContent = `⚡ ${fmtNum(acGen, 1)} ⇢ ${fmtNum(ctx.acLoadKw, 1)} kW`;
 
   const cpl = ctx.cpl || {};
   const wMeta = windRegimeMeta(cpl.wind_regime);
@@ -591,30 +593,30 @@ function renderWallboardCockpitSvg(ctx) {
     ? Math.max(...ctx.diag.islands.map((i) => Math.abs(Number(i.max_balance_delta_kw || 0))))
     : 0;
   document.getElementById("wbCenterBanner").textContent =
-    `${cpl.override_active ? `[${t("wb.srcSim")}] ` : ""}${wMeta.txt} ${fmtNum(cpl.wind_speed, 1)}m/s · ${lMeta.txt} · ${t("wb.windChill")} ${fmtNum(cpl.wind_chill_c, 1)}°C`;
+    `${cpl.override_active ? `✦ ${t("wb.srcSim")} · ` : ""}${wMeta.txt} ${fmtNum(cpl.wind_speed, 1)}m/s · ${lMeta.txt} · ❄ ${fmtNum(cpl.wind_chill_c, 1)}°C`;
   document.getElementById("wbCoreMain").textContent =
-    `消纳 ${fmtNum(ctx.renUtil, 1)}% · 绿电 ${fmtNum(ctx.greenShare, 1)}%`;
+    `✨ ${fmtNum(ctx.renUtil, 1)}%  ·  🌱 ${fmtNum(ctx.greenShare, 1)}%`;
   document.getElementById("wbCoreSub").textContent =
-    `#${ctx.agc.cycle || 0} · ΔP_bus ${fmtNum(maxRes, 2)} kW${ctx.diag?.solve_ms ? ` · ${ctx.diag.solve_ms}ms` : ""}`;
+    `#${ctx.agc.cycle || 0} · ΔP ${fmtNum(maxRes, 2)} kW${ctx.diag?.solve_ms ? ` · ${ctx.diag.solve_ms}ms` : ""}`;
 
   const loadSafe = Math.max(0.01, Number(ctx.loadKw || 0));
   const thPct = Number(cpl.load_thermal_pct || 0);
-  const thSuffix = Math.abs(thPct) > 0.1 ? ` · 暖${thPct >= 0 ? "+" : ""}${thPct}%` : "";
-  const dcLoadPct = `${fmtNum((Number(ctx.dcLoadKw || 0) / loadSafe) * 100, 1)}%${thSuffix}`;
-  const acLoadPct = `${fmtNum((Number(ctx.acLoadKw || 0) / loadSafe) * 100, 1)}%${thSuffix}`;
+  const thSuffix = Math.abs(thPct) > 0.1 ? ` · 🔥${thPct >= 0 ? "+" : ""}${thPct}%` : "";
+  const dcLoadPct = `◔ ${fmtNum((Number(ctx.dcLoadKw || 0) / loadSafe) * 100, 1)}%${thSuffix}`;
+  const acLoadPct = `◔ ${fmtNum((Number(ctx.acLoadKw || 0) / loadSafe) * 100, 1)}%${thSuffix}`;
 
   const windMetaSuffix = cpl.wind_regime === "katabatic_cutout"
-    ? "切出≥35m/s"
-    : (cpl.wind_regime === "calm_cutin" ? "静风<3m/s" : `${fmtNum(cpl.wind_cap_pct, 0)}%可发`);
+    ? "⚠ ≥35m/s"
+    : (cpl.wind_regime === "calm_cutin" ? "◌ <3m/s" : `↟ ${fmtNum(cpl.wind_cap_pct, 0)}%`);
   const pvMetaSuffix = cpl.polar_light_regime === "polar_night"
-    ? "极夜0W/m²"
-    : `${fmtNum(cpl.pv_cap_pct, 0)}%可发`;
+    ? "☾ 0W/m²"
+    : `↟ ${fmtNum(cpl.pv_cap_pct, 0)}%`;
   const bessCapPct = Number(cpl.bess_cold_pct ?? 100);
-  const bessColdTag = bessCapPct < 99 ? ` · 限${fmtNum(bessCapPct, 0)}%` : "";
+  const bessColdTag = bessCapPct < 99 ? ` · ❄${fmtNum(bessCapPct, 0)}%` : "";
 
   setWbSvgNode("wbNodeDcWind", {
     cur: `${fmtNum(ctx.dcWindCur, 1)} kW`,
-    tgt: `${t("lbl.target")} ${fmtNum(ctx.dcWindTgt, 1)} · ${t("lbl.maxAvail")} ${fmtNum(ctx.m.dcWindMaxAvailableKw, 1)}`,
+    tgt: `◎ ${fmtNum(ctx.dcWindTgt, 1)}  ·  ↟ ${fmtNum(ctx.m.dcWindMaxAvailableKw, 1)}`,
     deltaKw: ctx.dcWindTgt - ctx.dcWindCur,
     meta: windMetaSuffix
   });
@@ -622,7 +624,7 @@ function renderWallboardCockpitSvg(ctx) {
 
   setWbSvgNode("wbNodeDcPv", {
     cur: `${fmtNum(ctx.dcPvCur, 1)} kW`,
-    tgt: `${t("lbl.target")} ${fmtNum(ctx.dcPvTgt, 1)} · ${t("lbl.maxAvail")} ${fmtNum(ctx.m.dcPvMaxAvailableKw, 1)}`,
+    tgt: `◎ ${fmtNum(ctx.dcPvTgt, 1)}  ·  ↟ ${fmtNum(ctx.m.dcPvMaxAvailableKw, 1)}`,
     deltaKw: ctx.dcPvTgt - ctx.dcPvCur,
     meta: pvMetaSuffix
   });
@@ -630,7 +632,7 @@ function renderWallboardCockpitSvg(ctx) {
 
   setWbSvgNode("wbNodeDcStorage", {
     cur: `${fmtNum(ctx.dcStCur, 1)} kW`,
-    tgt: `${t("lbl.target")} ${fmtNum(ctx.dcStTgt, 1)} kW`,
+    tgt: `◎ ${fmtNum(ctx.dcStTgt, 1)} kW`,
     deltaKw: ctx.dcStTgt - ctx.dcStCur,
     meta: `SOC ${fmtPct(ctx.m.dcStorageSoc, 0)}${bessColdTag}`,
     ringPct: pctRatio(ctx.m.dcStorageSoc)
@@ -645,7 +647,7 @@ function renderWallboardCockpitSvg(ctx) {
 
   setWbSvgNode("wbNodeAcdc", {
     cur: `${fmtNum(ctx.acdcCur, 1)} kW`,
-    tgt: `${t("lbl.target")} ${fmtNum(ctx.acdcTgt, 1)} kW`,
+    tgt: `◎ ${fmtNum(ctx.acdcTgt, 1)} kW`,
     deltaKw: ctx.acdcTgt - ctx.acdcCur,
     dir: ctx.acdcCur > 0.2 ? "DC━━▶AC" : ctx.acdcCur < -0.2 ? "DC◀━━AC" : "◀━▶"
   });
@@ -674,7 +676,7 @@ function renderWallboardCockpitSvg(ctx) {
 
   setWbSvgNode("wbNodeAcWind", {
     cur: `${fmtNum(ctx.acWindCur, 1)} kW`,
-    tgt: `${t("lbl.target")} ${fmtNum(ctx.acWindTgt, 1)} · ${t("lbl.maxAvail")} ${fmtNum(ctx.m.acWindMaxAvailableKw, 1)}`,
+    tgt: `◎ ${fmtNum(ctx.acWindTgt, 1)}  ·  ↟ ${fmtNum(ctx.m.acWindMaxAvailableKw, 1)}`,
     deltaKw: ctx.acWindTgt - ctx.acWindCur,
     meta: windMetaSuffix
   });
@@ -682,7 +684,7 @@ function renderWallboardCockpitSvg(ctx) {
 
   setWbSvgNode("wbNodeAcPv", {
     cur: `${fmtNum(ctx.acPvCur, 1)} kW`,
-    tgt: `${t("lbl.target")} ${fmtNum(ctx.acPvTgt, 1)} · ${t("lbl.maxAvail")} ${fmtNum(ctx.m.acPvMaxAvailableKw, 1)}`,
+    tgt: `◎ ${fmtNum(ctx.acPvTgt, 1)}  ·  ↟ ${fmtNum(ctx.m.acPvMaxAvailableKw, 1)}`,
     deltaKw: ctx.acPvTgt - ctx.acPvCur,
     meta: pvMetaSuffix
   });
@@ -690,7 +692,7 @@ function renderWallboardCockpitSvg(ctx) {
 
   setWbSvgNode("wbNodeAcStorage", {
     cur: `${fmtNum(ctx.acStCur, 1)} kW`,
-    tgt: `${t("lbl.target")} ${fmtNum(ctx.acStTgt, 1)} kW`,
+    tgt: `◎ ${fmtNum(ctx.acStTgt, 1)} kW`,
     deltaKw: ctx.acStTgt - ctx.acStCur,
     meta: `SOC ${fmtPct(ctx.m.acStorageSoc, 0)}${bessColdTag}`,
     ringPct: pctRatio(ctx.m.acStorageSoc)
@@ -699,9 +701,9 @@ function renderWallboardCockpitSvg(ctx) {
 
   setWbSvgNode("wbNodeDiesel", {
     cur: `${fmtNum(ctx.dieselCur, 1)} kW`,
-    tgt: `${t("lbl.target")} ${fmtNum(ctx.dieselTgt, 1)} kW`,
+    tgt: `◎ ${fmtNum(ctx.dieselTgt, 1)} kW`,
     deltaKw: ctx.dieselTgt - ctx.dieselCur,
-    meta: `min ${fmtNum(ctx.dieselMin, 0)}`
+    meta: `↧ ${fmtNum(ctx.dieselMin, 0)}`
   });
   setEfFlow("wbFlowDiesel", ctx.dieselCur, { refKw: 260 });
 
@@ -732,9 +734,9 @@ function renderWallboardCommandRank(rows) {
   });
 
   const stateMap = {
-    closed: { cls: "badge-ok", txt: t("devcfg.stateClosed") },
-    track: { cls: "badge-warn", txt: t("devcfg.stateTrack") },
-    open: { cls: "badge-neutral", txt: t("devcfg.stateOpen") }
+    closed: { cls: "badge-ok", txt: `◉ ${t("devcfg.stateClosed")}` },
+    track: { cls: "badge-warn", txt: `∿ ${t("devcfg.stateTrack")}` },
+    open: { cls: "badge-neutral", txt: `○ ${t("devcfg.stateOpen")}` }
   };
 
   body.innerHTML = sorted.map((r) => {
@@ -790,7 +792,7 @@ function renderWallboardDecisionStream() {
     const icingPct = Math.round(Number(cpl.icing_ratio || 0) * 100);
     const bessCap = Number(cpl.bess_cold_pct ?? 100);
     const isExtreme = cpl.wind_regime === "katabatic_cutout" || cpl.wind_regime === "calm_cutin" || bessCap < 90 || icingPct >= 15;
-    polarBanner = `<div class="wb-stream-item ${isExtreme ? "is-warn" : "is-ok"}">【南极耦合】${wMeta.txt}(${fmtNum(cpl.wind_speed, 1)}m/s) · ${lMeta.txt}(${fmtNum(cpl.solar_irradiance, 0)}W/m²) · 风寒 ${fmtNum(cpl.wind_chill_c, 1)}°C · 储能倍率 ${fmtNum(bessCap, 0)}%${icingPct > 0 ? ` · 覆冰 -${icingPct}%` : ""}${Math.abs(Number(cpl.thermal_delta_kw || 0)) > 0.1 ? ` · 供暖 ${cpl.thermal_delta_kw >= 0 ? "+" : ""}${fmtNum(cpl.thermal_delta_kw, 1)}kW` : ""}</div>`;
+    polarBanner = `<div class="wb-stream-item ${isExtreme ? "is-warn" : "is-ok"}">❄ ${wMeta.txt} (${fmtNum(cpl.wind_speed, 1)}m/s) · ${lMeta.txt} (${fmtNum(cpl.solar_irradiance, 0)}W/m²) · ❄${fmtNum(cpl.wind_chill_c, 1)}°C · ◈${fmtNum(bessCap, 0)}%${icingPct > 0 ? ` · 🧊-${icingPct}%` : ""}${Math.abs(Number(cpl.thermal_delta_kw || 0)) > 0.1 ? ` · 🔥${cpl.thermal_delta_kw >= 0 ? "+" : ""}${fmtNum(cpl.thermal_delta_kw, 1)}kW` : ""}</div>`;
   }
 
   const lines = (latest && latest.summary_lines) || (latest && latest.decision_detail) || [];
@@ -1001,6 +1003,11 @@ function bindWallboardEvents() {
   });
 
   // 大屏趋势时间窗切换
+  document.getElementById("wbTrendWindowSelect")?.addEventListener("change", (ev) => {
+    wbTrendWindow = Number(ev.target.value) || 60;
+    refreshWallboardExtraData();
+  });
+
   document.querySelectorAll("#wbTrendWindowGroup button").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll("#wbTrendWindowGroup button").forEach((b) => b.classList.remove("is-active"));

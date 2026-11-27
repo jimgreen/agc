@@ -96,9 +96,9 @@ function renderOverviewPage() {
   const dcGenSum = Number(dcWindCur || 0) + Number(dcPvCur || 0) + Math.max(0, Number(dcStCur || 0));
   const acGenSum = Number(acWindCur || 0) + Number(acPvCur || 0) + Math.max(0, Number(acStCur || 0)) + Math.max(0, dieselVal);
   const dcSumEl = document.getElementById("efDcSummary");
-  if (dcSumEl) dcSumEl.textContent = `发 ${fmtNum(dcGenSum, 1)} / 荷 ${fmtNum(dcLoadKw, 1)} kW`;
+  if (dcSumEl) dcSumEl.textContent = `⚡ ${fmtNum(dcGenSum, 1)} ⇢ ${fmtNum(dcLoadKw, 1)} kW`;
   const acSumEl = document.getElementById("efAcSummary");
-  if (acSumEl) acSumEl.textContent = `发 ${fmtNum(acGenSum, 1)} / 荷 ${fmtNum(acLoadKw, 1)} kW`;
+  if (acSumEl) acSumEl.textContent = `⚡ ${fmtNum(acGenSum, 1)} ⇢ ${fmtNum(acLoadKw, 1)} kW`;
 
   const loadTotalSafe = Math.max(0.01, Number(loadKw || 0));
   const dcLoadPct = `${fmtNum((Number(dcLoadKw || 0) / loadTotalSafe) * 100, 1)}%`;
@@ -106,14 +106,14 @@ function renderOverviewPage() {
 
   setEfNode("efDcWind", {
     cur: `${fmtNum(dcWindCur, 1)} kW`,
-    sub: `目标 ${fmtNum(m.dcWindTargetKw, 1)} · 可发 ${fmtNum(m.dcWindMaxAvailableKw, 1)}`,
+    sub: `◎ ${fmtNum(m.dcWindTargetKw, 1)} · ↟ ${fmtNum(m.dcWindMaxAvailableKw, 1)}`,
     meta: " · 10台"
   });
   setEfFlow("efFlowDcWind", dcWindCur, { refKw: 80 });
 
   setEfNode("efDcPv", {
     cur: `${fmtNum(dcPvCur, 1)} kW`,
-    sub: `目标 ${fmtNum(m.dcPvTargetKw, 1)} · 可发 ${fmtNum(m.dcPvMaxAvailableKw, 1)}`,
+    sub: `◎ ${fmtNum(m.dcPvTargetKw, 1)} · ↟ ${fmtNum(m.dcPvMaxAvailableKw, 1)}`,
     meta: " · 3台"
   });
   setEfFlow("efFlowDcPv", dcPvCur, { refKw: 80 });
@@ -121,7 +121,7 @@ function renderOverviewPage() {
   const dcStVal = Number(dcStCur || 0);
   setEfNode("efDcStorage", {
     cur: `${fmtNum(dcStCur, 1)} kW`,
-    sub: `目标 ${fmtNum(m.dcStorageTargetKw, 1)} · ${dcStVal > 0.2 ? "放电" : dcStVal < -0.2 ? "充电" : "静置"}`,
+    sub: `◎ ${fmtNum(m.dcStorageTargetKw, 1)} · ${dcStVal > 0.2 ? "⚡放电" : dcStVal < -0.2 ? "⚡充电" : "◌静置"}`,
     meta: ` · SOC ${fmtPct(m.dcStorageSoc)}`,
     ringPct: pctRatio(m.dcStorageSoc)
   });
@@ -129,21 +129,21 @@ function renderOverviewPage() {
 
   setEfNode("efDcLoad", {
     cur: `${fmtNum(dcLoadKw, 1)} kW`,
-    sub: `占总负荷 ${dcLoadPct}`,
+    sub: `◔ ${dcLoadPct}`,
     meta: " · 750V"
   });
   setEfFlow("efFlowDcLoad", dcLoadKw, { refKw: 150 });
 
   setEfNode("efAcWind", {
     cur: `${fmtNum(acWindCur, 1)} kW`,
-    sub: `目标 ${fmtNum(m.acWindTargetKw, 1)} · 可发 ${fmtNum(m.acWindMaxAvailableKw, 1)}`,
+    sub: `◎ ${fmtNum(m.acWindTargetKw, 1)} · ↟ ${fmtNum(m.acWindMaxAvailableKw, 1)}`,
     meta: " · 1台"
   });
   setEfFlow("efFlowAcWind", acWindCur, { refKw: 60 });
 
   setEfNode("efAcPv", {
     cur: `${fmtNum(acPvCur, 1)} kW`,
-    sub: `目标 ${fmtNum(m.acPvTargetKw, 1)} · 可发 ${fmtNum(m.acPvMaxAvailableKw, 1)}`,
+    sub: `◎ ${fmtNum(m.acPvTargetKw, 1)} · ↟ ${fmtNum(m.acPvMaxAvailableKw, 1)}`,
     meta: " · 1台"
   });
   setEfFlow("efFlowAcPv", acPvCur, { refKw: 60 });
@@ -151,7 +151,7 @@ function renderOverviewPage() {
   const acStVal = Number(acStCur || 0);
   setEfNode("efAcStorage", {
     cur: `${fmtNum(acStCur, 1)} kW`,
-    sub: `目标 ${fmtNum(m.acStorageTargetKw, 1)} · ${acStVal > 0.2 ? "放电" : acStVal < -0.2 ? "充电" : "静置"}`,
+    sub: `◎ ${fmtNum(m.acStorageTargetKw, 1)} · ${acStVal > 0.2 ? "⚡放电" : acStVal < -0.2 ? "⚡充电" : "◌静置"}`,
     meta: ` · SOC ${fmtPct(m.acStorageSoc)}`,
     ringPct: pctRatio(m.acStorageSoc)
   });
@@ -159,23 +159,23 @@ function renderOverviewPage() {
 
   setEfNode("efDiesel", {
     cur: `${fmtNum(dieselVal, 1)} kW`,
-    sub: `目标 ${fmtNum(m.totalDieselTargetKw ?? m.dieselTargetKw, 1)} kW`,
-    meta: ` · 下限 ${fmtNum(m.totalDieselMinKw ?? m.dieselMinKw, 0)}`
+    sub: `◎ ${fmtNum(m.totalDieselTargetKw ?? m.dieselTargetKw, 1)} kW`,
+    meta: ` · ↧ ${fmtNum(m.totalDieselMinKw ?? m.dieselMinKw, 0)}`
   });
   setEfFlow("efFlowDiesel", dieselVal, { refKw: 260 });
 
   setEfNode("efAcLoad", {
     cur: `${fmtNum(acLoadKw, 1)} kW`,
-    sub: `占总负荷 ${acLoadPct}`,
+    sub: `◔ ${acLoadPct}`,
     meta: " · 380V"
   });
   setEfFlow("efFlowAcLoad", acLoadKw, { refKw: 300 });
 
   const acdcNum = Number(acdcCur || 0);
-  const acdcDirTxt = acdcNum > 0.2 ? "DC → AC" : acdcNum < -0.2 ? "AC → DC" : "平衡";
+  const acdcDirTxt = acdcNum > 0.2 ? "DC → AC" : acdcNum < -0.2 ? "AC → DC" : "⇄";
   setEfNode("efAcdc", {
     cur: `${fmtNum(acdcCur, 1)} kW`,
-    sub: `${acdcDirTxt} · 目标 ${fmtNum(m.acdcTargetKw, 1)}`,
+    sub: `${acdcDirTxt} · ◎ ${fmtNum(m.acdcTargetKw, 1)}`,
     meta: " · 2×300 kW",
     dir: acdcNum > 0.2 ? "━━▶" : acdcNum < -0.2 ? "◀━━" : "◀━▶"
   });

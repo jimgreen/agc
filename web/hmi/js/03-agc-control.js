@@ -159,6 +159,8 @@ function exitAgcStrategyReplay() {
 async function jumpToAgcStrategyTab(tabKey) {
   if (tabKey && STRATEGY_TAB_CATEGORY_MAP[tabKey] !== undefined) {
     AGCState.strategyTab = tabKey;
+    const catSel = document.getElementById("agcStrategyCatSelect");
+    if (catSel) catSel.value = tabKey;
     document.querySelectorAll("#agcStrategyTabs button").forEach((b) => {
       b.classList.toggle("is-active", b.dataset.strategyTab === tabKey);
     });
@@ -198,7 +200,7 @@ function renderAgcCycleReplayNav() {
   const isReplay = Boolean(agcReplayStrategy);
 
   if (!strat) {
-    if (tagEl) { tagEl.textContent = "#0"; tagEl.className = "badge badge-neutral mono"; }
+    if (tagEl) { tagEl.textContent = "#0"; tagEl.style.color = ""; }
     if (prevBtn) prevBtn.disabled = true;
     if (nextBtn) nextBtn.disabled = true;
     if (latestBtn) latestBtn.hidden = true;
@@ -206,8 +208,8 @@ function renderAgcCycleReplayNav() {
     return;
   }
   if (tagEl) {
-    tagEl.textContent = isPreview ? "预演" : (isReplay ? `回放 #${strat.cycle}` : `#${strat.cycle}`);
-    tagEl.className = `badge ${isPreview || isReplay ? "badge-warn" : "badge-info"} mono`;
+    tagEl.textContent = isPreview ? "✦预演" : (isReplay ? `↺#${strat.cycle}` : `#${strat.cycle}`);
+    tagEl.style.color = isPreview || isReplay ? "var(--warn)" : "var(--accent)";
     tagEl.title = (strat.recorded_at || "").replace("T", " ");
   }
   if (prevBtn) prevBtn.disabled = !strat.prev_cycle;
@@ -272,12 +274,26 @@ function renderAgcControlPage(forceTableRebuild = false) {
   if (ackBadge) {
     const pendingCnt = Number(c.pending_ack_count || 0);
     ackBadge.hidden = pendingCnt <= 0;
-    ackBadge.textContent = `待回执 ${pendingCnt}`;
+    ackBadge.textContent = `⏳ ${pendingCnt}`;
   }
 
   const toggleBtn = document.getElementById("agcAutoToggleBtn");
-  toggleBtn.textContent = c.auto_enabled ? t("agc.stopAuto") : t("agc.startAuto");
-  toggleBtn.className = `btn ${c.auto_enabled ? "btn-danger" : "btn-primary"}`;
+  const toggleLbl = document.getElementById("agcAutoToggleLabel");
+  const toggleIco = document.getElementById("agcAutoToggleIco");
+  if (toggleLbl) {
+    toggleLbl.dataset.i18n = c.auto_enabled ? "agc.stopAuto" : "agc.startAuto";
+    toggleLbl.textContent = c.auto_enabled ? t("agc.stopAuto") : t("agc.startAuto");
+  } else if (toggleBtn) {
+    toggleBtn.textContent = c.auto_enabled ? t("agc.stopAuto") : t("agc.startAuto");
+  }
+  if (toggleIco) {
+    toggleIco.innerHTML = c.auto_enabled
+      ? '<rect x="6" y="6" width="12" height="12" rx="2.5"/>'
+      : '<polygon points="6 4 20 12 6 20 6 4"/>';
+  }
+  if (toggleBtn) {
+    toggleBtn.className = `btn ${c.auto_enabled ? "btn-danger" : "btn-primary"}`;
+  }
 
   document.querySelectorAll("#agcLoopModeGroup button").forEach((btn) => {
     const active = btn.dataset.loopMode === c.loop_mode;
@@ -592,7 +608,7 @@ function renderAgcStrategyTable(forceRebuild = false) {
           nextTargetMap.set(rowKey, curTgt);
           const flashCls = prevTgt !== undefined && Math.abs(curTgt - prevTgt) > 0.05 ? "cell-flash" : "";
           const tagsHtml = Array.isArray(r.limit_tags) && r.limit_tags.length
-            ? r.limit_tags.map((tg) => `<span class="limit-chip">${escapeHtml(tg)}</span>`).join("")
+            ? r.limit_tags.map((tg) => `<span class="limit-chip">⚡ ${escapeHtml(tg)}</span>`).join("")
             : "";
           return `
             <tr class="${r.changed ? "is-selected" : ""}">
@@ -604,9 +620,9 @@ function renderAgcStrategyTable(forceRebuild = false) {
               </td>
               <td class="cell-edit">
                 <select class="grid-control ${stCls}" data-inline-dev-type="${escapeHtml(r.dev_type)}" data-inline-dev-name="${escapeHtml(r.dev_name)}" data-inline-set-type="${escapeHtml(setType)}" ${isReadOnlyMode ? "disabled" : ""}>
-                  <option value="closed" ${dcState === "closed" ? "selected" : ""}>${t("devcfg.stateClosed")}</option>
-                  <option value="track" ${dcState === "track" ? "selected" : ""}>${t("devcfg.stateTrack")}</option>
-                  <option value="open" ${dcState === "open" ? "selected" : ""}>${t("devcfg.stateOpen")}</option>
+                  <option value="closed" ${dcState === "closed" ? "selected" : ""}>◉ ${t("devcfg.stateClosed")}</option>
+                  <option value="track" ${dcState === "track" ? "selected" : ""}>∿ ${t("devcfg.stateTrack")}</option>
+                  <option value="open" ${dcState === "open" ? "selected" : ""}>○ ${t("devcfg.stateOpen")}</option>
                 </select>
               </td>
               <td class="mono">${escapeHtml(r.control_mode || "--")}</td>
@@ -944,6 +960,11 @@ function bindAgcControlEvents() {
       AGCState.metricTab = btn.dataset.metricTab;
       renderAgcMetricsTable();
     });
+  });
+
+  document.getElementById("agcStrategyCatSelect")?.addEventListener("change", (ev) => {
+    AGCState.strategyTab = ev.target.value || "all";
+    renderAgcStrategyTable();
   });
 
   document.querySelectorAll("#agcStrategyTabs button").forEach((btn) => {

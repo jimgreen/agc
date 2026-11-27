@@ -263,9 +263,9 @@ function renderDeviceConfigsTable() {
               <td class="mono muted">${escapeHtml(item.set_type)}</td>
               <td class="cell-edit">
                 <select class="grid-control ${stCls}" data-cfg-key="${escapeHtml(key)}" data-cfg-field="control_state">
-                  <option value="closed" ${draft.control_state === "closed" ? "selected" : ""}>${t("devcfg.stateClosed")}</option>
-                  <option value="track" ${draft.control_state === "track" ? "selected" : ""}>${t("devcfg.stateTrack")}</option>
-                  <option value="open" ${draft.control_state === "open" ? "selected" : ""}>${t("devcfg.stateOpen")}</option>
+                  <option value="closed" ${draft.control_state === "closed" ? "selected" : ""}>◉ ${t("devcfg.stateClosed")}</option>
+                  <option value="track" ${draft.control_state === "track" ? "selected" : ""}>∿ ${t("devcfg.stateTrack")}</option>
+                  <option value="open" ${draft.control_state === "open" ? "selected" : ""}>○ ${t("devcfg.stateOpen")}</option>
                 </select>
               </td>
               <td class="num" data-live-cur="${escapeHtml(key)}">${fmtNum(item.current_kw, 2)}</td>
@@ -283,7 +283,7 @@ function renderDeviceConfigsTable() {
               </td>
               <td class="num ${draft.control_state === "track" ? "val-warn" : "muted"}" data-live-cnow="${escapeHtml(key)}">${cNowTxt}</td>
               <td>
-                <button type="button" class="btn btn-xs ${item.has_curve ? "btn-primary" : ""}" data-open-curve="${escapeHtml(key)}">${t("devcfg.curve")}</button>
+                <button type="button" class="btn btn-xs ${item.has_curve ? "btn-primary" : ""}" data-open-curve="${escapeHtml(key)}">∿ ${t("devcfg.curve")}</button>
               </td>
             </tr>`;
         }).join("")}
@@ -488,6 +488,8 @@ async function openDeviceConfigForTarget(devType, devName, setType = "p_set") {
   if (stateSel) stateSel.value = "all";
   const searchInp = document.getElementById("dcSearchInput");
   if (searchInp) searchInp.value = "";
+  const grpSel = document.getElementById("dcGroupSelect");
+  if (grpSel) grpSel.value = "all";
   document.querySelectorAll("#dcGroupTabs button").forEach((b) => {
     b.classList.toggle("is-active", b.dataset.dcGroup === "all");
   });
@@ -1009,6 +1011,11 @@ function importCurveCsvText(text) {
 
 function bindDeviceConfigEvents() {
   // 分类筛选
+  document.getElementById("dcGroupSelect")?.addEventListener("change", (ev) => {
+    DevCfgState.groupFilter = ev.target.value || "all";
+    renderDeviceConfigsTable();
+  });
+
   document.querySelectorAll("#dcGroupTabs button").forEach((btn) => {
     btn.addEventListener("click", () => {
       DevCfgState.groupFilter = btn.dataset.dcGroup || "all";
@@ -1042,6 +1049,7 @@ function bindDeviceConfigEvents() {
     });
     renderDeviceConfigsToolbar();
     renderDeviceConfigsTable();
+    if (typeof closeAllPopMenus === "function") closeAllPopMenus();
   });
 
   document.getElementById("devCfgSaveBtn")?.addEventListener("click", saveDirtyDeviceConfigs);

@@ -1,43 +1,109 @@
-/* 秦岭微电网 AGC 人机界面样式表：14 套风格预设 + 精密仪器高密度风 + 响应式防溢出 */
+/* 秦岭微电网 AGC 人机界面样式表：16 套仙气极光与柔和科幻风格预设 + 温润玻璃态 + 全站图标化 */
 
 :root,
-[data-theme="minimalist-light"] {
-  --bg-canvas: #F4F6F8;
-  --bg-surface: #FFFFFF;
-  --bg-subtle: #F1F5F9;
-  --table-stripe: #F8FAFC;
-  --table-hover: #EFF6FF;
-  --bg-selected: rgba(37, 99, 235, 0.10);
-  --text-primary: #0F172A;
-  --text-secondary: #64748B;
-  --accent: #2563EB;
-  --accent-hover: #1D4ED8;
-  --accent-soft: rgba(37, 99, 235, 0.12);
-  --accent-contrast: #FFFFFF;
-  --ok: #0D9488;
-  --ok-soft: rgba(13, 148, 136, 0.13);
-  --warn: #D97706;
-  --warn-soft: rgba(217, 119, 6, 0.14);
-  --danger: #DC2626;
-  --danger-soft: rgba(220, 38, 38, 0.12);
-  --border-color: #E2E8F0;
+[data-theme="celestial-aurora"] {
+  --bg-canvas: #081020;
+  --bg-surface: rgba(14, 25, 45, 0.72);
+  --bg-subtle: rgba(148, 210, 255, 0.075);
+  --table-stripe: rgba(148, 210, 255, 0.032);
+  --table-hover: rgba(56, 232, 223, 0.11);
+  --bg-selected: rgba(56, 232, 223, 0.16);
+  --text-primary: #ECF8FF;
+  --text-secondary: #93B4D1;
+  --accent: #38E8DF;
+  --accent-hover: #38BDF8;
+  --accent-soft: rgba(56, 232, 223, 0.16);
+  --accent-contrast: #04181E;
+  --ok: #34D399;
+  --ok-soft: rgba(52, 211, 153, 0.15);
+  --warn: #FBBF24;
+  --warn-soft: rgba(251, 191, 36, 0.15);
+  --danger: #FB7185;
+  --danger-soft: rgba(251, 113, 133, 0.16);
+  --border-color: rgba(148, 225, 255, 0.14);
   --border: 1px solid var(--border-color);
-  --radius-card: 10px;
-  --radius-btn: 7px;
-  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.02);
+  --radius-card: 16px;
+  --radius-btn: 999px;
+  --shadow-card: 0 10px 32px rgba(3, 9, 22, 0.32);
   --font-sans: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, Arial, sans-serif;
   --font-heading: var(--font-sans);
   --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
-  --backdrop-blur: none;
-  --canvas-pattern: none;
-  --panel-top-glow: none;
+  --backdrop-blur: blur(20px) saturate(145%);
+  --canvas-pattern:
+    radial-gradient(ellipse 68% 54% at 12% 10%, rgba(45, 212, 191, 0.16), transparent 70%),
+    radial-gradient(ellipse 62% 52% at 88% 14%, rgba(56, 189, 248, 0.16), transparent 68%),
+    radial-gradient(ellipse 72% 52% at 50% 96%, rgba(167, 139, 250, 0.13), transparent 72%);
+  --panel-top-glow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+[data-theme="celestial-mist"] {
+  --bg-canvas: #F1F7FC;
+  --bg-surface: rgba(255, 255, 255, 0.78);
+  --bg-subtle: rgba(219, 236, 249, 0.62);
+  --table-stripe: rgba(226, 240, 251, 0.38);
+  --table-hover: rgba(14, 165, 233, 0.09);
+  --bg-selected: rgba(14, 165, 233, 0.13);
+  --text-primary: #0F2537;
+  --text-secondary: #587691;
+  --accent: #0EA5E9;
+  --accent-hover: #0D9488;
+  --accent-soft: rgba(14, 165, 233, 0.13);
+  --accent-contrast: #FFFFFF;
+  --ok: #0D9488;
+  --ok-soft: rgba(13, 148, 136, 0.12);
+  --warn: #D97706;
+  --warn-soft: rgba(217, 119, 6, 0.13);
+  --danger: #E11D48;
+  --danger-soft: rgba(225, 29, 72, 0.11);
+  --border-color: rgba(14, 148, 210, 0.14);
+  --border: 1px solid var(--border-color);
+  --radius-card: 16px;
+  --radius-btn: 999px;
+  --shadow-card: 0 8px 28px rgba(15, 42, 74, 0.055);
+  --backdrop-blur: blur(18px) saturate(140%);
+  --canvas-pattern:
+    radial-gradient(ellipse 66% 52% at 10% 8%, rgba(20, 184, 166, 0.12), transparent 68%),
+    radial-gradient(ellipse 64% 50% at 90% 12%, rgba(56, 189, 248, 0.13), transparent 68%),
+    radial-gradient(ellipse 70% 48% at 52% 96%, rgba(168, 85, 247, 0.07), transparent 72%);
+  --panel-top-glow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+[data-theme="minimalist-light"] {
+  --bg-canvas: #F5F8FC;
+  --bg-surface: rgba(255, 255, 255, 0.88);
+  --bg-subtle: #EEF3F9;
+  --table-stripe: #F8FAFD;
+  --table-hover: #EDF5FF;
+  --bg-selected: rgba(37, 99, 235, 0.10);
+  --text-primary: #0F172A;
+  --text-secondary: #64748B;
+  --accent: #3B82F6;
+  --accent-hover: #2563EB;
+  --accent-soft: rgba(59, 130, 246, 0.12);
+  --accent-contrast: #FFFFFF;
+  --ok: #0D9488;
+  --ok-soft: rgba(13, 148, 136, 0.12);
+  --warn: #D97706;
+  --warn-soft: rgba(217, 119, 6, 0.13);
+  --danger: #E11D48;
+  --danger-soft: rgba(225, 29, 72, 0.11);
+  --border-color: rgba(148, 163, 184, 0.22);
+  --border: 1px solid var(--border-color);
+  --radius-card: 15px;
+  --radius-btn: 10px;
+  --shadow-card: 0 6px 24px rgba(15, 23, 42, 0.045);
+  --backdrop-blur: blur(14px);
+  --canvas-pattern:
+    radial-gradient(ellipse 65% 50% at 15% 10%, rgba(59, 130, 246, 0.07), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 85% 90%, rgba(20, 184, 166, 0.06), transparent 70%);
+  --panel-top-glow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 [data-theme="bento-grid"] {
-  --bg-canvas: #F5F5F7;
-  --bg-surface: #FFFFFF;
-  --bg-subtle: #EBEBF0;
-  --table-stripe: #F7F7FA;
+  --bg-canvas: #F5F6FA;
+  --bg-surface: rgba(255, 255, 255, 0.86);
+  --bg-subtle: #ECEFF5;
+  --table-stripe: #F7F8FC;
   --table-hover: #EEF4FF;
   --bg-selected: rgba(0, 113, 227, 0.10);
   --text-primary: #1D1D1F;
@@ -50,26 +116,28 @@
   --ok-soft: rgba(13, 148, 136, 0.13);
   --warn: #D97706;
   --warn-soft: rgba(217, 119, 6, 0.14);
-  --danger: #DC2626;
-  --danger-soft: rgba(220, 38, 38, 0.12);
-  --border-color: rgba(0, 0, 0, 0.07);
+  --danger: #E11D48;
+  --danger-soft: rgba(225, 29, 72, 0.12);
+  --border-color: rgba(0, 0, 0, 0.065);
   --radius-card: 18px;
   --radius-btn: 999px;
-  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.045);
+  --shadow-card: 0 6px 24px rgba(0, 0, 0, 0.045);
+  --backdrop-blur: blur(16px);
+  --canvas-pattern: radial-gradient(ellipse 70% 55% at 20% 10%, rgba(0, 113, 227, 0.07), transparent 70%);
 }
 
 [data-theme="editorial"] {
-  --bg-canvas: #FAF9F6;
-  --bg-surface: #FFFFFF;
-  --bg-subtle: #F4F3EE;
-  --table-stripe: #FAF8F4;
+  --bg-canvas: #FAF8F5;
+  --bg-surface: rgba(255, 255, 255, 0.88);
+  --bg-subtle: #F3F0EA;
+  --table-stripe: #FAF7F2;
   --table-hover: #F5ECEF;
   --bg-selected: rgba(159, 18, 57, 0.09);
-  --text-primary: #18181B;
-  --text-secondary: #52525B;
-  --accent: #9F1239;
-  --accent-hover: #881337;
-  --accent-soft: rgba(159, 18, 57, 0.11);
+  --text-primary: #1F1D20;
+  --text-secondary: #635D66;
+  --accent: #B91C50;
+  --accent-hover: #9F1239;
+  --accent-soft: rgba(185, 28, 80, 0.11);
   --accent-contrast: #FFFFFF;
   --ok: #15803D;
   --ok-soft: rgba(21, 128, 61, 0.12);
@@ -77,100 +145,109 @@
   --warn-soft: rgba(180, 83, 9, 0.13);
   --danger: #BE123C;
   --danger-soft: rgba(190, 18, 60, 0.12);
-  --border-color: #DCDAD3;
-  --radius-card: 2px;
-  --radius-btn: 2px;
-  --shadow-card: none;
+  --border-color: rgba(120, 110, 100, 0.16);
+  --radius-card: 14px;
+  --radius-btn: 999px;
+  --shadow-card: 0 6px 22px rgba(45, 30, 36, 0.045);
   --font-heading: "Georgia", "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --canvas-pattern: radial-gradient(ellipse 65% 50% at 85% 15%, rgba(185, 28, 80, 0.06), transparent 70%);
 }
 
 [data-theme="nordic-frost"] {
-  --bg-canvas: #ECF2F7;
-  --bg-surface: #F9FBFD;
-  --bg-subtle: #E3ECF3;
-  --table-stripe: #F2F7FB;
-  --table-hover: #E1EFFA;
+  --bg-canvas: #ECF4FA;
+  --bg-surface: rgba(250, 253, 255, 0.84);
+  --bg-subtle: #E1EEF8;
+  --table-stripe: #F2F8FD;
+  --table-hover: #E0F0FC;
   --bg-selected: rgba(2, 132, 199, 0.11);
-  --text-primary: #132234;
-  --text-secondary: #4D647C;
+  --text-primary: #12263A;
+  --text-secondary: #516D87;
   --accent: #0284C7;
-  --accent-hover: #0369A1;
+  --accent-hover: #0EA5E9;
   --accent-soft: rgba(2, 132, 199, 0.12);
   --accent-contrast: #FFFFFF;
   --ok: #0F766E;
   --ok-soft: rgba(15, 118, 110, 0.12);
   --warn: #B45309;
   --warn-soft: rgba(180, 83, 9, 0.13);
-  --danger: #DC2626;
-  --danger-soft: rgba(220, 38, 38, 0.11);
-  --border-color: #CDDCE8;
-  --radius-card: 10px;
-  --radius-btn: 7px;
-  --shadow-card: 0 2px 8px rgba(19, 34, 52, 0.05);
+  --danger: #E11D48;
+  --danger-soft: rgba(225, 29, 72, 0.11);
+  --border-color: rgba(2, 132, 199, 0.15);
+  --radius-card: 16px;
+  --radius-btn: 999px;
+  --shadow-card: 0 6px 24px rgba(18, 38, 58, 0.05);
+  --backdrop-blur: blur(16px);
+  --canvas-pattern:
+    radial-gradient(ellipse 65% 50% at 15% 12%, rgba(56, 189, 248, 0.12), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 85% 88%, rgba(20, 184, 166, 0.09), transparent 70%);
 }
 
 [data-theme="warm-paper"] {
-  --bg-canvas: #F4EFE6;
-  --bg-surface: #FCF9F2;
+  --bg-canvas: #F5F0E7;
+  --bg-surface: rgba(253, 250, 244, 0.88);
   --bg-subtle: #ECE5D8;
-  --table-stripe: #F6F1E8;
+  --table-stripe: #F7F3EA;
   --table-hover: #EAEFE5;
   --bg-selected: rgba(46, 111, 64, 0.11);
   --text-primary: #26211B;
   --text-secondary: #685D50;
-  --accent: #2E6F40;
-  --accent-hover: #225430;
-  --accent-soft: rgba(46, 111, 64, 0.12);
+  --accent: #2E7D52;
+  --accent-hover: #22643F;
+  --accent-soft: rgba(46, 125, 82, 0.12);
   --accent-contrast: #FFFFFF;
-  --ok: #2E6F40;
-  --ok-soft: rgba(46, 111, 64, 0.13);
+  --ok: #2E7D52;
+  --ok-soft: rgba(46, 125, 82, 0.13);
   --warn: #B45309;
   --warn-soft: rgba(180, 83, 9, 0.14);
   --danger: #B91C1C;
   --danger-soft: rgba(185, 28, 28, 0.12);
-  --border-color: #DCD3C4;
-  --radius-card: 8px;
-  --radius-btn: 6px;
-  --shadow-card: 0 1px 4px rgba(38, 33, 27, 0.05);
+  --border-color: rgba(140, 125, 100, 0.18);
+  --radius-card: 15px;
+  --radius-btn: 999px;
+  --shadow-card: 0 6px 20px rgba(38, 33, 27, 0.045);
+  --canvas-pattern: radial-gradient(ellipse 65% 50% at 20% 15%, rgba(46, 125, 82, 0.07), transparent 70%);
 }
 
 [data-theme="blueprint-light"] {
-  --bg-canvas: #EAF2FB;
-  --bg-surface: #F7FBFF;
-  --bg-subtle: #DDEAF7;
-  --table-stripe: #EFF6FD;
+  --bg-canvas: #ECF4FC;
+  --bg-surface: rgba(248, 252, 255, 0.85);
+  --bg-subtle: #DFECFA;
+  --table-stripe: #F0F7FE;
   --table-hover: #DCEBFA;
-  --bg-selected: rgba(29, 78, 216, 0.12);
+  --bg-selected: rgba(37, 99, 235, 0.12);
   --text-primary: #0F2342;
-  --text-secondary: #43618A;
-  --accent: #1D4ED8;
-  --accent-hover: #1E40AF;
-  --accent-soft: rgba(29, 78, 216, 0.13);
+  --text-secondary: #4A6891;
+  --accent: #2563EB;
+  --accent-hover: #3B82F6;
+  --accent-soft: rgba(37, 99, 235, 0.13);
   --accent-contrast: #FFFFFF;
-  --ok: #0F766E;
-  --ok-soft: rgba(15, 118, 110, 0.13);
-  --warn: #C2410C;
-  --warn-soft: rgba(194, 65, 12, 0.13);
-  --danger: #DC2626;
-  --danger-soft: rgba(220, 38, 38, 0.12);
-  --border-color: #B7CEE8;
-  --radius-card: 4px;
-  --radius-btn: 3px;
-  --shadow-card: 0 1px 0 rgba(29, 78, 216, 0.08);
-  --canvas-pattern: linear-gradient(rgba(29, 78, 216, 0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(29, 78, 216, 0.055) 1px, transparent 1px);
+  --ok: #0D9488;
+  --ok-soft: rgba(13, 148, 136, 0.13);
+  --warn: #D97706;
+  --warn-soft: rgba(217, 119, 6, 0.13);
+  --danger: #E11D48;
+  --danger-soft: rgba(225, 29, 72, 0.12);
+  --border-color: rgba(59, 130, 246, 0.18);
+  --radius-card: 15px;
+  --radius-btn: 999px;
+  --shadow-card: 0 6px 24px rgba(29, 78, 216, 0.06);
+  --backdrop-blur: blur(14px);
+  --canvas-pattern:
+    radial-gradient(ellipse 66% 50% at 15% 12%, rgba(59, 130, 246, 0.11), transparent 70%),
+    radial-gradient(ellipse 60% 48% at 88% 88%, rgba(14, 165, 233, 0.09), transparent 70%);
 }
 
 [data-theme="precision-dark"] {
-  --bg-canvas: #0B0F19;
-  --bg-surface: #111827;
-  --bg-subtle: #1E293B;
-  --table-stripe: #162032;
-  --table-hover: #1E293B;
-  --bg-selected: rgba(56, 189, 248, 0.15);
-  --text-primary: #F8FAFC;
-  --text-secondary: #94A3B8;
+  --bg-canvas: #0A101D;
+  --bg-surface: rgba(17, 25, 42, 0.78);
+  --bg-subtle: rgba(148, 180, 225, 0.08);
+  --table-stripe: rgba(148, 180, 225, 0.035);
+  --table-hover: rgba(56, 189, 248, 0.11);
+  --bg-selected: rgba(56, 189, 248, 0.16);
+  --text-primary: #F1F7FE;
+  --text-secondary: #94ACC9;
   --accent: #38BDF8;
-  --accent-hover: #0EA5E9;
+  --accent-hover: #7DD3FC;
   --accent-soft: rgba(56, 189, 248, 0.16);
   --accent-contrast: #04101B;
   --ok: #34D399;
@@ -179,23 +256,28 @@
   --warn-soft: rgba(251, 191, 36, 0.16);
   --danger: #FB7185;
   --danger-soft: rgba(251, 113, 133, 0.16);
-  --border-color: rgba(255, 255, 255, 0.09);
-  --radius-card: 10px;
-  --radius-btn: 6px;
-  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.28);
+  --border-color: rgba(148, 195, 255, 0.12);
+  --radius-card: 15px;
+  --radius-btn: 999px;
+  --shadow-card: 0 8px 28px rgba(2, 6, 18, 0.34);
+  --backdrop-blur: blur(18px) saturate(135%);
+  --canvas-pattern:
+    radial-gradient(ellipse 65% 50% at 16% 12%, rgba(56, 189, 248, 0.11), transparent 70%),
+    radial-gradient(ellipse 60% 48% at 85% 90%, rgba(52, 211, 153, 0.08), transparent 70%);
+  --panel-top-glow: inset 0 1px 0 rgba(255, 255, 255, 0.11);
 }
 
 [data-theme="glassmorphism"] {
-  --bg-canvas: radial-gradient(circle at 14% 18%, #223452 0%, #101A2E 48%, #090E1A 100%);
+  --bg-canvas: #0D1628;
   --bg-surface: rgba(255, 255, 255, 0.075);
-  --bg-subtle: rgba(255, 255, 255, 0.12);
-  --table-stripe: rgba(255, 255, 255, 0.035);
-  --table-hover: rgba(96, 165, 250, 0.15);
+  --bg-subtle: rgba(255, 255, 255, 0.11);
+  --table-stripe: rgba(255, 255, 255, 0.032);
+  --table-hover: rgba(96, 165, 250, 0.14);
   --bg-selected: rgba(96, 165, 250, 0.20);
   --text-primary: #F8FAFC;
   --text-secondary: #CBD5E1;
   --accent: #60A5FA;
-  --accent-hover: #3B82F6;
+  --accent-hover: #93C5FD;
   --accent-soft: rgba(96, 165, 250, 0.18);
   --accent-contrast: #061224;
   --ok: #34D399;
@@ -205,47 +287,53 @@
   --danger: #FB7185;
   --danger-soft: rgba(251, 113, 133, 0.16);
   --border-color: rgba(255, 255, 255, 0.15);
-  --radius-card: 14px;
-  --radius-btn: 9px;
-  --shadow-card: 0 8px 28px rgba(0, 0, 0, 0.28);
-  --backdrop-blur: blur(16px) saturate(140%);
-  --panel-top-glow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  --radius-card: 16px;
+  --radius-btn: 999px;
+  --shadow-card: 0 10px 32px rgba(0, 0, 0, 0.28);
+  --backdrop-blur: blur(20px) saturate(145%);
+  --canvas-pattern:
+    radial-gradient(ellipse 66% 55% at 15% 18%, rgba(96, 165, 250, 0.22), transparent 68%),
+    radial-gradient(ellipse 60% 50% at 85% 85%, rgba(167, 139, 250, 0.16), transparent 68%);
+  --panel-top-glow: inset 0 1px 0 rgba(255, 255, 255, 0.20);
 }
 
 [data-theme="obsidian-amber"] {
-  --bg-canvas: #11100E;
-  --bg-surface: #1A1815;
-  --bg-subtle: #26221D;
-  --table-stripe: #1F1C18;
-  --table-hover: #2C2720;
+  --bg-canvas: #12100E;
+  --bg-surface: rgba(29, 26, 22, 0.80);
+  --bg-subtle: rgba(251, 191, 36, 0.075);
+  --table-stripe: rgba(255, 245, 230, 0.028);
+  --table-hover: rgba(245, 158, 11, 0.12);
   --bg-selected: rgba(245, 158, 11, 0.16);
   --text-primary: #FAF5EE;
-  --text-secondary: #A89F91;
-  --accent: #F59E0B;
-  --accent-hover: #FBBF24;
-  --accent-soft: rgba(245, 158, 11, 0.16);
+  --text-secondary: #B4AA9B;
+  --accent: #FBBF24;
+  --accent-hover: #F59E0B;
+  --accent-soft: rgba(251, 191, 36, 0.16);
   --accent-contrast: #191205;
   --ok: #34D399;
   --ok-soft: rgba(52, 211, 153, 0.15);
   --warn: #FBBF24;
   --warn-soft: rgba(251, 191, 36, 0.16);
-  --danger: #F87171;
-  --danger-soft: rgba(248, 113, 113, 0.16);
-  --border-color: rgba(245, 224, 190, 0.11);
-  --radius-card: 8px;
-  --radius-btn: 6px;
-  --shadow-card: 0 6px 20px rgba(0, 0, 0, 0.36);
+  --danger: #FB7185;
+  --danger-soft: rgba(251, 113, 133, 0.16);
+  --border-color: rgba(251, 215, 160, 0.13);
+  --radius-card: 15px;
+  --radius-btn: 999px;
+  --shadow-card: 0 8px 28px rgba(0, 0, 0, 0.34);
+  --backdrop-blur: blur(16px);
+  --canvas-pattern: radial-gradient(ellipse 68% 52% at 20% 12%, rgba(245, 158, 11, 0.12), transparent 70%);
+  --panel-top-glow: inset 0 1px 0 rgba(255, 240, 210, 0.12);
 }
 
 [data-theme="nord-slate"] {
-  --bg-canvas: #1D222D;
-  --bg-surface: #252C3A;
-  --bg-subtle: #2F384A;
-  --table-stripe: #2A3242;
-  --table-hover: #354055;
-  --bg-selected: rgba(136, 192, 208, 0.16);
+  --bg-canvas: #1E2430;
+  --bg-surface: rgba(40, 48, 64, 0.78);
+  --bg-subtle: rgba(216, 222, 233, 0.075);
+  --table-stripe: rgba(216, 222, 233, 0.03);
+  --table-hover: rgba(136, 192, 208, 0.13);
+  --bg-selected: rgba(136, 192, 208, 0.17);
   --text-primary: #ECEFF4;
-  --text-secondary: #A3B1C6;
+  --text-secondary: #A8B6CB;
   --accent: #88C0D0;
   --accent-hover: #8FBCBB;
   --accent-soft: rgba(136, 192, 208, 0.16);
@@ -254,53 +342,61 @@
   --ok-soft: rgba(163, 190, 140, 0.16);
   --warn: #EBCB8B;
   --warn-soft: rgba(235, 203, 139, 0.16);
-  --danger: #BF616A;
-  --danger-soft: rgba(191, 97, 106, 0.22);
-  --border-color: rgba(216, 222, 233, 0.11);
-  --radius-card: 9px;
-  --radius-btn: 6px;
-  --shadow-card: 0 4px 16px rgba(10, 14, 22, 0.28);
+  --danger: #F08792;
+  --danger-soft: rgba(240, 135, 146, 0.18);
+  --border-color: rgba(216, 222, 233, 0.13);
+  --radius-card: 15px;
+  --radius-btn: 999px;
+  --shadow-card: 0 8px 26px rgba(10, 14, 22, 0.28);
+  --backdrop-blur: blur(16px);
+  --canvas-pattern:
+    radial-gradient(ellipse 65% 50% at 15% 12%, rgba(136, 192, 208, 0.13), transparent 70%),
+    radial-gradient(ellipse 60% 48% at 86% 88%, rgba(163, 190, 140, 0.09), transparent 70%);
+  --panel-top-glow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 [data-theme="sci-fi-cyan"] {
-  --bg-canvas: #040812;
-  --bg-surface: #081121;
-  --bg-subtle: #0D1B33;
-  --table-stripe: #0A162B;
-  --table-hover: #102444;
-  --bg-selected: rgba(0, 229, 255, 0.16);
-  --text-primary: #E6F7FF;
-  --text-secondary: #7DA2C4;
-  --accent: #00E5FF;
-  --accent-hover: #38F2FF;
-  --accent-soft: rgba(0, 229, 255, 0.16);
-  --accent-contrast: #02121A;
-  --ok: #00E6A8;
-  --ok-soft: rgba(0, 230, 168, 0.15);
-  --warn: #FFB020;
-  --warn-soft: rgba(255, 176, 32, 0.16);
-  --danger: #FF4D6D;
-  --danger-soft: rgba(255, 77, 109, 0.17);
-  --border-color: rgba(0, 229, 255, 0.22);
-  --radius-card: 6px;
-  --radius-btn: 4px;
-  --shadow-card: 0 0 0 1px rgba(0, 229, 255, 0.08), 0 8px 24px rgba(0, 8, 24, 0.55);
-  --canvas-pattern: linear-gradient(rgba(0, 229, 255, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 229, 255, 0.045) 1px, transparent 1px);
-  --panel-top-glow: inset 0 1px 0 rgba(0, 229, 255, 0.24);
+  --bg-canvas: #060D1C;
+  --bg-surface: rgba(11, 24, 46, 0.74);
+  --bg-subtle: rgba(34, 211, 238, 0.08);
+  --table-stripe: rgba(34, 211, 238, 0.032);
+  --table-hover: rgba(34, 211, 238, 0.12);
+  --bg-selected: rgba(34, 211, 238, 0.17);
+  --text-primary: #EAF9FF;
+  --text-secondary: #89B0D0;
+  --accent: #22D3EE;
+  --accent-hover: #67E8F9;
+  --accent-soft: rgba(34, 211, 238, 0.16);
+  --accent-contrast: #02141C;
+  --ok: #34D399;
+  --ok-soft: rgba(52, 211, 153, 0.15);
+  --warn: #FBBF24;
+  --warn-soft: rgba(251, 191, 36, 0.16);
+  --danger: #FB7185;
+  --danger-soft: rgba(251, 113, 133, 0.17);
+  --border-color: rgba(56, 220, 255, 0.17);
+  --radius-card: 16px;
+  --radius-btn: 999px;
+  --shadow-card: 0 10px 32px rgba(2, 10, 26, 0.42);
+  --backdrop-blur: blur(18px) saturate(140%);
+  --canvas-pattern:
+    radial-gradient(ellipse 68% 52% at 15% 10%, rgba(34, 211, 238, 0.16), transparent 70%),
+    radial-gradient(ellipse 62% 50% at 86% 88%, rgba(56, 189, 248, 0.13), transparent 70%);
+  --panel-top-glow: inset 0 1px 0 rgba(125, 242, 255, 0.20);
 }
 
 [data-theme="sci-fi-purple"] {
-  --bg-canvas: #090614;
-  --bg-surface: #120C24;
-  --bg-subtle: #1C1336;
-  --table-stripe: #160F2B;
-  --table-hover: #231845;
-  --bg-selected: rgba(192, 132, 252, 0.16);
-  --text-primary: #F3EEFF;
-  --text-secondary: #A695C9;
+  --bg-canvas: #0B081A;
+  --bg-surface: rgba(22, 16, 46, 0.74);
+  --bg-subtle: rgba(192, 132, 252, 0.085);
+  --table-stripe: rgba(192, 132, 252, 0.035);
+  --table-hover: rgba(192, 132, 252, 0.13);
+  --bg-selected: rgba(192, 132, 252, 0.18);
+  --text-primary: #F5F0FF;
+  --text-secondary: #B1A0D4;
   --accent: #C084FC;
   --accent-hover: #D8B4FE;
-  --accent-soft: rgba(192, 132, 252, 0.16);
+  --accent-soft: rgba(192, 132, 252, 0.17);
   --accent-contrast: #120624;
   --ok: #2DD4BF;
   --ok-soft: rgba(45, 212, 191, 0.15);
@@ -308,66 +404,75 @@
   --warn-soft: rgba(251, 191, 36, 0.16);
   --danger: #FB7185;
   --danger-soft: rgba(251, 113, 133, 0.17);
-  --border-color: rgba(192, 132, 252, 0.24);
-  --radius-card: 6px;
-  --radius-btn: 4px;
-  --shadow-card: 0 0 0 1px rgba(192, 132, 252, 0.09), 0 8px 24px rgba(9, 4, 24, 0.58);
-  --canvas-pattern: linear-gradient(rgba(192, 132, 252, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(192, 132, 252, 0.045) 1px, transparent 1px);
-  --panel-top-glow: inset 0 1px 0 rgba(192, 132, 252, 0.25);
+  --border-color: rgba(192, 132, 252, 0.18);
+  --radius-card: 16px;
+  --radius-btn: 999px;
+  --shadow-card: 0 10px 32px rgba(9, 4, 24, 0.44);
+  --backdrop-blur: blur(18px) saturate(145%);
+  --canvas-pattern:
+    radial-gradient(ellipse 68% 54% at 16% 12%, rgba(192, 132, 252, 0.17), transparent 70%),
+    radial-gradient(ellipse 62% 50% at 86% 88%, rgba(45, 212, 191, 0.12), transparent 70%);
+  --panel-top-glow: inset 0 1px 0 rgba(233, 213, 255, 0.20);
 }
 
 [data-theme="sci-fi-matrix"] {
-  --bg-canvas: #040D08;
-  --bg-surface: #081810;
-  --bg-subtle: #0F261A;
-  --table-stripe: #0B1F15;
-  --table-hover: #133322;
-  --bg-selected: rgba(0, 230, 118, 0.15);
-  --text-primary: #E2FBE9;
-  --text-secondary: #7EB396;
-  --accent: #00E676;
-  --accent-hover: #33F094;
-  --accent-soft: rgba(0, 230, 118, 0.16);
+  --bg-canvas: #06110C;
+  --bg-surface: rgba(11, 29, 20, 0.75);
+  --bg-subtle: rgba(52, 211, 153, 0.08);
+  --table-stripe: rgba(52, 211, 153, 0.032);
+  --table-hover: rgba(52, 211, 153, 0.12);
+  --bg-selected: rgba(52, 211, 153, 0.17);
+  --text-primary: #E8FDF0;
+  --text-secondary: #8ABBA2;
+  --accent: #34D399;
+  --accent-hover: #6EE7B7;
+  --accent-soft: rgba(52, 211, 153, 0.16);
   --accent-contrast: #03150B;
-  --ok: #00E676;
-  --ok-soft: rgba(0, 230, 118, 0.15);
+  --ok: #34D399;
+  --ok-soft: rgba(52, 211, 153, 0.15);
   --warn: #FBBF24;
   --warn-soft: rgba(251, 191, 36, 0.16);
-  --danger: #FF5C77;
-  --danger-soft: rgba(255, 92, 119, 0.17);
-  --border-color: rgba(0, 230, 118, 0.22);
-  --radius-card: 6px;
-  --radius-btn: 4px;
-  --shadow-card: 0 0 0 1px rgba(0, 230, 118, 0.08), 0 8px 24px rgba(2, 14, 8, 0.56);
-  --canvas-pattern: linear-gradient(rgba(0, 230, 118, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 230, 118, 0.045) 1px, transparent 1px);
-  --panel-top-glow: inset 0 1px 0 rgba(0, 230, 118, 0.24);
+  --danger: #FB7185;
+  --danger-soft: rgba(251, 113, 133, 0.17);
+  --border-color: rgba(52, 211, 153, 0.17);
+  --radius-card: 16px;
+  --radius-btn: 999px;
+  --shadow-card: 0 10px 32px rgba(2, 14, 8, 0.44);
+  --backdrop-blur: blur(18px) saturate(140%);
+  --canvas-pattern:
+    radial-gradient(ellipse 66% 52% at 15% 12%, rgba(52, 211, 153, 0.15), transparent 70%),
+    radial-gradient(ellipse 60% 48% at 86% 88%, rgba(34, 211, 238, 0.10), transparent 70%);
+  --panel-top-glow: inset 0 1px 0 rgba(167, 243, 208, 0.18);
 }
 
 [data-theme="sci-fi-crimson"] {
-  --bg-canvas: #10070B;
-  --bg-surface: #1A0C12;
-  --bg-subtle: #28131C;
-  --table-stripe: #200F17;
-  --table-hover: #311723;
-  --bg-selected: rgba(255, 71, 87, 0.16);
-  --text-primary: #FFF0F2;
-  --text-secondary: #B98E99;
-  --accent: #FF4757;
-  --accent-hover: #FF6B78;
-  --accent-soft: rgba(255, 71, 87, 0.17);
-  --accent-contrast: #FFFFFF;
-  --ok: #2ED573;
-  --ok-soft: rgba(46, 213, 115, 0.15);
-  --warn: #FFA502;
-  --warn-soft: rgba(255, 165, 2, 0.16);
-  --danger: #FF4757;
-  --danger-soft: rgba(255, 71, 87, 0.18);
-  --border-color: rgba(255, 71, 87, 0.24);
-  --radius-card: 6px;
-  --radius-btn: 4px;
-  --shadow-card: 0 0 0 1px rgba(255, 71, 87, 0.09), 0 8px 24px rgba(18, 4, 8, 0.58);
-  --canvas-pattern: linear-gradient(rgba(255, 71, 87, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 71, 87, 0.045) 1px, transparent 1px);
-  --panel-top-glow: inset 0 1px 0 rgba(255, 71, 87, 0.26);
+  --bg-canvas: #120910;
+  --bg-surface: rgba(30, 15, 25, 0.76);
+  --bg-subtle: rgba(251, 113, 133, 0.085);
+  --table-stripe: rgba(251, 113, 133, 0.032);
+  --table-hover: rgba(251, 113, 133, 0.13);
+  --bg-selected: rgba(251, 113, 133, 0.17);
+  --text-primary: #FFF1F4;
+  --text-secondary: #C49BA8;
+  --accent: #FB7185;
+  --accent-hover: #FDA4AF;
+  --accent-soft: rgba(251, 113, 133, 0.17);
+  --accent-contrast: #1F050B;
+  --ok: #34D399;
+  --ok-soft: rgba(52, 211, 153, 0.15);
+  --warn: #FBBF24;
+  --warn-soft: rgba(251, 191, 36, 0.16);
+  --danger: #FB7185;
+  --danger-soft: rgba(251, 113, 133, 0.18);
+  --border-color: rgba(251, 113, 133, 0.18);
+  --radius-card: 16px;
+  --radius-btn: 999px;
+  --shadow-card: 0 10px 32px rgba(18, 4, 10, 0.45);
+  --backdrop-blur: blur(18px) saturate(140%);
+  --canvas-pattern:
+    radial-gradient(ellipse 68% 52% at 18% 12%, rgba(251, 113, 133, 0.15), transparent 70%),
+    radial-gradient(ellipse 60% 48% at 85% 88%, rgba(192, 132, 252, 0.10), transparent 70%);
+  --panel-top-glow: inset 0 1px 0 rgba(254, 205, 211, 0.18);
 }
 
 * {
@@ -444,22 +549,23 @@ select option {
   width: 100vw;
   overflow: hidden;
   background-image: var(--canvas-pattern);
-  background-size: 24px 24px;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
 }
 
 .topbar {
-  height: 40px;
+  height: 42px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 0 12px;
+  padding: 0 14px;
   background: var(--bg-surface);
   backdrop-filter: var(--backdrop-blur);
   -webkit-backdrop-filter: var(--backdrop-blur);
   border-bottom: var(--border);
-  box-shadow: var(--panel-top-glow);
+  box-shadow: var(--panel-top-glow), 0 4px 20px rgba(0, 0, 0, 0.06);
   z-index: 20;
 }
 
@@ -472,9 +578,10 @@ select option {
 
 .brand-mark {
   width: 6px;
-  height: 16px;
-  border-radius: 3px;
-  background: var(--accent);
+  height: 18px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent), var(--ok));
+  box-shadow: 0 0 10px var(--accent-soft);
   flex-shrink: 0;
 }
 
@@ -646,7 +753,7 @@ html[data-sidebar-open="true"] .topbar-sidebar-btn {
 /* 左边缘感应与唤醒把手（悬浮模式下靠近即滑出；内嵌隐藏后点击即可恢复展开） */
 .sidebar-edge-trigger {
   position: fixed;
-  top: 40px;
+  top: 42px;
   bottom: 0;
   left: 0;
   width: 7px;
@@ -696,7 +803,7 @@ html[data-sidebar-open="true"] .topbar-sidebar-btn {
 /* 模式 1：悬浮模式（默认，脱离文档流不挤占主内容） */
 html:not([data-sidebar-mode="embed"]) .app-sidebar {
   position: fixed;
-  top: 40px;
+  top: 42px;
   bottom: 0;
   left: 0;
   width: 200px;
@@ -794,9 +901,9 @@ html[data-sidebar-open="true"] .sidebar-edge-trigger {
 }
 
 .page-nav button.is-active {
-  background: var(--bg-selected);
+  background: linear-gradient(90deg, var(--bg-selected), transparent 95%);
   color: var(--accent);
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 36%, transparent), 0 4px 14px var(--accent-soft);
   font-weight: 600;
 }
 
@@ -3295,3 +3402,520 @@ html[data-wallboard-immersive="true"] .page-main {
     grid-template-columns: minmax(230px, 26%) minmax(360px, 1fr) minmax(250px, 28%);
   }
 }
+
+/* ==================== 仙气极光 · 柔和全息视觉增强层 ==================== */
+/* 1. 全站圆头柔线 SVG 图标体系（替代生硬文字解释） */
+.ui-ico,
+.pill-ico,
+.kpi-ico,
+.factor-ico,
+.head-ico {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -2px;
+}
+
+.pill-ico {
+  width: 13.5px;
+  height: 13.5px;
+  color: var(--accent);
+  opacity: 0.92;
+}
+
+.kpi-ico {
+  width: 15px;
+  height: 15px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-sizing: content-box;
+}
+
+.kpi-ico.is-ok { background: var(--ok-soft); color: var(--ok); }
+.kpi-ico.is-warn { background: var(--warn-soft); color: var(--warn); }
+.kpi-ico.is-cyan { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+
+.head-ico {
+  width: 15px;
+  height: 15px;
+  color: var(--accent);
+  opacity: 0.9;
+  margin-right: 5px;
+}
+
+.panel-head h2 {
+  display: inline-flex;
+  align-items: center;
+}
+
+.factor-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.factor-ico {
+  width: 13.5px;
+  height: 13.5px;
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+.wb-kpi-lbl {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.wb-env-box span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wb-env-box .factor-ico {
+  width: 12px;
+  height: 12px;
+}
+
+/* 2. 半透仙气与雾玻璃主题下的悬浮层防透底保护 */
+[data-theme="celestial-aurora"] .app-sidebar,
+[data-theme="celestial-aurora"] .theme-popover,
+[data-theme="celestial-aurora"] .modal-card,
+[data-theme="celestial-aurora"] .wb-chart-tooltip {
+  background: rgba(12, 22, 42, 0.92);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+[data-theme="celestial-mist"] .app-sidebar,
+[data-theme="celestial-mist"] .theme-popover,
+[data-theme="celestial-mist"] .modal-card,
+[data-theme="celestial-mist"] .wb-chart-tooltip {
+  background: rgba(246, 250, 255, 0.94);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+[data-theme="glassmorphism"] .theme-popover,
+[data-theme="glassmorphism"] .modal-card,
+[data-theme="sci-fi-cyan"] .app-sidebar,
+[data-theme="sci-fi-cyan"] .theme-popover,
+[data-theme="sci-fi-cyan"] .modal-card,
+[data-theme="sci-fi-purple"] .app-sidebar,
+[data-theme="sci-fi-purple"] .theme-popover,
+[data-theme="sci-fi-purple"] .modal-card,
+[data-theme="sci-fi-matrix"] .app-sidebar,
+[data-theme="sci-fi-matrix"] .theme-popover,
+[data-theme="sci-fi-matrix"] .modal-card,
+[data-theme="sci-fi-crimson"] .app-sidebar,
+[data-theme="sci-fi-crimson"] .theme-popover,
+[data-theme="sci-fi-crimson"] .modal-card {
+  background: color-mix(in srgb, var(--bg-canvas) 90%, var(--accent) 6%);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+}
+
+/* 3. 柔和流光胶囊按钮、微光徽章与轻盈边框（告别生硬工业感） */
+.btn {
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease, transform 140ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 3px 12px var(--accent-soft);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  border-color: transparent;
+  box-shadow: 0 4px 14px var(--accent-soft), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--accent-hover), var(--accent));
+  border-color: transparent;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 36%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+.segmented button.is-active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  box-shadow: 0 2px 10px var(--accent-soft);
+}
+
+.badge {
+  gap: 3px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+}
+
+/* 4. 面板头渐隐流光丝线，柔化粗糙工业虚线 */
+.panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, transparent), transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+}
+
+.wb-guard-list,
+.wb-env-grid,
+.ctrl-last-head {
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent) !important;
+}
+
+.wb-guard-safe {
+  border-left: 1px solid color-mix(in srgb, var(--ok) 55%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--ok) 55%, transparent);
+}
+
+.wb-kpi-cell {
+  border-right: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+}
+
+/* 5. 流光胶囊进度条与圆润内嵌卡片 */
+.wb-pool-cur,
+.env-bar-fill {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 65%, transparent), var(--accent));
+  opacity: 0.85;
+}
+
+.wb-guard-fill {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ok) 72%, transparent), var(--ok));
+}
+.wb-guard-fill.is-warn {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--warn) 72%, transparent), var(--warn));
+}
+.wb-guard-fill.is-danger {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 72%, transparent), var(--danger));
+}
+
+.wb-pool-row,
+.wb-env-box,
+.wb-stream-item,
+.ctrl-subcard,
+.ctrl-summary-box,
+.decision-item,
+.kpi-strip-cell {
+  border-radius: 10px;
+}
+
+.modal-card,
+.theme-popover {
+  border-radius: var(--radius-card);
+  box-shadow: var(--panel-top-glow), 0 18px 48px rgba(0, 0, 0, 0.28);
+}
+
+.toast-item {
+  border-radius: 12px;
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+}
+
+/* 6. 全息柔光态势 SVG 节点与呼吸星环 */
+.wb-svg-card {
+  fill: var(--bg-subtle);
+  stroke: color-mix(in srgb, var(--border-color) 90%, var(--accent) 18%);
+  stroke-width: 1.1;
+  transition: stroke 200ms ease, filter 200ms ease;
+}
+
+.wb-svg-node:hover .wb-svg-card {
+  stroke: var(--accent);
+  filter: drop-shadow(0 4px 12px var(--accent-soft));
+}
+
+.wb-svg-core {
+  fill: color-mix(in srgb, var(--bg-surface) 88%, var(--accent) 12%);
+  stroke: color-mix(in srgb, var(--accent) 72%, #ffffff 15%);
+  stroke-width: 1.4;
+  filter: drop-shadow(0 0 16px var(--accent-soft));
+}
+
+.wb-halo-ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1;
+  opacity: 0.24;
+  pointer-events: none;
+}
+
+.wb-halo-ring.is-outer {
+  stroke-dasharray: 3 6;
+  opacity: 0.18;
+  transform-origin: 350px 150px;
+  animation: agcHaloSpin 36s linear infinite;
+}
+
+@keyframes agcHaloSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.limit-chip {
+  border-radius: 999px;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+}
+
+/* ==================== 7. 顶栏与全站横向占宽控件紧凑整合体系 ==================== */
+/* 顶栏中间一体化紧凑状态胶囊条（替代 4 个分散独立外框） */
+.topbar-status-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  border: var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.topbar-status-strip .status-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+  border-right: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
+}
+
+.topbar-status-strip .status-seg:last-child {
+  border-right: none;
+}
+
+/* 顶栏右侧三合一偏好按钮（语言 + 主题 + 系统设置）与全站通用收纳弹出层 */
+.pop-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.prefs-trigger-btn {
+  gap: 6px;
+  padding: 4px 10px;
+}
+
+.prefs-trigger-btn .theme-dot-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.pop-caret {
+  font-size: 10px;
+  opacity: 0.72;
+  margin-left: 1px;
+}
+
+.pop-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 176px;
+  padding: 7px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-canvas) 92%, var(--accent) 6%);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: var(--border);
+  box-shadow: var(--panel-top-glow), 0 16px 42px rgba(0, 0, 0, 0.30);
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+html[data-color-scheme="light"] .pop-menu-panel {
+  background: rgba(250, 253, 255, 0.96);
+  box-shadow: var(--panel-top-glow), 0 14px 36px rgba(15, 23, 42, 0.14);
+}
+
+.pop-menu-panel.is-prefs {
+  width: 344px;
+  max-width: calc(100vw - 20px);
+  max-height: calc(100vh - 58px);
+  overflow-y: auto;
+  padding: 10px 11px;
+  gap: 9px;
+}
+
+.pop-menu-panel.is-batch {
+  width: 268px;
+  padding: 9px 10px;
+  gap: 7px;
+}
+
+.prefs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.prefs-row-lbl {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.prefs-divider,
+.pop-divider {
+  height: 1px;
+  background: color-mix(in srgb, var(--border-color) 70%, transparent);
+  margin: 2px 0;
+}
+
+.pop-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.pop-menu-item:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pop-menu-item:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.pop-menu-item.is-danger {
+  color: var(--danger);
+}
+
+.pop-menu-item.is-danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.pop-check-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pop-check-item:hover {
+  background: var(--bg-subtle);
+}
+
+.pop-inline-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 5px;
+  align-items: center;
+}
+
+.pop-inline-row .compact-input {
+  width: 100% !important;
+}
+
+.pop-scale-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+/* 接线图与时间导航一体化胶囊控件组 */
+.pill-ctrl-group {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-subtle);
+  border: var(--border);
+  border-radius: 999px;
+  padding: 1px 3px;
+  gap: 2px;
+}
+
+.pill-ctrl-group > button {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.pill-ctrl-group > button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pill-ctrl-group > button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.pill-ctrl-group > .pill-ctrl-val {
+  padding: 0 5px;
+  font-size: 11.5px;
+  min-width: 40px;
+  text-align: center;
+}
+
+.pill-ctrl-group > button.pill-ctrl-fit {
+  width: auto;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+
+/* 设备配置单行紧凑统计胶囊 */
+.devcfg-stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  border: var(--border);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.devcfg-stat-pill .sep-dot {
+  opacity: 0.4;
+}
+
+/* 展开悬浮菜单时自动解除父面板 overflow 裁切并提升层级，防止矮顶栏或分栏遮挡菜单 */
+.devcfg-topbar,
+.panel:has(.pop-menu-panel:not([hidden])) {
+  overflow: visible;
+  z-index: 35;
+}
+
+
+
