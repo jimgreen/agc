@@ -1148,6 +1148,79 @@ class AGCRealtimeSystemTests(unittest.TestCase):
         self.assertGreaterEqual(pruned["deleted"]["runtime_logs"], 1)
         self.assertGreaterEqual(service.store.latest_cycle(), 1)
 
+    def test_lite_snapshot_gzip_etag_and_sandbox_preview(self):
+        """验证轻量增量快照、Gzip 协商压缩、静态文件 ETag/304 缓存、包络元数据与无副作用沙盒预演。"""
+        import gzip
+        import threading
+        from urllib.error import HTTPError
+        from urllib.request import Request, urlopen
+
+        server, service = create_server(
+            host="127.0.0.1",
+            port=0,
+            model_db=self.env["model_db"],
+            scada_db=self.env["scada_db"],
+            svg_path=self.env["svg_path"],
+            agc_db=self.env["agc_db"],
+            start_background=False,
+        )
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        self.addCleanup(service.close)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_port}"
+
+        # 1. 先执行一拍计算生成基准周期 #1，验证 command_rows 携带 env_min_kw / env_max_kw / limit_tags
+        service.run_control_cycle(trigger="manual")
+        full_req = Request(f"{base}/api/snapshot", headers={"Accept-Encoding": "gzip"})
+        with urlopen(full_req, timeout=5) as resp:
+            self.assertEqual(resp.headers.get("Content-Encoding"), "gzip")
+            full_snap = json.loads(gzip.decompress(resp.read()).decode("utf-8"))
+        self.assertEqual(full_snap["agc_status"]["cycle"], 1)
+        self.assertIsNotNone(full_snap["latest_strategy"])
+        first_row = full_snap["latest_strategy"]["command_rows"][0]
+        self.assertIn("env_min_kw", first_row)
+        self.assertIn("env_max_kw", first_row)
+        self.assertIn("limit_tags", first_row)
+
+        # 2. 轻量增量快照 lite=1&since_cycle=1&since_rev=R：省略冗余 devices 且命中 strategy_unchanged
+        rev = full_snap["agc_status"]["strategy_revision"]
+        with urlopen(f"{base}/api/snapshot?lite=1&since_cycle=1&since_rev={rev}", timeout=5) as resp:
+            lite_snap = json.loads(resp.read().decode("utf-8"))
+        self.assertTrue(lite_snap["strategy_unchanged"])
+        self.assertIsNone(lite_snap["latest_strategy"])
+        self.assertEqual(lite_snap["devices"], [])
+        self.assertGreater(lite_snap["agc_status"]["valid_meas_count"], 0)
+
+        # 3. 静态文件 ETag 与 304 Not Modified 协商缓存
+        with urlopen(f"{base}/styles.css", timeout=5) as resp:
+            etag = resp.headers.get("ETag")
+            self.assertTrue(bool(etag))
+        cond_req = Request(f"{base}/styles.css", headers={"If-None-Match": etag})
+        with self.assertRaises(HTTPError) as ctx:
+            urlopen(cond_req, timeout=5)
+        self.assertEqual(ctx.exception.code, 304)
+        ctx.exception.close()
+
+        # 4. 闭环状态下触发 POST /api/agc/preview：验证返回完整预演且零写库、周期号维持 #1、零下发指令
+        service.set_loop_mode("closed")
+        prev_cmd_records = len(service.store.query_command_records(limit=100))
+        prev_req = Request(
+            f"{base}/api/agc/preview",
+            data=json.dumps({"settings": {"step_coefficient": 0.15}}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(prev_req, timeout=5) as resp:
+            prev_data = json.loads(resp.read().decode("utf-8"))
+        self.assertTrue(prev_data["ok"])
+        self.assertTrue(prev_data["preview"]["is_preview"])
+        self.assertEqual(prev_data["preview"]["loop_mode"], "preview")
+        self.assertGreater(len(prev_data["preview"]["command_rows"]), 0)
+        self.assertEqual(service.store.latest_cycle(), 1)
+        self.assertEqual(len(service.store.query_command_records(limit=100)), prev_cmd_records)
+
 
 if __name__ == "__main__":
     unittest.main()

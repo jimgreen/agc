@@ -92,6 +92,7 @@ function cmdStatusMeta(status) {
     superseded: { cls: "badge-neutral", label: "已覆盖" },
     device_open: { cls: "badge-neutral", label: "开环停发" },
     open_loop_only: { cls: "badge-info", label: "开环未发" },
+    preview: { cls: "badge-info", label: "沙盒预演" },
     unchanged: { cls: "badge-neutral", label: "维持不变" },
     calculated: { cls: "badge-info", label: "已计算" },
     idle: { cls: "badge-neutral", label: "空闲" }

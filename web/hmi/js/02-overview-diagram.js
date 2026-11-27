@@ -54,9 +54,11 @@ function renderOverviewPage() {
   const latest = snap.latest_strategy || (AGCState.control && AGCState.control.latest) || null;
   const m = (latest && latest.metrics) || {};
 
-  // 若尚未运行策略，从实时遥测估算基础汇总
+  // 若尚未运行策略，从实时遥测估算基础汇总（兼容 lite 增量快照）
   const scada = (snap.measurements && snap.measurements.scada) || [];
-  const validMeas = scada.filter((x) => Number(x.valid) === 1).length;
+  const validMeas = agc.valid_meas_count !== undefined
+    ? Number(agc.valid_meas_count)
+    : scada.filter((x) => Number(x.valid) === 1).length;
 
   let loadKw = m.loadKw;
   let acLoadKw = m.acLoadKw;
@@ -855,6 +857,47 @@ function renderDiagramDeviceCard(devName, openDialog = false) {
   if (openDialog && !dlg.open) {
     dlg.showModal();
   }
+}
+
+async function focusDeviceOnDiagram(devName) {
+  if (!devName) return;
+  await switchPage("diagram");
+  await ensureDiagramLoaded();
+  const stage = document.getElementById("diagramStage");
+  const vp = document.getElementById("diagramViewport");
+  const svg = stage && stage.querySelector("svg");
+  if (!svg || !vp) return;
+
+  svg.querySelectorAll(".svg-focus-highlight").forEach((el) => el.classList.remove("svg-focus-highlight"));
+  let targetEl = null;
+  const candidates = svg.querySelectorAll("[data-dev-name], [id], text");
+  for (const el of candidates) {
+    const dn = el.getAttribute("data-dev-name") || el.getAttribute("id") || "";
+    const txt = el.tagName.toLowerCase() === "text" ? (el.textContent || "").trim() : "";
+    if (dn === devName || txt === devName || (txt && txt.includes(devName))) {
+      targetEl = el.closest("g") || el;
+      break;
+    }
+  }
+  if (!targetEl || typeof targetEl.getBBox !== "function") {
+    showToast(`接线图中未定位到图元: ${devName}`, "warn");
+    return;
+  }
+  try {
+    const bbox = targetEl.getBBox();
+    const vb = svg.viewBox && svg.viewBox.baseVal;
+    const svgW = (vb && vb.width) || svg.clientWidth || 1200;
+    const svgH = (vb && vb.height) || svg.clientHeight || 800;
+    const vpRect = vp.getBoundingClientRect();
+    const targetScale = Math.max(0.6, Math.min(2.2, Math.min(vpRect.width / Math.max(180, bbox.width * 3.5), vpRect.height / Math.max(140, bbox.height * 3.5))));
+    const cx = (bbox.x + bbox.width / 2) * (svg.clientWidth / svgW || 1);
+    const cy = (bbox.y + bbox.height / 2) * (svg.clientHeight / svgH || 1);
+    AGCState.diagramScale = targetScale;
+    AGCState.diagramTx = vpRect.width / 2 - cx * targetScale;
+    AGCState.diagramTy = vpRect.height / 2 - cy * targetScale;
+    applyDiagramTransform();
+    targetEl.classList.add("svg-focus-highlight");
+  } catch (_e) {}
 }
 
 function bindDiagramInteractions() {

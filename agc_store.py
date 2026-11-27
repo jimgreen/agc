@@ -67,6 +67,71 @@ def _finite_or_zero(value: Any) -> float:
     return num if num is not None else 0.0
 
 
+def enrich_strategy_command_meta(raw: Mapping[str, Any], available_kw: Optional[float] = None) -> Dict[str, Any]:
+    """从引擎原始行字典提取单设备有效功率包络 [env_min_kw, env_max_kw] 与精炼受限原因微章。"""
+    cat = str(raw.get("category") or "")
+    tech = str(raw.get("technology") or "")
+    role = str(raw.get("role") or "")
+    phys_lo: Optional[float] = None
+    phys_hi: Optional[float] = None
+
+    if tech in {"wind", "pv"}:
+        phys_lo = 0.0
+        phys_hi = _finite_or_none(raw.get("capacityKw")) or available_kw
+    elif "柴" in cat:
+        phys_lo = _finite_or_none(raw.get("minKw"))
+        phys_hi = _finite_or_none(raw.get("capacityKw")) or available_kw
+    elif tech == "storage" or role in {"grid_following", "balance"}:
+        ch = _finite_or_none(raw.get("chargePower"))
+        dis = _finite_or_none(raw.get("dischargePower"))
+        phys_lo = -abs(ch) if ch is not None else None
+        phys_hi = abs(dis) if dis is not None else None
+    elif "变流" in cat:
+        tcap = _finite_or_none(raw.get("transferCapacityKw")) or _finite_or_none(raw.get("capacityKw"))
+        phys_lo = _finite_or_none(raw.get("signedMinTargetKw"))
+        phys_hi = _finite_or_none(raw.get("signedMaxTargetKw"))
+        if phys_lo is None and tcap is not None:
+            phys_lo = -abs(tcap)
+        if phys_hi is None and tcap is not None:
+            phys_hi = abs(tcap)
+    elif "氢" in cat:
+        phys_lo = 0.0
+        phys_hi = _finite_or_none(raw.get("availableKw")) or available_kw
+
+    cfg_lo = _finite_or_none(raw.get("configMinKw"))
+    cfg_hi = _finite_or_none(raw.get("configMaxKw"))
+    env_lo = phys_lo
+    env_hi = phys_hi
+    if cfg_lo is not None:
+        env_lo = cfg_lo if env_lo is None else max(env_lo, cfg_lo)
+    if cfg_hi is not None:
+        env_hi = cfg_hi if env_hi is None else min(env_hi, cfg_hi)
+    if env_lo is not None and env_hi is not None and env_lo > env_hi:
+        env_lo = env_hi
+
+    tags: List[str] = []
+    nat = str(raw.get("naturalUpperReason") or "")
+    lbl = str(raw.get("statusLabel") or "")
+    if "wind" in nat:
+        tags.append("近零风锁")
+    elif "solar" in nat:
+        tags.append("近零光锁")
+    if raw.get("naturalResourceSaturated"):
+        tags.append("饱和锁顶")
+    if raw.get("socCorrectionActive"):
+        tags.append("SOC纠偏")
+    if raw.get("trackDeadbandHold") or "死区内保持" in lbl:
+        tags.append("死区保持")
+    if raw.get("boundaryCorrection"):
+        tags.append("越限拉回")
+
+    return {
+        "env_min_kw": round(env_lo, 2) if env_lo is not None else None,
+        "env_max_kw": round(env_hi, 2) if env_hi is not None else None,
+        "limit_tags": tags,
+    }
+
+
 class AGCRealtimeStore:
     """面向秦岭实时 AGC 的 SQLite 持久化存储。"""
 
@@ -634,6 +699,35 @@ class AGCRealtimeStore:
             latest_row = self.conn.execute(
                 "SELECT MAX(cycle) AS c FROM agc_strategy_snapshots"
             ).fetchone()
+        parsed_rows: List[Dict[str, Any]] = []
+        for r in cmd_rows:
+            raw_obj = json.loads(r["raw_json"] or "{}") if r["raw_json"] else {}
+            meta = enrich_strategy_command_meta(raw_obj, _finite_or_none(r["available_kw"]))
+            parsed_rows.append(
+                {
+                    "category": r["category"],
+                    "dev_type": r["dev_type"],
+                    "dev_name": r["dev_name"],
+                    "connection_side": r["connection_side"],
+                    "control_mode": r["control_mode"],
+                    "device_control_state": raw_obj.get("deviceControlState", "closed"),
+                    "online": bool(r["online"]),
+                    "commandable": bool(r["commandable"]),
+                    "set_type": r["set_type"],
+                    "current_kw": r["current_kw"],
+                    "available_kw": r["available_kw"],
+                    "env_min_kw": meta["env_min_kw"],
+                    "env_max_kw": meta["env_max_kw"],
+                    "limit_tags": meta["limit_tags"],
+                    "target_kw": r["target_kw"],
+                    "delta_kw": r["delta_kw"],
+                    "soc": r["soc"],
+                    "changed": bool(r["changed"]),
+                    "status_label": r["status_label"],
+                    "dispatch_status": r["dispatch_status"],
+                    "dispatch_message": r["dispatch_message"],
+                }
+            )
         return {
             "cycle": cur_cycle,
             "prev_cycle": int(prev_row["c"]) if (prev_row and prev_row["c"] is not None) else None,
@@ -652,33 +746,7 @@ class AGCRealtimeStore:
             "metrics": json.loads(snap["metrics_json"] or "{}"),
             "decision_detail": json.loads(snap["decision_detail_json"] or "[]"),
             "warnings": json.loads(snap["warnings_json"] or "[]"),
-            "command_rows": [
-                {
-                    "category": r["category"],
-                    "dev_type": r["dev_type"],
-                    "dev_name": r["dev_name"],
-                    "connection_side": r["connection_side"],
-                    "control_mode": r["control_mode"],
-                    "device_control_state": (
-                        json.loads(r["raw_json"] or "{}").get("deviceControlState", "closed")
-                        if r["raw_json"]
-                        else "closed"
-                    ),
-                    "online": bool(r["online"]),
-                    "commandable": bool(r["commandable"]),
-                    "set_type": r["set_type"],
-                    "current_kw": r["current_kw"],
-                    "available_kw": r["available_kw"],
-                    "target_kw": r["target_kw"],
-                    "delta_kw": r["delta_kw"],
-                    "soc": r["soc"],
-                    "changed": bool(r["changed"]),
-                    "status_label": r["status_label"],
-                    "dispatch_status": r["dispatch_status"],
-                    "dispatch_message": r["dispatch_message"],
-                }
-                for r in cmd_rows
-            ],
+            "command_rows": parsed_rows,
         }
 
     def get_latest_strategy(self) -> Optional[Dict[str, Any]]:

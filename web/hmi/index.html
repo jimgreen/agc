@@ -34,7 +34,7 @@
         } catch (_e) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20261126-fix20" />
+    <link rel="stylesheet" href="/styles.css?v=20261127-fix21" />
   </head>
   <body>
     <div class="app-shell">
@@ -212,14 +212,14 @@
                     <svg id="energyFlowSvg" class="ef-svg" viewBox="0 0 1000 460" preserveAspectRatio="xMidYMid meet" role="img" aria-label="交直流微电网与氢能全景流向图">
                       <defs>
                         <linearGradient id="efDcBusGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.35" />
-                          <stop offset="50%" stop-color="#0EA5E9" stop-opacity="0.95" />
-                          <stop offset="100%" stop-color="#38BDF8" stop-opacity="0.35" />
+                          <stop offset="0%" style="stop-color: var(--accent)" stop-opacity="0.32" />
+                          <stop offset="50%" style="stop-color: var(--accent)" stop-opacity="0.95" />
+                          <stop offset="100%" style="stop-color: var(--accent)" stop-opacity="0.32" />
                         </linearGradient>
                         <linearGradient id="efAcBusGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stop-color="#34D399" stop-opacity="0.35" />
-                          <stop offset="50%" stop-color="#10B981" stop-opacity="0.95" />
-                          <stop offset="100%" stop-color="#34D399" stop-opacity="0.35" />
+                          <stop offset="0%" style="stop-color: var(--ok)" stop-opacity="0.32" />
+                          <stop offset="50%" style="stop-color: var(--ok)" stop-opacity="0.95" />
+                          <stop offset="100%" style="stop-color: var(--ok)" stop-opacity="0.32" />
                         </linearGradient>
                         <filter id="efSoftGlow" x="-30%" y="-30%" width="160%" height="160%">
                           <feGaussianBlur stdDeviation="2.2" result="blur" />
@@ -487,6 +487,7 @@
                     <div class="agc-primary-actions">
                       <button id="agcAutoToggleBtn" type="button" class="btn btn-primary" data-i18n="agc.startAuto">启动实时控制</button>
                       <button id="agcCalcOnceBtn" type="button" class="btn" data-i18n="agc.calcOnce">单次计算</button>
+                      <button id="agcPreviewBtn" type="button" class="btn" data-i18n="agc.preview" title="内存试算一拍，零写库零下发">策略预演</button>
                     </div>
                     <div class="agc-setting-row">
                       <span data-i18n="agc.loopMode">控制方式</span>
@@ -495,6 +496,7 @@
                         <button type="button" data-loop-mode="closed" data-i18n="mode.closed">闭环</button>
                       </div>
                     </div>
+                    <div id="agcDualLayerHint" class="dual-layer-strip mono"></div>
                     <div class="agc-setting-row">
                       <span data-i18n="agc.strategyParams">策略参数</span>
                       <div class="inline-btn-group">
@@ -551,6 +553,11 @@
                     <button type="button" data-strategy-tab="converter" data-i18n="cat.converter">ACDC变流</button>
                     <button type="button" data-strategy-tab="hydrogen" data-i18n="cat.hydrogen">氢能</button>
                   </div>
+                  <div id="agcModeBanner" class="mode-banner" hidden>
+                    <span id="agcModeBannerText"></span>
+                    <button id="agcExitSpecialModeBtn" type="button" class="btn btn-xs btn-primary" data-i18n="agc.backRealtime">返回实时</button>
+                  </div>
+                  <div id="agcBusBalanceStrip" class="bus-balance-strip mono"></div>
                   <div id="agcStrategyTableWrap" class="table-scroll"></div>
                 </section>
               </div>
@@ -610,6 +617,7 @@
                         <option value="warn">WARN</option>
                         <option value="error">ERROR</option>
                       </select>
+                      <button id="agcLogExportCsvBtn" type="button" class="btn btn-sm" data-i18n="action.exportCsv">导出 CSV</button>
                       <button id="agcLogClearBtn" type="button" class="btn btn-sm btn-danger-ghost" data-i18n="action.clear">清空</button>
                     </div>
                   </div>
@@ -668,6 +676,9 @@
                     <option value="track" data-i18n="devcfg.stateTrack">跟踪</option>
                     <option value="open" data-i18n="devcfg.stateOpen">开环</option>
                   </select>
+                  <input id="dcBatchStepInput" type="number" min="0" step="0.5" class="compact-input mono" style="width:74px;" data-i18n-placeholder="devcfg.step" placeholder="步长" />
+                  <input id="dcBatchDeadbandInput" type="number" min="0" step="0.2" class="compact-input mono" style="width:74px;" data-i18n-placeholder="devcfg.deadband" placeholder="死区" />
+                  <button id="dcBatchApplyParamsBtn" type="button" class="btn btn-sm" data-i18n="devcfg.batchApply">批量填入</button>
                   <button id="devCfgExportJsonBtn" type="button" class="btn btn-sm" data-i18n="devcfg.exportScheme">导出方案</button>
                   <input id="devCfgImportJsonFile" type="file" accept=".json" hidden />
                   <button id="devCfgImportJsonBtn" type="button" class="btn btn-sm" data-i18n="devcfg.importScheme">导入方案</button>
@@ -964,6 +975,7 @@
                     <input id="runtimeLogAlertOnly" type="checkbox" />
                     <span data-i18n="logs.alertOnly">仅告警</span>
                   </label>
+                  <button id="runtimeLogExportCsvBtn" type="button" class="btn btn-sm" data-i18n="action.exportCsv">导出 CSV</button>
                   <button id="clearRuntimeLogsBtn" type="button" class="btn btn-sm btn-danger-ghost" data-i18n="action.clear">清空日志</button>
                 </div>
               </div>
@@ -1057,6 +1069,7 @@
           <span id="agcParamsMessage" class="muted"></span>
           <div class="inline-btn-group">
             <button type="button" class="btn" data-close-dialog="agcParamsDialog" data-i18n="action.cancel">取消</button>
+            <button id="previewAgcParamsBtn" type="button" class="btn" data-i18n="agc.preview">策略预演</button>
             <button id="saveAgcParamsBtn" type="button" class="btn btn-primary" data-i18n="action.save">保存</button>
           </div>
         </div>
@@ -1342,12 +1355,12 @@
 
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-    <script defer src="/js/00-i18n.js?v=20261126-fix20"></script>
-    <script defer src="/js/01-core.js?v=20261126-fix20"></script>
-    <script defer src="/js/02-overview-diagram.js?v=20261126-fix20"></script>
-    <script defer src="/js/03-agc-control.js?v=20261126-fix20"></script>
-    <script defer src="/js/04-monitor-pages.js?v=20261126-fix20"></script>
-    <script defer src="/js/06-device-config.js?v=20261126-fix20"></script>
-    <script defer src="/js/05-bootstrap.js?v=20261126-fix20"></script>
+    <script defer src="/js/00-i18n.js?v=20261127-fix21"></script>
+    <script defer src="/js/01-core.js?v=20261127-fix21"></script>
+    <script defer src="/js/02-overview-diagram.js?v=20261127-fix21"></script>
+    <script defer src="/js/03-agc-control.js?v=20261127-fix21"></script>
+    <script defer src="/js/04-monitor-pages.js?v=20261127-fix21"></script>
+    <script defer src="/js/06-device-config.js?v=20261127-fix21"></script>
+    <script defer src="/js/05-bootstrap.js?v=20261127-fix21"></script>
   </body>
 </html>

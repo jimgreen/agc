@@ -92,13 +92,36 @@ const PARAM_FIELDS = [
 let agcPresetsCache = null;
 let agcReplayStrategy = null;
 let agcReplayIslandDiag = null;
+let agcPreviewStrategy = null;
+let agcPreviewIslandDiag = null;
+let agcStrategySortField = "";
+let agcStrategySortAsc = false;
+let agcLastTargetMap = new Map();
+let agcLatestLogsCache = [];
 
 function activeAgcStrategy() {
-  return agcReplayStrategy || (AGCState.control && AGCState.control.latest) || null;
+  return agcPreviewStrategy || agcReplayStrategy || (AGCState.control && AGCState.control.latest) || null;
 }
 
 function activeAgcIslandDiag() {
-  return agcReplayIslandDiag || (AGCState.control && AGCState.control.island_diagnostics) || null;
+  return agcPreviewIslandDiag || agcReplayIslandDiag || (AGCState.control && AGCState.control.island_diagnostics) || null;
+}
+
+async function runAgcSandboxPreview(overrideSettings = null, preset = null) {
+  try {
+    const body = {};
+    if (overrideSettings) body.settings = overrideSettings;
+    if (preset) body.preset = preset;
+    const res = await apiPost("/api/agc/preview", body);
+    agcReplayStrategy = null;
+    agcReplayIslandDiag = null;
+    agcPreviewStrategy = res.preview || null;
+    agcPreviewIslandDiag = res.island_diagnostics || null;
+    renderAgcControlPage(true);
+    showToast(`沙盒预演完成（变动 ${res.preview?.changed_count || 0} 台，零写库零下发）`, "info");
+  } catch (err) {
+    showToast(err.message, "danger");
+  }
 }
 
 async function loadAgcStrategyCycle(cycleNo) {
@@ -108,6 +131,8 @@ async function loadAgcStrategyCycle(cycleNo) {
       showToast(`未找到周期 #${cycleNo} 的策略快照`, "warn");
       return;
     }
+    agcPreviewStrategy = null;
+    agcPreviewIslandDiag = null;
     const latestNo = Number(res.strategy.latest_cycle || (AGCState.control && AGCState.control.cycle) || 0);
     if (latestNo > 0 && Number(res.strategy.cycle) >= latestNo) {
       agcReplayStrategy = null;
@@ -117,7 +142,7 @@ async function loadAgcStrategyCycle(cycleNo) {
       agcReplayStrategy = res.strategy;
       agcReplayIslandDiag = res.island_diagnostics || null;
     }
-    renderAgcControlPage();
+    renderAgcControlPage(true);
   } catch (err) {
     showToast(err.message, "danger");
   }
@@ -126,7 +151,9 @@ async function loadAgcStrategyCycle(cycleNo) {
 function exitAgcStrategyReplay() {
   agcReplayStrategy = null;
   agcReplayIslandDiag = null;
-  renderAgcControlPage();
+  agcPreviewStrategy = null;
+  agcPreviewIslandDiag = null;
+  renderAgcControlPage(true);
 }
 
 async function jumpToAgcStrategyTab(tabKey) {
@@ -165,6 +192,9 @@ function renderAgcCycleReplayNav() {
   const nextBtn = document.getElementById("agcCycleNextBtn");
   const tagEl = document.getElementById("agcCycleReplayTag");
   const latestBtn = document.getElementById("agcCycleLatestBtn");
+  const banner = document.getElementById("agcModeBanner");
+  const bannerTxt = document.getElementById("agcModeBannerText");
+  const isPreview = Boolean(agcPreviewStrategy);
   const isReplay = Boolean(agcReplayStrategy);
 
   if (!strat) {
@@ -172,16 +202,65 @@ function renderAgcCycleReplayNav() {
     if (prevBtn) prevBtn.disabled = true;
     if (nextBtn) nextBtn.disabled = true;
     if (latestBtn) latestBtn.hidden = true;
+    if (banner) banner.hidden = true;
     return;
   }
   if (tagEl) {
-    tagEl.textContent = isReplay ? `回放 #${strat.cycle}` : `#${strat.cycle}`;
-    tagEl.className = `badge ${isReplay ? "badge-warn" : "badge-info"} mono`;
+    tagEl.textContent = isPreview ? "预演" : (isReplay ? `回放 #${strat.cycle}` : `#${strat.cycle}`);
+    tagEl.className = `badge ${isPreview || isReplay ? "badge-warn" : "badge-info"} mono`;
     tagEl.title = (strat.recorded_at || "").replace("T", " ");
   }
   if (prevBtn) prevBtn.disabled = !strat.prev_cycle;
   if (nextBtn) nextBtn.disabled = !strat.next_cycle;
-  if (latestBtn) latestBtn.hidden = !isReplay;
+  if (latestBtn) latestBtn.hidden = !(isReplay || isPreview);
+  if (banner && bannerTxt) {
+    if (isPreview) {
+      banner.hidden = false;
+      banner.className = "mode-banner is-preview";
+      bannerTxt.textContent = `沙盒预演视图 · 变动 ${strat.changed_count || 0} 台（零写库 / 零四遥下发）`;
+    } else if (isReplay) {
+      banner.hidden = false;
+      banner.className = "mode-banner";
+      bannerTxt.textContent = `历史复盘模式 · 周期 #${strat.cycle}（${(strat.recorded_at || "").replace("T", " ")}）`;
+    } else {
+      banner.hidden = true;
+    }
+  }
+}
+
+function renderAgcDualLayerAndBusBalance() {
+  const c = AGCState.control;
+  const dualEl = document.getElementById("agcDualLayerHint");
+  if (dualEl && c) {
+    const isClosed = c.loop_mode === "closed";
+    dualEl.innerHTML = `<span>决策: 闭环/跟踪/开环</span><span>→</span><strong style="color:var(${isClosed ? "--warn" : "--accent"})">${isClosed ? "通道: 闭环下发" : "通道: 开环仅算"}</strong>`;
+  }
+  const busEl = document.getElementById("agcBusBalanceStrip");
+  const strat = activeAgcStrategy();
+  if (!busEl) return;
+  const m = (strat && strat.metrics) || {};
+  if (!strat || m.loadKw === undefined) {
+    busEl.innerHTML = `<span class="muted">交/直流分母线功率闭合：待计算</span>`;
+    return;
+  }
+  const acRen = Number(m.acRenewableTargetKw ?? m.acRenewableCurrentKw ?? 0);
+  const acDg = Number(m.acDieselTargetKw ?? m.dieselTargetKw ?? m.dieselCurrentKw ?? 0);
+  const acSt = Number(m.acStorageTargetKw ?? m.acStorageCurrentKw ?? 0);
+  const acLoad = Number(m.acLoadKw ?? 0);
+  const elz = Number(m.electrolyzerTargetKw ?? m.electrolyzerCurrentKw ?? 0);
+  const acdc = Number(m.acdcTargetKw ?? m.acdcCurrentKw ?? 0);
+
+  const dcRen = Number(m.dcRenewableTargetKw ?? m.dcRenewableCurrentKw ?? 0);
+  const fc = Number(m.fuelCellTargetKw ?? m.fuelCellCurrentKw ?? 0);
+  const dcSt = Number(m.dcStorageTargetKw ?? m.dcStorageCurrentKw ?? 0);
+  const dcLoad = Number(m.dcLoadKw ?? 0);
+  const dgDelta = Number(m.totalDieselTargetKw ?? m.dieselTargetKw ?? 0) - Number(m.totalDieselCurrentKw ?? m.dieselCurrentKw ?? 0);
+
+  busEl.innerHTML = `
+    <span class="bus-balance-item">AC 380V: <strong>发 ${fmtNum(acRen + acDg + Math.max(0, acSt), 1)}</strong> (绿 ${fmtNum(acRen, 1)} + 柴 ${fmtNum(acDg, 1)}) = 荷 ${fmtNum(acLoad, 1)}${elz > 0.1 ? ` + 氢 ${fmtNum(elz, 1)}` : ""}${acSt < -0.1 ? ` + 储充 ${fmtNum(-acSt, 1)}` : ""} ${acdc >= 0 ? `← DC ${fmtNum(acdc, 1)}` : `→ DC ${fmtNum(-acdc, 1)}`} kW</span>
+    <span class="bus-balance-item">DC 750V: <strong>发 ${fmtNum(dcRen + fc + Math.max(0, dcSt), 1)}</strong> = 荷 ${fmtNum(dcLoad, 1)}${dcSt < -0.1 ? ` + 储充 ${fmtNum(-dcSt, 1)}` : ""} kW</span>
+    <span class="bus-balance-item">火电变动: <strong class="${dgDelta <= -0.1 ? "val-neg" : (dgDelta >= 0.1 ? "val-pos" : "")}">${dgDelta >= 0 ? "+" : ""}${fmtNum(dgDelta, 1)} kW</strong></span>
+  `;
 }
 
 async function refreshAgcControlData() {
@@ -212,10 +291,11 @@ async function refreshAgcControlLogs() {
     keyword: kw
   });
   const data = await apiGet(`/api/agc/logs?${qs.toString()}`);
+  agcLatestLogsCache = data.items || [];
   renderAgcControlLogTable(data);
 }
 
-function renderAgcControlPage() {
+function renderAgcControlPage(forceTableRebuild = false) {
   const c = AGCState.control;
   if (!c) return;
 
@@ -243,12 +323,14 @@ function renderAgcControlPage() {
   document.getElementById("agcEnvWind").textContent = fmtNum(env.wind_speed, 2);
   document.getElementById("agcEnvSolar").textContent = fmtNum(env.solar_irradiance, 1);
   document.getElementById("agcLastCalc").textContent = (c.last_calculated_at || "--").replace("T", " ");
-  document.getElementById("agcStatusLine").textContent = (agcReplayStrategy && agcReplayStrategy.summary_text) || c.status_text || "--";
+  const activeStrat = activeAgcStrategy();
+  document.getElementById("agcStatusLine").textContent = (activeStrat && (agcPreviewStrategy || agcReplayStrategy) ? activeStrat.summary_text : c.status_text) || "--";
 
   renderAgcIslandBadge();
   renderAgcCycleReplayNav();
+  renderAgcDualLayerAndBusBalance();
   renderAgcMetricsTable();
-  renderAgcStrategyTable();
+  renderAgcStrategyTable(forceTableRebuild);
 }
 
 function getMetricRowsForScope(tab, m) {
@@ -428,11 +510,59 @@ function renderAgcMetricsTable() {
   });
 }
 
-function renderAgcStrategyTable() {
+function _renderEnvelopeTargetCell(r, flashCls) {
+  const tgtTxt = fmtNum(r.target_kw, 2);
+  const lo = r.env_min_kw !== null && r.env_min_kw !== undefined ? Number(r.env_min_kw) : 0;
+  const hi = r.env_max_kw !== null && r.env_max_kw !== undefined ? Number(r.env_max_kw) : Number(r.available_kw);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi - lo <= 0.01 || r.target_kw === null || r.target_kw === undefined) {
+    return `<td class="num ${flashCls}">${tgtTxt}</td>`;
+  }
+  const span = hi - lo;
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
+  const curPos = clamp01(((Number(r.current_kw ?? lo)) - lo) / span) * 100;
+  const tgtPos = clamp01((Number(r.target_kw) - lo) / span) * 100;
+  const zeroPos = lo < -0.01 && hi > 0.01 ? clamp01((0 - lo) / span) * 100 : null;
+  const barStart = zeroPos !== null ? Math.min(zeroPos, curPos) : 0;
+  const barWidth = zeroPos !== null ? Math.abs(curPos - zeroPos) : curPos;
+  const tip = `有效包络 [${fmtNum(lo, 1)}, ${fmtNum(hi, 1)}] kW`;
+  return `
+    <td class="num ${flashCls}" title="${tip}">
+      <span class="env-bar-cell">
+        <span class="env-bar-track" aria-hidden="true">
+          ${zeroPos !== null ? `<span class="env-bar-zero" style="left:${zeroPos.toFixed(1)}%"></span>` : ""}
+          <span class="env-bar-fill" style="left:${barStart.toFixed(1)}%;width:${Math.max(2, barWidth).toFixed(1)}%"></span>
+          <span class="env-bar-tgt" style="left:calc(${tgtPos.toFixed(1)}% - 1px)"></span>
+        </span>
+        <span>${tgtTxt}</span>
+      </span>
+    </td>`;
+}
+
+function _renderSocMiniCell(socVal) {
+  if (socVal === null || socVal === undefined || Number.isNaN(Number(socVal))) {
+    return `<td class="num">--</td>`;
+  }
+  const n = Number(socVal);
+  const pct = Math.max(0, Math.min(100, Math.abs(n) <= 1.5 ? n * 100 : n));
+  const lvl = pct < 20 || pct > 90 ? "is-danger" : (pct < 28 || pct > 85 ? "is-warn" : "");
+  return `
+    <td class="num">
+      <span class="soc-mini-wrap">
+        <span class="soc-mini-bar" aria-hidden="true"><span class="soc-mini-fill ${lvl}" style="width:${pct.toFixed(0)}%"></span></span>
+        <span>${pct.toFixed(1)}%</span>
+      </span>
+    </td>`;
+}
+
+function renderAgcStrategyTable(forceRebuild = false) {
   const wrap = document.getElementById("agcStrategyTableWrap");
   if (!wrap) return;
+  // 防焦点打断：用户正点开行内下拉框切换控制状态时，跳过定时轮询重绘
+  if (!forceRebuild && document.activeElement && wrap.contains(document.activeElement)) {
+    return;
+  }
   const strat = activeAgcStrategy();
-  const isReplay = Boolean(agcReplayStrategy);
+  const isReadOnlyMode = Boolean(agcReplayStrategy || agcPreviewStrategy);
   const allRows = (strat && strat.command_rows) || [];
   const catMatch = STRATEGY_TAB_CATEGORY_MAP[AGCState.strategyTab];
   const changedOnly = document.getElementById("agcChangedOnlyCheck")?.checked;
@@ -445,11 +575,29 @@ function renderAgcStrategyTable() {
     return cat === catMatch;
   });
 
+  if (agcStrategySortField) {
+    const fld = agcStrategySortField;
+    const dir = agcStrategySortAsc ? 1 : -1;
+    filtered.sort((a, b) => {
+      const val = (x) => {
+        if (fld === "abs_delta") return Math.abs(Number(x.delta_kw ?? 0));
+        return Number(x[fld] ?? -1e9);
+      };
+      return (val(a) - val(b)) * dir;
+    });
+  }
+
   document.getElementById("agcStrategySummary").textContent = `${filtered.length} / ${allRows.length}`;
   if (!filtered.length) {
     wrap.innerHTML = `<table class="data-table"><tbody><tr><td class="empty-cell">—</td></tr></tbody></table>`;
     return;
   }
+  const sortTh = (field, label) => {
+    const active = agcStrategySortField === field;
+    const arrow = active ? (agcStrategySortAsc ? "▲" : "▼") : "";
+    return `<th class="num is-sortable ${active ? "is-sorted" : ""}" data-strat-sort="${field}">${label}${arrow ? `<span class="sort-arrow">${arrow}</span>` : ""}</th>`;
+  };
+  const nextTargetMap = new Map();
   wrap.innerHTML = `
     <table class="data-table">
       <thead>
@@ -458,11 +606,11 @@ function renderAgcStrategyTable() {
           <th>${t("col.device")}</th>
           <th style="width:82px;">${t("devcfg.ctrlState")}</th>
           <th>模式</th>
-          <th class="num">${t("lbl.current")} (kW)</th>
+          ${sortTh("current_kw", `${t("lbl.current")} (kW)`)}
           <th class="num">${t("lbl.maxAvail")} (kW)</th>
-          <th class="num">${t("lbl.target")} (kW)</th>
-          <th class="num">ΔP (kW)</th>
-          <th class="num">SOC (%)</th>
+          ${sortTh("target_kw", `${t("lbl.target")} (kW)`)}
+          ${sortTh("abs_delta", "ΔP (kW)")}
+          ${sortTh("soc", "SOC (%)")}
           <th>执行状态</th>
           <th>策略说明</th>
         </tr>
@@ -474,6 +622,14 @@ function renderAgcStrategyTable() {
           const dcState = String(r.device_control_state || "closed").toLowerCase();
           const stCls = dcState === "track" ? "state-track" : (dcState === "open" ? "state-open" : "state-closed");
           const setType = r.set_type || (r.dev_type === "DCACConverter" ? "p_ac_set" : "p_set");
+          const rowKey = `${r.dev_type}::${r.dev_name}::${setType}`;
+          const prevTgt = agcLastTargetMap.get(rowKey);
+          const curTgt = Number(r.target_kw ?? 0);
+          nextTargetMap.set(rowKey, curTgt);
+          const flashCls = prevTgt !== undefined && Math.abs(curTgt - prevTgt) > 0.05 ? "cell-flash" : "";
+          const tagsHtml = Array.isArray(r.limit_tags) && r.limit_tags.length
+            ? r.limit_tags.map((tg) => `<span class="limit-chip">${escapeHtml(tg)}</span>`).join("")
+            : "";
           return `
             <tr class="${r.changed ? "is-selected" : ""}">
               <td>${escapeHtml(r.category)}</td>
@@ -483,7 +639,7 @@ function renderAgcStrategyTable() {
                 </button>
               </td>
               <td class="cell-edit">
-                <select class="grid-control ${stCls}" data-inline-dev-type="${escapeHtml(r.dev_type)}" data-inline-dev-name="${escapeHtml(r.dev_name)}" data-inline-set-type="${escapeHtml(setType)}" ${isReplay ? "disabled" : ""}>
+                <select class="grid-control ${stCls}" data-inline-dev-type="${escapeHtml(r.dev_type)}" data-inline-dev-name="${escapeHtml(r.dev_name)}" data-inline-set-type="${escapeHtml(setType)}" ${isReadOnlyMode ? "disabled" : ""}>
                   <option value="closed" ${dcState === "closed" ? "selected" : ""}>${t("devcfg.stateClosed")}</option>
                   <option value="track" ${dcState === "track" ? "selected" : ""}>${t("devcfg.stateTrack")}</option>
                   <option value="open" ${dcState === "open" ? "selected" : ""}>${t("devcfg.stateOpen")}</option>
@@ -492,15 +648,30 @@ function renderAgcStrategyTable() {
               <td class="mono">${escapeHtml(r.control_mode || "--")}</td>
               <td class="num">${fmtNum(r.current_kw, 2)}</td>
               <td class="num">${fmtNum(r.available_kw, 2)}</td>
-              <td class="num">${fmtNum(r.target_kw, 2)}</td>
+              ${_renderEnvelopeTargetCell(r, flashCls)}
               <td class="num ${deltaCls}">${r.delta_kw !== null && r.delta_kw !== undefined ? (Number(r.delta_kw) >= 0 ? "+" : "") + fmtNum(r.delta_kw, 2) : "--"}</td>
-              <td class="num">${r.soc !== null && r.soc !== undefined ? fmtPct(r.soc) : "--"}</td>
+              ${_renderSocMiniCell(r.soc)}
               <td><span class="badge ${st.cls}" title="${escapeHtml(r.dispatch_message || "")}">${escapeHtml(st.label)}</span></td>
-              <td class="ellipsis" title="${escapeHtml(r.status_label)}">${escapeHtml(r.status_label)}</td>
+              <td class="ellipsis" title="${escapeHtml(r.status_label)}">${tagsHtml}${escapeHtml(r.status_label)}</td>
             </tr>`;
         }).join("")}
       </tbody>
     </table>`;
+  agcLastTargetMap = nextTargetMap;
+
+  wrap.querySelectorAll("th[data-strat-sort]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const f = th.dataset.stratSort;
+      if (agcStrategySortField === f) {
+        if (agcStrategySortAsc) agcStrategySortField = "";
+        else agcStrategySortAsc = true;
+      } else {
+        agcStrategySortField = f;
+        agcStrategySortAsc = false;
+      }
+      renderAgcStrategyTable(true);
+    });
+  });
 
   // 点击设备名称直达设备配置并定位展开其 96 点预设曲线
   wrap.querySelectorAll("button[data-jump-dev-name]").forEach((btn) => {
@@ -747,14 +918,22 @@ function bindAgcControlEvents() {
       const res = await apiPost("/api/agc/control", { action: "calculate_once" });
       agcReplayStrategy = null;
       agcReplayIslandDiag = null;
+      agcPreviewStrategy = null;
+      agcPreviewIslandDiag = null;
       AGCState.control = res.control;
-      renderAgcControlPage();
+      renderAgcControlPage(true);
       await Promise.all([refreshAgcTrendData(), refreshAgcControlLogs(), refreshSnapshot()]);
       showToast(`单次计算完成（周期 #${res.control.cycle}）`, "ok");
     } catch (err) {
       showToast(err.message, "danger");
     }
   });
+
+  document.getElementById("agcPreviewBtn")?.addEventListener("click", () => {
+    runAgcSandboxPreview();
+  });
+
+  document.getElementById("agcExitSpecialModeBtn")?.addEventListener("click", exitAgcStrategyReplay);
 
   document.getElementById("agcAutoToggleBtn")?.addEventListener("click", async () => {
     const running = Boolean(AGCState.control && AGCState.control.auto_enabled);
@@ -900,6 +1079,14 @@ function bindAgcControlEvents() {
     AGCState.controlLogPage = 1;
     refreshAgcControlLogs();
   });
+  document.getElementById("agcLogExportCsvBtn")?.addEventListener("click", () => {
+    downloadCsv(
+      "agc_control_logs.csv",
+      ["logged_at", "level", "event_type", "cycle", "subject", "summary"],
+      agcLatestLogsCache.map((it) => [it.logged_at, it.level, it.event_type, it.cycle, it.subject, it.summary])
+    );
+  });
+
   document.getElementById("agcLogClearBtn")?.addEventListener("click", async () => {
     const ok = await confirmDanger({
       title: "确认清空 AGC 控制决策日志？",
@@ -944,14 +1131,27 @@ function bindAgcControlEvents() {
     });
   });
 
+  document.getElementById("previewAgcParamsBtn")?.addEventListener("click", async () => {
+    try {
+      const params = collectAgcParamsForm();
+      const preset = document.getElementById("agcPresetSelect")?.value || "custom";
+      document.getElementById("agcParamsDialog")?.close();
+      await runAgcSandboxPreview(params, preset);
+    } catch (err) {
+      document.getElementById("agcParamsMessage").textContent = err.message;
+    }
+  });
+
   document.getElementById("saveAgcParamsBtn")?.addEventListener("click", async () => {
     try {
       const params = collectAgcParamsForm();
       const preset = document.getElementById("agcPresetSelect")?.value || "custom";
       const res = await apiPost("/api/agc/control", { action: "save_settings", settings: params, preset });
+      agcPreviewStrategy = null;
+      agcPreviewIslandDiag = null;
       AGCState.control = res.control;
       document.getElementById("agcParamsDialog")?.close();
-      renderAgcControlPage();
+      renderAgcControlPage(true);
       showToast("AGC 控制参数已保存至 agc.db", "ok");
     } catch (err) {
       document.getElementById("agcParamsMessage").textContent = err.message;

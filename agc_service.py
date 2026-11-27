@@ -43,6 +43,7 @@ from agc_store import (
     AGCRealtimeStore,
     DEFAULT_BACKEND_RUNTIME_SETTINGS,
     DEFAULT_WEB_RUNTIME_SETTINGS,
+    enrich_strategy_command_meta,
 )
 
 # 策略预设方案（与学员台对齐）
@@ -163,8 +164,10 @@ class AGCRealtimeService:
         # 初始化时立即做一次只读采集（不写库不发令）
         self.refresh_telemetry()
 
-        # 如果数据库已有历史策略，恢复最近一次展示
+        # 如果数据库已有历史策略，恢复最近一次展示并初始化内存缓存
         persisted_latest = self.store.get_latest_strategy()
+        self._cached_latest_strategy: Optional[Dict[str, Any]] = persisted_latest
+        self._strategy_revision: int = 1
         if persisted_latest is not None:
             self._last_calculated_at = str(persisted_latest.get("recorded_at") or "")
             self._status_text = str(persisted_latest.get("summary_text") or self._status_text)
@@ -234,7 +237,22 @@ class AGCRealtimeService:
     def close(self) -> None:
         self.stop_background_loop()
         self.stop_ack_watcher()
+        self.adapter.close()
         self.store.close()
+
+    def _invalidate_strategy_cache(self) -> None:
+        with self.lock:
+            self._cached_latest_strategy = None
+            self._strategy_revision += 1
+
+    def _get_cached_latest_strategy(self) -> Optional[Dict[str, Any]]:
+        with self.lock:
+            if self._cached_latest_strategy is not None:
+                return self._cached_latest_strategy
+        fresh = self.store.get_latest_strategy()
+        with self.lock:
+            self._cached_latest_strategy = fresh
+        return fresh
 
     def _register_pending_ack(self, entry: Dict[str, Any]) -> None:
         """将在途指令登记至独立回执监听队列；同点位旧在途指令标记为 superseded。"""
@@ -286,6 +304,7 @@ class AGCRealtimeService:
                     dispatch_status=final_status,
                     dispatch_message=final_msg,
                 )
+                self._invalidate_strategy_cache()
             except Exception:
                 pass
         elif origin == "manual":
@@ -771,8 +790,129 @@ class AGCRealtimeService:
             if dispatched_ok > 0:
                 self._last_dispatched_at = now_iso
             self._status_text = summary_line
+            self._cached_latest_strategy = None
+            self._strategy_revision += 1
 
         return self.get_agc_control_payload()
+
+    def preview_control_cycle(
+        self,
+        *,
+        override_settings: Optional[Mapping[str, Any]] = None,
+        preset: Optional[str] = None,
+        override_device_configs: Optional[Sequence[Mapping[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """无副作用策略沙盒预演：基于最新实时遥测与待试参数内存求解一拍，零写库、零下发四遥。"""
+        snapshot = self.refresh_telemetry()
+        with self.lock:
+            base_settings = self.settings
+            age_seconds = self._last_age_seconds
+            topo_ctx = self._topology_ctx
+            mem_copy = copy.deepcopy(self._runtime_memory)
+            cur_cycle = self._last_cycle
+
+        if preset and preset in STRATEGY_PRESETS and not override_settings:
+            sim_settings = RenewableControlSettings().updated(STRATEGY_PRESETS[preset])
+        elif override_settings:
+            sim_settings = base_settings.updated(dict(override_settings))
+        else:
+            sim_settings = base_settings
+        sim_settings.validate()
+
+        device_configs_map = self._load_effective_device_configs_map()
+        if override_device_configs:
+            for item in override_device_configs:
+                dt = str(item.get("dev_type") or "").strip()
+                dn = str(item.get("dev_name") or "").strip()
+                st = str(item.get("set_type") or "p_set").strip()
+                if not dt or not dn:
+                    continue
+                cur_cfg = dict(device_configs_map.get((dt, dn, st), {"dev_type": dt, "dev_name": dn, "set_type": st}))
+                for fld in ("control_state", "p_min", "p_max", "control_step", "control_deadband", "curve_interp"):
+                    if fld in item:
+                        cur_cfg[fld] = item[fld]
+                device_configs_map[(dt, dn, st)] = cur_cfg
+
+        plan = calculate_renewable_control_plan(
+            snapshot,
+            sim_settings,
+            data_source="remote",
+            snapshot_age_seconds=age_seconds,
+            topology_static_context=topo_ctx,
+            runtime_memory=mem_copy,
+            device_configs=device_configs_map,
+        )
+        dq = plan.get("dataQuality") if isinstance(plan.get("dataQuality"), Mapping) else {}
+        metrics = plan.get("metrics") if isinstance(plan.get("metrics"), Mapping) else {}
+        command_rows = list(plan.get("commandRows") or [])
+        decision_detail = list(plan.get("decisionDetail") or [])
+        warnings = list(plan.get("warnings") or [])
+
+        preview_rows: List[Dict[str, Any]] = []
+        changed_count = 0
+        for crow in command_rows:
+            cur_kw = _finite(crow.get("currentKw"))
+            tgt_kw = _finite(crow.get("targetKw", crow.get("commandKw")))
+            avail_kw = _finite(crow.get("weatherAvailableKw", crow.get("availableKw", crow.get("capacityKw"))))
+            delta_kw = round(tgt_kw - cur_kw, 4) if (cur_kw is not None and tgt_kw is not None) else None
+            changed = bool(crow.get("strategyTargetChanged"))
+            if changed:
+                changed_count += 1
+            dev_state = str(crow.get("deviceControlState") or "closed").strip().lower()
+            meta = enrich_strategy_command_meta(crow, avail_kw)
+            preview_rows.append(
+                {
+                    "category": str(crow.get("category", "")),
+                    "dev_type": str(crow.get("dev_type", "")),
+                    "dev_name": str(crow.get("dev_name", "")),
+                    "connection_side": str(crow.get("connectionSide", "")),
+                    "control_mode": str(crow.get("mode", "")),
+                    "device_control_state": dev_state,
+                    "online": bool(crow.get("online", True)),
+                    "commandable": bool(crow.get("commandable", False)),
+                    "set_type": str(crow.get("set_type", "")),
+                    "current_kw": cur_kw,
+                    "available_kw": avail_kw,
+                    "env_min_kw": meta["env_min_kw"],
+                    "env_max_kw": meta["env_max_kw"],
+                    "limit_tags": meta["limit_tags"],
+                    "target_kw": tgt_kw,
+                    "delta_kw": delta_kw,
+                    "soc": _finite(crow.get("soc")),
+                    "changed": changed,
+                    "status_label": str(crow.get("statusLabel", "")),
+                    "dispatch_status": "device_open" if dev_state == "open" else "preview",
+                    "dispatch_message": "沙盒预演（零写库/零下发）",
+                }
+            )
+
+        summary_line = str(decision_detail[0]) if decision_detail else f"沙盒预演完成（变动 {changed_count} 条）"
+        preview_strategy = {
+            "is_preview": True,
+            "cycle": cur_cycle,
+            "prev_cycle": cur_cycle if cur_cycle > 0 else None,
+            "next_cycle": None,
+            "latest_cycle": cur_cycle,
+            "recorded_at": _now_iso(),
+            "sample_timestamp": str((snapshot.get("measurement_clock") or {}).get("timestamp") or _now_iso()),
+            "loop_mode": "preview",
+            "auto_enabled": self.auto_enabled,
+            "data_quality": str(dq.get("status", "ok")),
+            "dispatch_allowed": bool(dq.get("dispatchAllowed")),
+            "command_count": len(preview_rows),
+            "changed_count": changed_count,
+            "dispatched_count": 0,
+            "summary_text": f"[沙盒预演] {summary_line}",
+            "metrics": dict(metrics),
+            "decision_detail": decision_detail,
+            "warnings": warnings,
+            "command_rows": preview_rows,
+        }
+        return {
+            "ok": True,
+            "preview": preview_strategy,
+            "island_diagnostics": self._extract_island_diagnostics(preview_strategy),
+        }
 
     # ------------------------------------------------------------------
     # 控制参数、模式、启停与人工四遥操作
@@ -960,23 +1100,42 @@ class AGCRealtimeService:
     # 前端视图聚合载荷构造
     # ------------------------------------------------------------------
 
-    def get_snapshot_payload(self, *, include_static: bool = False) -> Dict[str, Any]:
+    def get_snapshot_payload(
+        self,
+        *,
+        include_static: bool = False,
+        lite: bool = False,
+        since_cycle: Optional[int] = None,
+        since_rev: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        latest_strategy = self._get_cached_latest_strategy()
         with self.lock:
-            snap = copy.deepcopy(self._last_snapshot) if self._last_snapshot else {}
-            latest_strategy = self.store.get_latest_strategy()
+            snap = self._last_snapshot or {}
+            scada_list = (snap.get("measurements") or {}).get("scada") or []
+            valid_meas_cnt = sum(1 for x in scada_list if int(x.get("valid", 0)) == 1)
+            strategy_unchanged = bool(
+                since_cycle is not None
+                and int(since_cycle) == self._last_cycle
+                and (since_rev is None or int(since_rev) == self._strategy_revision)
+            )
             payload: Dict[str, Any] = {
                 "model": snap.get("model", self.adapter.model_meta),
                 "clock": snap.get("clock", {}),
                 "measurement_clock": snap.get("measurement_clock", {}),
                 "environment": snap.get("environment", {}),
-                "devices": snap.get("devices", []),
+                "devices": [] if lite else snap.get("devices", []),
                 "device_states": snap.get("device_states", []),
-                "measurements": snap.get("measurements", {"scada": []}),
+                "measurements": (
+                    {"scada": [], "total_count": len(scada_list), "valid_count": valid_meas_cnt}
+                    if lite
+                    else snap.get("measurements", {"scada": []})
+                ),
                 "static_meta": snap.get("static_meta", {}),
                 "agc_status": {
                     "auto_enabled": self.auto_enabled,
                     "loop_mode": self.loop_mode,
                     "cycle": self._last_cycle,
+                    "strategy_revision": self._strategy_revision,
                     "status_text": self._status_text,
                     "last_calculated_at": self._last_calculated_at,
                     "last_dispatched_at": self._last_dispatched_at,
@@ -987,8 +1146,10 @@ class AGCRealtimeService:
                     "pending_ack_count": len(self._pending_acks),
                     "consecutive_ack_failures": self._consecutive_ack_failures,
                     "channel_alarm": self._channel_alarm_text,
+                    "valid_meas_count": valid_meas_cnt,
                 },
-                "latest_strategy": latest_strategy,
+                "strategy_unchanged": strategy_unchanged,
+                "latest_strategy": None if strategy_unchanged else latest_strategy,
                 "runtime_settings": self.runtime_settings,
             }
             if include_static:
@@ -1073,7 +1234,7 @@ class AGCRealtimeService:
         }
 
     def get_agc_control_payload(self) -> Dict[str, Any]:
-        latest = self.store.get_latest_strategy()
+        latest = self._get_cached_latest_strategy()
         with self.lock:
             env = (self._last_snapshot or {}).get("environment", {})
             return {
@@ -1804,6 +1965,8 @@ class AGCRealtimeService:
             max_log_rows=max(20000, int(bcfg.get("trend_retention_points", 50000))),
         )
         total_deleted = sum(deleted.values())
+        if total_deleted > 0:
+            self._invalidate_strategy_cache()
         if total_deleted > 0 or reason == "manual":
             self.store.append_runtime_log(
                 level="info",

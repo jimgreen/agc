@@ -11,6 +11,8 @@ const DevCfgState = {
   groupFilter: "all",
   stateFilter: "all",
   keyword: "",
+  sortField: "",
+  sortAsc: true,
   selectedKey: null,
   curve: null,      // { dev_type, dev_name, set_type, points: number[96], labels: string[96], curve_interp, effective_min, effective_max, current_kw, current_slot_index }
   curveUndoStack: [],
@@ -158,7 +160,7 @@ async function refreshDeviceConfigsLiveOnly() {
 
 function getFilteredDeviceConfigItems() {
   const kw = (DevCfgState.keyword || "").trim().toLowerCase();
-  return DevCfgState.items.filter((item) => {
+  const list = DevCfgState.items.filter((item) => {
     if (DevCfgState.groupFilter !== "all" && item.group !== DevCfgState.groupFilter) return false;
     const draft = _getRowDraft(item);
     if (DevCfgState.stateFilter !== "all" && draft.control_state !== DevCfgState.stateFilter) return false;
@@ -168,6 +170,24 @@ function getFilteredDeviceConfigItems() {
     }
     return true;
   });
+  if (DevCfgState.sortField) {
+    const fld = DevCfgState.sortField;
+    const dir = DevCfgState.sortAsc ? 1 : -1;
+    list.sort((a, b) => {
+      const da = _getRowDraft(a);
+      const db = _getRowDraft(b);
+      const valOf = (it, dr) => {
+        if (fld === "current_kw") return Number(it.current_kw ?? -1e9);
+        if (fld === "p_min") return Number(dr.p_min !== "" ? dr.p_min : (it.default_min ?? -1e9));
+        if (fld === "p_max") return Number(dr.p_max !== "" ? dr.p_max : (it.default_max ?? -1e9));
+        if (fld === "control_step") return Number(dr.control_step !== "" ? dr.control_step : (it.default_step ?? -1e9));
+        if (fld === "control_deadband") return Number(dr.control_deadband || 0);
+        return 0;
+      };
+      return (valOf(a, da) - valOf(b, db)) * dir;
+    });
+  }
+  return list;
 }
 
 function renderDeviceConfigsToolbar() {
@@ -197,6 +217,12 @@ function renderDeviceConfigsTable() {
     return;
   }
 
+  const sortHdr = (field, label, extraStyle = "") => {
+    const active = DevCfgState.sortField === field;
+    const arrow = active ? (DevCfgState.sortAsc ? "▲" : "▼") : "";
+    return `<th class="num is-sortable ${active ? "is-sorted" : ""}" style="${extraStyle}" data-dc-sort="${field}">${label}${arrow ? `<span class="sort-arrow">${arrow}</span>` : ""}</th>`;
+  };
+
   wrap.innerHTML = `
     <table class="data-table devcfg-table">
       <thead>
@@ -205,11 +231,11 @@ function renderDeviceConfigsTable() {
           <th>${t("col.device")}</th>
           <th>${t("devcfg.ctrlVar")}</th>
           <th style="width:94px;">${t("devcfg.ctrlState")}</th>
-          <th class="num">${t("col.currentVal")} (kW)</th>
-          <th class="num" style="width:86px;">${t("devcfg.pMin")} (kW)</th>
-          <th class="num" style="width:86px;">${t("devcfg.pMax")} (kW)</th>
-          <th class="num" style="width:82px;">${t("devcfg.step")} (kW)</th>
-          <th class="num" style="width:78px;">${t("devcfg.deadband")} (kW)</th>
+          ${sortHdr("current_kw", `${t("col.currentVal")} (kW)`)}
+          ${sortHdr("p_min", `${t("devcfg.pMin")} (kW)`, "width:86px;")}
+          ${sortHdr("p_max", `${t("devcfg.pMax")} (kW)`, "width:86px;")}
+          ${sortHdr("control_step", `${t("devcfg.step")} (kW)`, "width:82px;")}
+          ${sortHdr("control_deadband", `${t("devcfg.deadband")} (kW)`, "width:78px;")}
           <th class="num">${t("devcfg.curveNow")}</th>
           <th style="width:58px;">${t("devcfg.curve")}</th>
         </tr>
@@ -263,6 +289,20 @@ function renderDeviceConfigsTable() {
         }).join("")}
       </tbody>
     </table>`;
+
+  wrap.querySelectorAll("th[data-dc-sort]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const f = th.dataset.dcSort;
+      if (DevCfgState.sortField === f) {
+        if (!DevCfgState.sortAsc) DevCfgState.sortField = "";
+        else DevCfgState.sortAsc = false;
+      } else {
+        DevCfgState.sortField = f;
+        DevCfgState.sortAsc = false;
+      }
+      renderDeviceConfigsTable();
+    });
+  });
 
   wrap.querySelectorAll("tr[data-devcfg-row]").forEach((tr) => {
     tr.addEventListener("click", (ev) => {
@@ -1007,6 +1047,28 @@ function bindDeviceConfigEvents() {
   document.getElementById("devCfgSaveBtn")?.addEventListener("click", saveDirtyDeviceConfigs);
 
   // 整站配置方案导出/导入（JSON 整包：全部设备参数 + 96 点预设曲线）
+  document.getElementById("dcBatchApplyParamsBtn")?.addEventListener("click", () => {
+    const stepRaw = (document.getElementById("dcBatchStepInput")?.value || "").trim();
+    const deadRaw = (document.getElementById("dcBatchDeadbandInput")?.value || "").trim();
+    if (stepRaw === "" && deadRaw === "") {
+      showToast("请先输入待批量应用的步长或死区数值", "warn");
+      return;
+    }
+    const targetRows = getFilteredDeviceConfigItems();
+    if (!targetRows.length) return;
+    targetRows.forEach((item) => {
+      const key = devCfgKey(item);
+      const draft = { ..._getRowDraft(item) };
+      if (stepRaw !== "") draft.control_step = stepRaw;
+      if (deadRaw !== "") draft.control_deadband = deadRaw;
+      DevCfgState.drafts[key] = draft;
+      DevCfgState.dirtyKeys.add(key);
+    });
+    renderDeviceConfigsToolbar();
+    renderDeviceConfigsTable();
+    showToast(`已对当前筛选的 ${targetRows.length} 台设备批量填入参数（点击保存生效）`, "info");
+  });
+
   document.getElementById("devCfgExportJsonBtn")?.addEventListener("click", async () => {
     try {
       const bundle = await apiGet("/api/device-configs/export");

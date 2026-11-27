@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import mimetypes
 import os
@@ -83,13 +84,22 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
             content_type: str,
             *,
             cache_control: str = "no-store",
+            etag: Optional[str] = None,
         ) -> None:
+            accept_enc = (self.headers.get("Accept-Encoding") or "").lower()
+            use_gzip = len(body) >= 512 and "gzip" in accept_enc
+            out = gzip.compress(body, compresslevel=5) if use_gzip else body
             self.send_response(status)
             self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
+            if use_gzip:
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Vary", "Accept-Encoding")
+            if etag:
+                self.send_header("ETag", etag)
+            self.send_header("Content-Length", str(len(out)))
             self.send_header("Cache-Control", cache_control)
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(out)
 
         def _send_json(self, payload: Any, status: int = HTTPStatus.OK) -> None:
             raw = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
@@ -126,7 +136,16 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
                 ctype = "image/svg+xml; charset=utf-8"
             else:
                 ctype = ctype or "application/octet-stream"
-            self._send_bytes(HTTPStatus.OK, candidate.read_bytes(), ctype, cache_control="no-cache")
+            st = candidate.stat()
+            etag = f'W/"{st.st_mtime_ns:x}-{st.st_size:x}"'
+            inm = (self.headers.get("If-None-Match") or "").strip()
+            if inm and inm == etag:
+                self.send_response(HTTPStatus.NOT_MODIFIED)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                return
+            self._send_bytes(HTTPStatus.OK, candidate.read_bytes(), ctype, cache_control="no-cache", etag=etag)
 
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
@@ -152,7 +171,19 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
 
                 if path == "/api/snapshot":
                     include_static = _parse_bool(qs, "static", False)
-                    self._send_json(service.get_snapshot_payload(include_static=include_static))
+                    lite = _parse_bool(qs, "lite", False)
+                    raw_since = (qs.get("since_cycle") or [""])[0].strip()
+                    raw_rev = (qs.get("since_rev") or [""])[0].strip()
+                    since_cycle = int(raw_since) if raw_since.lstrip("-").isdigit() else None
+                    since_rev = int(raw_rev) if raw_rev.lstrip("-").isdigit() else None
+                    self._send_json(
+                        service.get_snapshot_payload(
+                            include_static=include_static,
+                            lite=lite,
+                            since_cycle=since_cycle,
+                            since_rev=since_rev,
+                        )
+                    )
                     return
 
                 if path == "/api/diagram/svg":
@@ -363,6 +394,15 @@ def make_handler(service: AGCRealtimeService, static_dir: Path = HMI_DIR):
                         self._send_json({"ok": True, "control": service.get_agc_control_payload()})
                         return
                     self._send_json({"ok": False, "error": f"不支持的控制动作: {action}"}, HTTPStatus.BAD_REQUEST)
+                    return
+
+                if path == "/api/agc/preview":
+                    res = service.preview_control_cycle(
+                        override_settings=body.get("settings"),
+                        preset=body.get("preset"),
+                        override_device_configs=body.get("device_configs"),
+                    )
+                    self._send_json(res)
                     return
 
                 if path == "/api/commands/manual":

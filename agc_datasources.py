@@ -18,6 +18,7 @@ import math
 import os
 import re
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -472,11 +473,26 @@ class QinlingDataAdapter:
         self._svg_text: str = ""
         self._svg_signature: str = ""
         self._definition_revision: int = 1
+        self._ro_lock = threading.Lock()
+        self._ro_scada_conn: Optional[sqlite3.Connection] = None
+        self._ro_scada_tables: Optional[List[str]] = None
 
         self.reload_static()
 
+    def close(self) -> None:
+        """关闭缓存的只读实时库长连接（确保临时目录与服务关闭无句柄残留）。"""
+        with self._ro_lock:
+            if self._ro_scada_conn is not None:
+                try:
+                    self._ro_scada_conn.close()
+                except sqlite3.Error:
+                    pass
+                self._ro_scada_conn = None
+            self._ro_scada_tables = None
+
     def reload_static(self) -> None:
         """重新加载模型静态表、SVG 接线图与四遥点表。"""
+        self.close()
         self.svg_file, self.e_file = resolve_svg_file(self.svg_input_path)
         self.model_tables = load_model_tables(self.model_db, self.e_file)
         model_rows = self.model_tables.get("Model", [])
@@ -711,32 +727,45 @@ class QinlingDataAdapter:
         return ok, msg, pt
 
     def _read_scdfe_tables(self) -> Tuple[Dict[str, List[Dict[str, Any]]], Optional[float], str]:
-        """只读抓取 ``scdfe_d.db`` 全部实时表。"""
+        """只读抓取 ``scdfe_d.db`` 全部实时表（复用线程安全只读 URI 长连接与表清单缓存）。"""
         if not self.scada_db.is_file():
+            self.close()
             return {}, None, f"实时数据库不存在: {self.scada_db}"
-        try:
-            conn = _sqlite_ro_connect(self.scada_db, timeout=5.0)
-            try:
-                cur = conn.cursor()
-                t_rows = cur.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' "
-                    "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'rtdb_%' ORDER BY name"
-                ).fetchall()
-                result: Dict[str, List[Dict[str, Any]]] = {}
-                latest_ms: Optional[float] = None
-                for (tname,) in t_rows:
-                    rows = [dict(r) for r in cur.execute(f'SELECT * FROM "{tname}"').fetchall()]
-                    result[tname] = rows
-                    for r in rows:
-                        for k, v in r.items():
-                            if k.endswith("_time") and isinstance(v, (int, float)) and v > 1e11:
-                                if latest_ms is None or float(v) > latest_ms:
-                                    latest_ms = float(v)
-                return result, latest_ms, ""
-            finally:
-                conn.close()
-        except sqlite3.Error as exc:
-            return {}, None, f"读取实时库失败: {exc}"
+        with self._ro_lock:
+            for attempt in range(2):
+                try:
+                    if self._ro_scada_conn is None:
+                        self._ro_scada_conn = _sqlite_ro_connect(self.scada_db, timeout=5.0)
+                        self._ro_scada_tables = None
+                    cur = self._ro_scada_conn.cursor()
+                    if self._ro_scada_tables is None:
+                        t_rows = cur.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table' "
+                            "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'rtdb_%' ORDER BY name"
+                        ).fetchall()
+                        self._ro_scada_tables = [str(r[0]) for r in t_rows]
+                    result: Dict[str, List[Dict[str, Any]]] = {}
+                    latest_ms: Optional[float] = None
+                    for tname in self._ro_scada_tables:
+                        rows = [dict(r) for r in cur.execute(f'SELECT * FROM "{tname}"').fetchall()]
+                        result[tname] = rows
+                        for r in rows:
+                            for k, v in r.items():
+                                if k.endswith("_time") and isinstance(v, (int, float)) and v > 1e11:
+                                    if latest_ms is None or float(v) > latest_ms:
+                                        latest_ms = float(v)
+                    return result, latest_ms, ""
+                except sqlite3.Error as exc:
+                    if self._ro_scada_conn is not None:
+                        try:
+                            self._ro_scada_conn.close()
+                        except sqlite3.Error:
+                            pass
+                        self._ro_scada_conn = None
+                    self._ro_scada_tables = None
+                    if attempt == 1:
+                        return {}, None, f"读取实时库失败: {exc}"
+        return {}, None, "读取实时库失败"
 
     def _build_control_definitions(self) -> List[Dict[str, Any]]:
         """生成控制引擎和前端控制指令页使用的 control 定义列表。"""

@@ -144,9 +144,29 @@ function updateTopbar() {
   }
 }
 
-async function refreshSnapshot() {
+async function refreshSnapshot(forceFull = false) {
   try {
-    AGCState.snapshot = await apiGet("/api/snapshot");
+    const prevSnap = AGCState.snapshot;
+    const prevAgc = (prevSnap && prevSnap.agc_status) || {};
+    const needFullScada = forceFull || !prevSnap || AGCState.page === "measurements" || AGCState.page === "diagram" || AGCState.page === "commands";
+    const qs = new URLSearchParams();
+    if (!needFullScada) {
+      qs.set("lite", "1");
+      if (prevAgc.cycle !== undefined) qs.set("since_cycle", String(prevAgc.cycle));
+      if (prevAgc.strategy_revision !== undefined) qs.set("since_rev", String(prevAgc.strategy_revision));
+    }
+    const url = qs.toString() ? `/api/snapshot?${qs.toString()}` : "/api/snapshot";
+    const nextSnap = await apiGet(url);
+    if (nextSnap.strategy_unchanged && prevSnap && prevSnap.latest_strategy) {
+      nextSnap.latest_strategy = prevSnap.latest_strategy;
+    }
+    if (needFullScada === false && prevSnap) {
+      if (!nextSnap.devices || !nextSnap.devices.length) nextSnap.devices = prevSnap.devices || [];
+      if (nextSnap.measurements && (!nextSnap.measurements.scada || !nextSnap.measurements.scada.length) && prevSnap.measurements) {
+        nextSnap.measurements = prevSnap.measurements;
+      }
+    }
+    AGCState.snapshot = nextSnap;
     if (AGCState.snapshot.runtime_settings) {
       AGCState.runtimeSettings = AGCState.snapshot.runtime_settings;
     }
@@ -182,12 +202,12 @@ async function switchPage(pageName) {
     } else if (pageName === "device-config") {
       await refreshDeviceConfigsPage(true);
     } else if (pageName === "diagram") {
+      await refreshSnapshot(true);
       await ensureDiagramLoaded();
     } else if (pageName === "model") {
       await renderModelPage();
     } else if (pageName === "measurements") {
-      renderMeasurementsPage();
-      await refreshMeasurementTrace();
+      await refreshSnapshot(true);
     } else if (pageName === "commands") {
       await refreshCommandsPage();
     } else if (pageName === "curves") {
@@ -385,11 +405,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindDeviceConfigEvents();
   bindMonitorPageEvents();
 
-  await Promise.all([refreshSnapshot(), refreshAgcControlData()]);
+  await Promise.all([refreshSnapshot(true), refreshAgcControlData()]);
   renderOverviewPage();
 
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      pollingTick();
+    }
+  });
+
   const scheduleNext = () => {
-    const sec = Math.max(0.8, Number(AGCState.runtimeSettings?.web?.frontend_refresh_seconds || 1.5));
+    const baseSec = Math.max(0.8, Number(AGCState.runtimeSettings?.web?.frontend_refresh_seconds || 1.5));
+    const sec = document.hidden ? Math.max(6.0, baseSec * 4) : baseSec;
     setTimeout(async () => {
       try { await pollingTick(); } catch (_e) {}
       scheduleNext();

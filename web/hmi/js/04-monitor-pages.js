@@ -1,4 +1,15 @@
 // 电网模型、实时量测、控制指令（含人工遥控/遥调）、曲线查询、运行参数与运行日志页面
+let measValueSortMode = ""; // "" | "desc" | "asc"
+let runtimeLatestLogsCache = [];
+
+async function jumpToDeviceTrackingAudit(devType, devName, setType = "p_set") {
+  curveViewMode = "device";
+  curveSelectedDevice = { dev_type: devType, dev_name: devName, set_type: setType || "p_set" };
+  document.querySelectorAll("#curveModeGroup button").forEach((b) => {
+    b.classList.toggle("is-active", b.dataset.curveMode === "device");
+  });
+  await switchPage("curves");
+}
 
 function buildBlockTree(containerId, summaryId, items, activeBlock, filterText, onSelect) {
   const el = document.getElementById(containerId);
@@ -66,7 +77,9 @@ async function renderModelPage() {
           <tr>
             <td class="mono">${escapeHtml(d.dev_type)}</td>
             <td class="num">${escapeHtml(d.idx)}</td>
-            <td><strong>${escapeHtml(d.dev_name)}</strong></td>
+            <td>
+              <button type="button" class="link-dev-btn" data-diag-locate="${escapeHtml(d.dev_name)}" title="在接线图中居中定位该设备">${escapeHtml(d.dev_name)}</button>
+            </td>
             <td class="mono">${escapeHtml(d.device_kind || "--")}</td>
             <td class="mono">${escapeHtml(d.mode || "--")}</td>
             <td class="num">${fmtNum(d.rated_capacity, 1)}</td>
@@ -75,6 +88,11 @@ async function renderModelPage() {
           </tr>`).join("")}
       </tbody>
     </table>`;
+  wrap.querySelectorAll("button[data-diag-locate]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (typeof focusDeviceOnDiagram === "function") focusDeviceOnDiagram(btn.dataset.diagLocate);
+    });
+  });
 }
 
 // ==================== 5. 实时量测 ====================
@@ -114,11 +132,22 @@ function renderMeasurementsPage() {
 
   const wrap = document.getElementById("measTableWrap");
   if (!filtered.length) {
-    wrap.innerHTML = `<table class="data-table"><tbody><tr><td class="empty-cell">暂无匹配的实时量测</td></tr></tbody></table>`;
+    wrap.innerHTML = `<table class="data-table"><tbody><tr><td class="empty-cell">—</td></tr></tbody></table>`;
     return;
   }
 
+  if (measValueSortMode) {
+    const dir = measValueSortMode === "asc" ? 1 : -1;
+    filtered.sort((a, b) => (Number(a.value ?? -1e9) - Number(b.value ?? -1e9)) * dir);
+  }
+
+  // 前置默认选中首条异常或有效功率点，确保首屏即渲染高亮且不产生二次重复请求
+  if (!AGCState.selectedMeas || !filtered.some((m) => m.dev_type === AGCState.selectedMeas.dev_type && m.dev_name === AGCState.selectedMeas.dev_name && m.meas_type === AGCState.selectedMeas.meas_type)) {
+    AGCState.selectedMeas = filtered.find((m) => !m.valid) || filtered.find((m) => ["P_GEN", "P_LOAD", "P_AC"].includes(m.meas_type)) || filtered[0];
+  }
+
   const sel = AGCState.selectedMeas;
+  const sortArrow = measValueSortMode === "desc" ? "▼" : (measValueSortMode === "asc" ? "▲" : "");
   wrap.innerHTML = `
     <table class="data-table">
       <thead>
@@ -126,7 +155,7 @@ function renderMeasurementsPage() {
           <th>设备表</th>
           <th>${t("col.device")}</th>
           <th>量测类型</th>
-          <th class="num">实测值</th>
+          <th class="num is-sortable ${measValueSortMode ? "is-sorted" : ""}" id="measValSortTh">实测值${sortArrow ? `<span class="sort-arrow">${sortArrow}</span>` : ""}</th>
           <th>${t("col.unit")}</th>
           <th>状态</th>
           <th class="num">RTU / 点号</th>
@@ -140,7 +169,9 @@ function renderMeasurementsPage() {
           return `
             <tr data-meas-idx="${idx}" class="${isSel ? "is-selected" : ""}" style="cursor:pointer;">
               <td class="mono">${escapeHtml(m.dev_type)}</td>
-              <td><strong>${escapeHtml(m.dev_name)}</strong></td>
+              <td>
+                <button type="button" class="link-dev-btn" data-meas-diag="${escapeHtml(m.dev_name)}" title="在接线图中定位">${escapeHtml(m.dev_name)}</button>
+              </td>
               <td class="mono">${escapeHtml(m.meas_type)}</td>
               <td class="num">${valDisp}</td>
               <td>${escapeHtml(m.unit || "")}</td>
@@ -152,6 +183,17 @@ function renderMeasurementsPage() {
       </tbody>
     </table>`;
 
+  wrap.querySelector("#measValSortTh")?.addEventListener("click", () => {
+    measValueSortMode = measValueSortMode === "" ? "desc" : (measValueSortMode === "desc" ? "asc" : "");
+    renderMeasurementsPage();
+  });
+  wrap.querySelectorAll("button[data-meas-diag]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      if (typeof focusDeviceOnDiagram === "function") focusDeviceOnDiagram(btn.dataset.measDiag);
+    });
+  });
+
   wrap._filteredRows = filtered.slice(0, 300);
   wrap.querySelectorAll("tr[data-meas-idx]").forEach((tr) => {
     tr.addEventListener("click", () => {
@@ -162,11 +204,6 @@ function renderMeasurementsPage() {
       refreshMeasurementTrace();
     });
   });
-
-  if (!AGCState.selectedMeas && filtered.length) {
-    AGCState.selectedMeas = filtered[0];
-    refreshMeasurementTrace();
-  }
 }
 
 async function refreshMeasurementTrace() {
@@ -230,6 +267,7 @@ async function refreshCommandsPage() {
   const origin = document.getElementById("cmdOriginFilter")?.value || "all";
   AGCState.commands = await apiGet(`/api/commands?only_active=${onlyActive}&origin=${origin}`);
   renderCommandsPage();
+  await refreshCommandTrace();
 }
 
 function renderCommandsPage() {
@@ -259,8 +297,12 @@ function renderCommandsPage() {
 
   const wrap = document.getElementById("cmdTableWrap");
   if (!filtered.length) {
-    wrap.innerHTML = `<table class="data-table"><tbody><tr><td class="empty-cell">暂无控制指令</td></tr></tbody></table>`;
+    wrap.innerHTML = `<table class="data-table"><tbody><tr><td class="empty-cell">—</td></tr></tbody></table>`;
     return;
+  }
+
+  if (!AGCState.selectedCmd || !filtered.some((r) => r.dev_type === AGCState.selectedCmd.dev_type && r.dev_name === AGCState.selectedCmd.dev_name && r.set_type === AGCState.selectedCmd.set_type)) {
+    AGCState.selectedCmd = filtered.find((r) => r.active) || filtered[0];
   }
 
   const sel = AGCState.selectedCmd;
@@ -285,7 +327,9 @@ function renderCommandsPage() {
           const st = cmdStatusMeta(r.status);
           return `
             <tr data-cmd-idx="${idx}" class="${isSel ? "is-selected" : ""}" style="cursor:pointer;">
-              <td><strong>${escapeHtml(r.dev_name)}</strong></td>
+              <td>
+                <button type="button" class="link-dev-btn" data-cmd-audit-idx="${idx}" title="查看该设备三线考核曲线">${escapeHtml(r.dev_name)}</button>
+              </td>
               <td class="mono">${escapeHtml(r.set_type)}</td>
               <td class="num">${r.rtu_id != null ? `${r.rtu_id}:${r.pnt_no}` : "--"}</td>
               <td class="num">${fmtNum(r.measured_value, 2)}</td>
@@ -300,6 +344,13 @@ function renderCommandsPage() {
     </table>`;
 
   wrap._rows = filtered;
+  wrap.querySelectorAll("button[data-cmd-audit-idx]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const r = wrap._rows[Number(btn.dataset.cmdAuditIdx)];
+      if (r) jumpToDeviceTrackingAudit(r.dev_type, r.dev_name, r.set_type);
+    });
+  });
   wrap.querySelectorAll("tr[data-cmd-idx]").forEach((tr) => {
     tr.addEventListener("click", (ev) => {
       if (ev.target.closest("button")) return;
@@ -607,6 +658,7 @@ async function refreshRuntimeLogsPage() {
 
   const wrap = document.getElementById("runtimeLogTableWrap");
   const items = data.items || [];
+  runtimeLatestLogsCache = items;
   if (!items.length) {
     wrap.innerHTML = `<table class="data-table"><tbody><tr><td class="empty-cell">暂无运行日志</td></tr></tbody></table>`;
   } else {
@@ -663,6 +715,14 @@ function bindMonitorPageEvents() {
       "qinling_measurements.csv",
       ["dev_type", "dev_name", "meas_type", "value", "unit", "valid", "rtu_id", "pnt_no", "timestamp"],
       scada.map((m) => [m.dev_type, m.dev_name, m.meas_type, m.value, m.unit, m.valid, m.rtu_id, m.pnt_no, m.timestamp])
+    );
+  });
+
+  document.getElementById("runtimeLogExportCsvBtn")?.addEventListener("click", () => {
+    downloadCsv(
+      "agc_runtime_logs.csv",
+      ["logged_at", "level", "log_type", "target", "result", "summary"],
+      runtimeLatestLogsCache.map((it) => [it.logged_at, it.level, it.log_type, it.target, it.result, it.summary])
     );
   });
 

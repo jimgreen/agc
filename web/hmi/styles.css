@@ -2391,3 +2391,182 @@ tr.is-dirty-row > td:first-child {
 .theme-swatch-card.is-active .theme-swatch-check {
   opacity: 1;
 }
+
+/* ==================== 策略预演/历史复盘横幅、双层状态链与分母线功率闭合条 ==================== */
+.dual-layer-strip {
+  margin: 2px 12px 4px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: var(--bg-subtle);
+  border-left: 3px solid var(--accent);
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--warn-soft);
+  border-bottom: 1px solid var(--warn);
+  color: var(--warn);
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.mode-banner.is-preview {
+  background: var(--accent-soft);
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+.bus-balance-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 4px 10px;
+  border-bottom: var(--border);
+  background: var(--bg-subtle);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.bus-balance-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.bus-balance-item strong {
+  color: var(--text-primary);
+}
+
+/* ==================== 单设备出力包络微缩尺、SOC 色条与受限微章 ==================== */
+.env-bar-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  width: 100%;
+}
+
+.env-bar-track {
+  position: relative;
+  width: 52px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.env-bar-zero {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--text-secondary);
+  opacity: 0.45;
+}
+
+.env-bar-fill {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  background: var(--accent);
+  opacity: 0.55;
+  border-radius: 999px;
+}
+
+.env-bar-tgt {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--ok);
+}
+
+.soc-mini-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.soc-mini-bar {
+  width: 32px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.soc-mini-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ok);
+}
+.soc-mini-fill.is-warn { background: var(--warn); }
+.soc-mini-fill.is-danger { background: var(--danger); }
+
+.limit-chip {
+  display: inline-block;
+  padding: 0 5px;
+  margin-right: 3px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+/* ==================== 可点击表头排序与数值变动微光 ==================== */
+.data-table th.is-sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 120ms ease;
+}
+
+.data-table th.is-sortable:hover,
+.data-table th.is-sorted {
+  color: var(--accent);
+}
+
+.sort-arrow {
+  font-size: 10px;
+  margin-left: 2px;
+  opacity: 0.85;
+}
+
+@keyframes agcCellFlash {
+  0% { background-color: var(--accent-soft); }
+  100% { background-color: transparent; }
+}
+
+.cell-flash {
+  animation: agcCellFlash 420ms ease-out;
+}
+
+@keyframes agcDiagramPulse {
+  0%, 100% { filter: drop-shadow(0 0 10px var(--accent)); }
+  50% { filter: drop-shadow(0 0 2px var(--accent)); }
+}
+
+.svg-focus-highlight {
+  animation: agcDiagramPulse 1.1s ease-in-out 3;
+}

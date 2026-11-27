@@ -260,7 +260,10 @@ const I18N_DICT = {
     "params.ackFailThr": "通道连续失败告警阈值",
     "params.ackAutoOpen": "通道异常自动退开环",
     "params.pruneNow": "立即清理历史",
-    "agc.latestCycle": "最新"
+    "agc.latestCycle": "最新",
+    "agc.preview": "策略预演",
+    "agc.backRealtime": "返回实时",
+    "devcfg.batchApply": "批量填入"
   },
   "en-US": {
     "app.title": "Qinling Microgrid AGC Console",
@@ -522,7 +525,10 @@ const I18N_DICT = {
     "params.ackFailThr": "Ack Failure Alarm Threshold",
     "params.ackAutoOpen": "Auto Open-Loop on Channel Fault",
     "params.pruneNow": "Prune Now",
-    "agc.latestCycle": "Latest"
+    "agc.latestCycle": "Latest",
+    "agc.preview": "Preview",
+    "agc.backRealtime": "Back Live",
+    "devcfg.batchApply": "Apply Batch"
   },
   "ru-RU": {
     "app.title": "Консоль АРЧМ Циньлин",
@@ -784,7 +790,10 @@ const I18N_DICT = {
     "params.ackFailThr": "Порог сбоев канала",
     "params.ackAutoOpen": "Авто-размыкание при сбое",
     "params.pruneNow": "Очистить историю",
-    "agc.latestCycle": "Свежий"
+    "agc.latestCycle": "Свежий",
+    "agc.preview": "Прогноз",
+    "agc.backRealtime": "К онлайн",
+    "devcfg.batchApply": "Применить"
   }
 };
 
