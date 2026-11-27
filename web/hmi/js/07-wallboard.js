@@ -454,7 +454,10 @@ function renderWallboardPolarPanel({ env, cpl, agc, scada }) {
     ? Number(agc.valid_meas_count)
     : scada.filter((x) => Number(x.valid) === 1).length;
   const measEl = document.getElementById("wbEnvMeas");
-  if (measEl) measEl.textContent = `${validMeas} · ${fmtNum(agc.age_seconds, 0)}s`;
+  if (measEl) {
+    measEl.textContent = String(validMeas);
+    measEl.title = `${t("overview.measCount")}: ${validMeas} (${fmtNum(agc.age_seconds, 1)}s)`;
+  }
 }
 
 function renderWallboardResourcePool(rows) {

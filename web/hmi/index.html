@@ -44,7 +44,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20261127-fix30" />
+    <link rel="stylesheet" href="/styles.css?v=20261127-fix31" />
   </head>
   <body>
     <div class="app-shell">
@@ -383,239 +383,241 @@
                       </div>
                     </div>
                     <div class="wb-cockpit-stage">
-                      <svg id="wbCockpitSvg" class="wb-cockpit-svg" viewBox="0 0 1040 426" preserveAspectRatio="xMidYMid meet" role="img" aria-label="AGC 闭环控制态势主图">
+                      <svg id="wbCockpitSvg" class="wb-cockpit-svg" viewBox="0 0 960 500" preserveAspectRatio="xMidYMid meet" role="img" aria-label="AGC 闭环控制态势主图">
                         <defs>
                           <linearGradient id="wbDcBusGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.35" />
-                            <stop offset="20%" stop-color="#38E8DF" stop-opacity="0.98" />
-                            <stop offset="80%" stop-color="#0EA5E9" stop-opacity="0.98" />
-                            <stop offset="100%" stop-color="#38BDF8" stop-opacity="0.35" />
+                            <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.38" />
+                            <stop offset="18%" stop-color="#38E8DF" stop-opacity="1" />
+                            <stop offset="82%" stop-color="#0EA5E9" stop-opacity="1" />
+                            <stop offset="100%" stop-color="#38BDF8" stop-opacity="0.38" />
                           </linearGradient>
                           <linearGradient id="wbAcBusGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#34D399" stop-opacity="0.35" />
-                            <stop offset="20%" stop-color="#6EE7B7" stop-opacity="0.98" />
-                            <stop offset="80%" stop-color="#10B981" stop-opacity="0.98" />
-                            <stop offset="100%" stop-color="#34D399" stop-opacity="0.35" />
+                            <stop offset="0%" stop-color="#34D399" stop-opacity="0.38" />
+                            <stop offset="18%" stop-color="#6EE7B7" stop-opacity="1" />
+                            <stop offset="82%" stop-color="#10B981" stop-opacity="1" />
+                            <stop offset="100%" stop-color="#34D399" stop-opacity="0.38" />
                           </linearGradient>
-                          <filter id="wbBusGlow" x="-60%" y="-8%" width="220%" height="116%">
-                            <feGaussianBlur stdDeviation="2.6" result="blur" />
+                          <filter id="wbBusGlow" x="-60%" y="-6%" width="220%" height="112%">
+                            <feGaussianBlur stdDeviation="2.8" result="blur" />
                             <feMerge>
                               <feMergeNode in="blur" />
                               <feMergeNode in="SourceGraphic" />
                             </feMerge>
                           </filter>
                         </defs>
-                        <!-- 全息仙气呼吸星环 -->
-                        <circle class="wb-halo-ring" cx="520" cy="190" r="118" />
-                        <circle class="wb-halo-ring is-outer" cx="520" cy="190" r="142" style="transform-origin: 520px 190px;" />
+
+                        <!-- 中枢背光柔和双星环（居中环绕中枢，不穿插上下卡片） -->
+                        <circle class="wb-halo-ring" cx="480" cy="235" r="76" />
+                        <circle class="wb-halo-ring is-outer" cx="480" cy="235" r="94" style="transform-origin: 480px 235px;" />
 
                         <!-- 顶部区段栏 -->
-                        <text class="ef-zone-title" x="20" y="22" data-i18n="overview.dcSide">直流侧 (750V)</text>
-                        <text id="wbDcSummary" class="ef-zone-sub mono" x="324" y="22" text-anchor="end">--</text>
-                        <text id="wbCenterBanner" class="ef-zone-sub mono" x="520" y="22" text-anchor="middle">--</text>
-                        <text class="ef-zone-title" x="716" y="22" data-i18n="overview.acSide">交流侧 (380V)</text>
-                        <text id="wbAcSummary" class="ef-zone-sub mono" x="1020" y="22" text-anchor="end">--</text>
+                        <text class="ef-zone-title" x="14" y="22" data-i18n="overview.dcSide">直流侧 (750V)</text>
+                        <text id="wbDcSummary" class="ef-zone-sub mono" x="266" y="22" text-anchor="end">--</text>
+                        <text id="wbCenterBanner" class="ef-zone-sub mono" x="480" y="22" text-anchor="middle">--</text>
+                        <text class="ef-zone-title" x="694" y="22" data-i18n="overview.acSide">交流侧 (380V)</text>
+                        <text id="wbAcSummary" class="ef-zone-sub mono" x="946" y="22" text-anchor="end">--</text>
 
                         <!-- 能量流连接支路 -->
                         <g class="ef-links">
                           <!-- DC 4 支路 -->
-                          <path class="ef-rail" d="M 252 81 L 332 81" />
-                          <path id="wbFlowDcWind" class="ef-flow" stroke="#0EA5E9" d="M 252 81 L 332 81" />
-                          <path class="ef-rail" d="M 252 171 L 332 171" />
-                          <path id="wbFlowDcPv" class="ef-flow" stroke="#F59E0B" d="M 252 171 L 332 171" />
-                          <path class="ef-rail" d="M 252 261 L 332 261" />
-                          <path id="wbFlowDcStorage" class="ef-flow" stroke="#10B981" d="M 252 261 L 332 261" />
-                          <path class="ef-rail" d="M 332 351 L 252 351" />
-                          <path id="wbFlowDcLoad" class="ef-flow" stroke="#8B5CF6" d="M 332 351 L 252 351" />
+                          <path class="ef-rail" d="M 230 94 L 276 94" />
+                          <path id="wbFlowDcWind" class="ef-flow" stroke="#0EA5E9" d="M 230 94 L 276 94" />
+                          <path class="ef-rail" d="M 230 202 L 276 202" />
+                          <path id="wbFlowDcPv" class="ef-flow" stroke="#F59E0B" d="M 230 202 L 276 202" />
+                          <path class="ef-rail" d="M 230 310 L 276 310" />
+                          <path id="wbFlowDcStorage" class="ef-flow" stroke="#10B981" d="M 230 310 L 276 310" />
+                          <path class="ef-rail" d="M 276 418 L 230 418" />
+                          <path id="wbFlowDcLoad" class="ef-flow" stroke="#8B5CF6" d="M 276 418 L 230 418" />
 
                           <!-- 中枢上桥：DC/AC 双向变流 -->
-                          <path class="ef-rail" d="M 338 84 L 424 84" />
-                          <path id="wbFlowAcdcL" class="ef-flow" stroke="#38BDF8" d="M 338 84 L 424 84" />
-                          <path class="ef-rail" d="M 616 84 L 702 84" />
-                          <path id="wbFlowAcdcR" class="ef-flow" stroke="#38BDF8" d="M 616 84 L 702 84" />
+                          <path class="ef-rail" d="M 284 94 L 352 94" />
+                          <path id="wbFlowAcdcL" class="ef-flow" stroke="#38BDF8" d="M 284 94 L 352 94" />
+                          <path class="ef-rail" d="M 608 94 L 676 94" />
+                          <path id="wbFlowAcdcR" class="ef-flow" stroke="#38BDF8" d="M 608 94 L 676 94" />
 
                           <!-- 中枢 AGC 脉冲控制信号线 -->
-                          <path class="wb-ctrl-pulse" d="M 520 148 L 520 120" />
-                          <path class="wb-ctrl-pulse" d="M 520 232 L 520 294" />
-                          <path class="wb-ctrl-pulse" d="M 412 190 L 338 190" />
-                          <path class="wb-ctrl-pulse" d="M 628 190 L 702 190" />
+                          <path class="wb-ctrl-pulse" d="M 480 178 L 480 136" />
+                          <path class="wb-ctrl-pulse" d="M 480 292 L 480 348" />
+                          <path class="wb-ctrl-pulse" d="M 336 235 L 284 235" />
+                          <path class="wb-ctrl-pulse" d="M 624 235 L 676 235" />
 
                           <!-- 中枢下环：电氢耦合链 AC -> ELZ -> H2 -> FC -> DC -->
-                          <path class="ef-rail" d="M 702 332 L 684 332" />
-                          <path id="wbFlowElzIn" class="ef-flow" stroke="#06B6D4" d="M 702 332 L 684 332" />
-                          <path class="ef-rail" d="M 576 332 L 552 332" />
-                          <path id="wbFlowElzH2" class="ef-flow" stroke="#38BDF8" d="M 576 332 L 552 332" />
-                          <path class="ef-rail" d="M 488 332 L 464 332" />
-                          <path id="wbFlowFcH2" class="ef-flow" stroke="#38BDF8" d="M 488 332 L 464 332" />
-                          <path class="ef-rail" d="M 356 332 L 338 332" />
-                          <path id="wbFlowFcOut" class="ef-flow" stroke="#10B981" d="M 356 332 L 338 332" />
+                          <path class="ef-rail" d="M 676 396 L 656 396" />
+                          <path id="wbFlowElzIn" class="ef-flow" stroke="#06B6D4" d="M 676 396 L 656 396" />
+                          <path class="ef-rail" d="M 544 396 L 520 396" />
+                          <path id="wbFlowElzH2" class="ef-flow" stroke="#38BDF8" d="M 544 396 L 520 396" />
+                          <path class="ef-rail" d="M 440 396 L 416 396" />
+                          <path id="wbFlowFcH2" class="ef-flow" stroke="#38BDF8" d="M 440 396 L 416 396" />
+                          <path class="ef-rail" d="M 304 396 L 284 396" />
+                          <path id="wbFlowFcOut" class="ef-flow" stroke="#10B981" d="M 304 396 L 284 396" />
 
                           <!-- AC 5 支路 -->
-                          <path class="ef-rail" d="M 788 74 L 708 74" />
-                          <path id="wbFlowAcWind" class="ef-flow" stroke="#0EA5E9" d="M 788 74 L 708 74" />
-                          <path class="ef-rail" d="M 788 148 L 708 148" />
-                          <path id="wbFlowAcPv" class="ef-flow" stroke="#F59E0B" d="M 788 148 L 708 148" />
-                          <path class="ef-rail" d="M 788 222 L 708 222" />
-                          <path id="wbFlowAcStorage" class="ef-flow" stroke="#10B981" d="M 788 222 L 708 222" />
-                          <path class="ef-rail" d="M 788 296 L 708 296" />
-                          <path id="wbFlowDiesel" class="ef-flow" stroke="#EF4444" d="M 788 296 L 708 296" />
-                          <path class="ef-rail" d="M 708 370 L 788 370" />
-                          <path id="wbFlowAcLoad" class="ef-flow" stroke="#8B5CF6" d="M 708 370 L 788 370" />
+                          <path class="ef-rail" d="M 730 85 L 684 85" />
+                          <path id="wbFlowAcWind" class="ef-flow" stroke="#0EA5E9" d="M 730 85 L 684 85" />
+                          <path class="ef-rail" d="M 730 170 L 684 170" />
+                          <path id="wbFlowAcPv" class="ef-flow" stroke="#F59E0B" d="M 730 170 L 684 170" />
+                          <path class="ef-rail" d="M 730 255 L 684 255" />
+                          <path id="wbFlowAcStorage" class="ef-flow" stroke="#10B981" d="M 730 255 L 684 255" />
+                          <path class="ef-rail" d="M 730 340 L 684 340" />
+                          <path id="wbFlowDiesel" class="ef-flow" stroke="#EF4444" d="M 730 340 L 684 340" />
+                          <path class="ef-rail" d="M 684 426 L 730 426" />
+                          <path id="wbFlowAcLoad" class="ef-flow" stroke="#8B5CF6" d="M 684 426 L 730 426" />
                         </g>
 
-                        <!-- 双垂直母线（自带流光晕层、实心能量核与汇流节点圆环，任何页面切换态均稳定显示） -->
+                        <!-- 双垂直母线（自带流光晕层、实心能量核与汇流节点圆环） -->
                         <g class="ef-buses">
                           <!-- 左：直流 750V 母线 -->
-                          <rect x="330" y="42" width="10" height="356" rx="5" fill="#38BDF8" fill-opacity="0.18" />
-                          <rect x="332" y="42" width="6" height="356" rx="3" fill="url(#wbDcBusGrad)" filter="url(#wbBusGlow)" />
-                          <line x1="335" y1="48" x2="335" y2="392" stroke="#E0F2FE" stroke-width="1.2" stroke-opacity="0.72" stroke-linecap="round" />
-                          <circle cx="335" cy="81" r="3.5" fill="#38E8DF" />
-                          <circle cx="335" cy="171" r="3.5" fill="#38E8DF" />
-                          <circle cx="335" cy="261" r="3.5" fill="#38E8DF" />
-                          <circle cx="335" cy="332" r="3.5" fill="#38E8DF" />
-                          <circle cx="335" cy="351" r="3.5" fill="#38E8DF" />
-                          <text class="ef-bus-cap mono" x="335" y="36" text-anchor="middle" fill="#38BDF8">DC 750V</text>
-                          <text class="ef-bus-foot" x="335" y="416" text-anchor="middle" data-i18n="overview.dcBus">直流母线</text>
+                          <rect x="275" y="48" width="10" height="416" rx="5" fill="#38BDF8" fill-opacity="0.18" />
+                          <rect x="277" y="48" width="6" height="416" rx="3" fill="url(#wbDcBusGrad)" filter="url(#wbBusGlow)" />
+                          <line x1="280" y1="54" x2="280" y2="458" stroke="#E0F2FE" stroke-width="1.3" stroke-opacity="0.75" stroke-linecap="round" />
+                          <circle cx="280" cy="94" r="3.8" fill="#38E8DF" />
+                          <circle cx="280" cy="202" r="3.8" fill="#38E8DF" />
+                          <circle cx="280" cy="310" r="3.8" fill="#38E8DF" />
+                          <circle cx="280" cy="396" r="3.8" fill="#38E8DF" />
+                          <circle cx="280" cy="418" r="3.8" fill="#38E8DF" />
+                          <text class="ef-bus-cap mono" x="280" y="40" text-anchor="middle" fill="#38BDF8">DC 750V</text>
+                          <text class="ef-bus-foot" x="280" y="484" text-anchor="middle" data-i18n="overview.dcBus">直流母线</text>
 
                           <!-- 右：交流 380V 母线 -->
-                          <rect x="700" y="42" width="10" height="356" rx="5" fill="#34D399" fill-opacity="0.18" />
-                          <rect x="702" y="42" width="6" height="356" rx="3" fill="url(#wbAcBusGrad)" filter="url(#wbBusGlow)" />
-                          <line x1="705" y1="48" x2="705" y2="392" stroke="#D1FAE5" stroke-width="1.2" stroke-opacity="0.72" stroke-linecap="round" />
-                          <circle cx="705" cy="74" r="3.5" fill="#6EE7B7" />
-                          <circle cx="705" cy="148" r="3.5" fill="#6EE7B7" />
-                          <circle cx="705" cy="222" r="3.5" fill="#6EE7B7" />
-                          <circle cx="705" cy="296" r="3.5" fill="#6EE7B7" />
-                          <circle cx="705" cy="332" r="3.5" fill="#6EE7B7" />
-                          <circle cx="705" cy="370" r="3.5" fill="#6EE7B7" />
-                          <text class="ef-bus-cap mono" x="705" y="36" text-anchor="middle" fill="#34D399">AC 380V</text>
-                          <text class="ef-bus-foot" x="705" y="416" text-anchor="middle" data-i18n="overview.acBus">交流母线</text>
+                          <rect x="675" y="48" width="10" height="416" rx="5" fill="#34D399" fill-opacity="0.18" />
+                          <rect x="677" y="48" width="6" height="416" rx="3" fill="url(#wbAcBusGrad)" filter="url(#wbBusGlow)" />
+                          <line x1="680" y1="54" x2="680" y2="458" stroke="#D1FAE5" stroke-width="1.3" stroke-opacity="0.75" stroke-linecap="round" />
+                          <circle cx="680" cy="85" r="3.8" fill="#6EE7B7" />
+                          <circle cx="680" cy="94" r="3.8" fill="#38BDF8" />
+                          <circle cx="680" cy="170" r="3.8" fill="#6EE7B7" />
+                          <circle cx="680" cy="255" r="3.8" fill="#6EE7B7" />
+                          <circle cx="680" cy="340" r="3.8" fill="#6EE7B7" />
+                          <circle cx="680" cy="396" r="3.8" fill="#6EE7B7" />
+                          <circle cx="680" cy="426" r="3.8" fill="#6EE7B7" />
+                          <text class="ef-bus-cap mono" x="680" y="40" text-anchor="middle" fill="#34D399">AC 380V</text>
+                          <text class="ef-bus-foot" x="680" y="484" text-anchor="middle" data-i18n="overview.acBus">交流母线</text>
                         </g>
 
-                        <!-- 左翼 4 个直流节点（温润圆角 + 直观符号） -->
+                        <!-- 左翼 4 个直流节点（舒展高卡片 + 大号清晰字号） -->
                         <g class="wb-svg-node" id="wbNodeDcWind" data-wb-tab="dc-wind">
-                          <rect class="wb-svg-card" x="20" y="44" width="232" height="74" rx="14" />
-                          <text class="wb-svg-title" x="32" y="63"><tspan fill="#38BDF8">✦ </tspan><tspan data-i18n="cat.dcWind">直流风电</tspan></text>
-                          <text class="wb-svg-meta" x="240" y="63" text-anchor="end" data-wb-meta>10台</text>
-                          <text class="wb-svg-val" x="32" y="88" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="32" y="107" data-wb-tgt>◎ --</text>
-                          <text class="wb-svg-tgt" x="240" y="107" text-anchor="end" data-wb-delta>Δ0.0</text>
+                          <rect class="wb-svg-card" x="14" y="48" width="216" height="92" rx="14" />
+                          <text class="wb-svg-title" x="26" y="71"><tspan fill="#38BDF8">✦ </tspan><tspan data-i18n="cat.dcWind">直流风电</tspan></text>
+                          <text class="wb-svg-meta" x="218" y="71" text-anchor="end" data-wb-meta>10台</text>
+                          <text class="wb-svg-val" x="26" y="102" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="26" y="126" data-wb-tgt>◎ --</text>
+                          <text class="wb-svg-tgt" x="218" y="126" text-anchor="end" data-wb-delta>Δ0.0</text>
                         </g>
 
                         <g class="wb-svg-node" id="wbNodeDcPv" data-wb-tab="dc-pv">
-                          <rect class="wb-svg-card" x="20" y="134" width="232" height="74" rx="14" />
-                          <text class="wb-svg-title" x="32" y="153"><tspan fill="#FBBF24">☀ </tspan><tspan data-i18n="cat.dcPv">直流光伏</tspan></text>
-                          <text class="wb-svg-meta" x="240" y="153" text-anchor="end" data-wb-meta>3台</text>
-                          <text class="wb-svg-val" x="32" y="178" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="32" y="197" data-wb-tgt>◎ --</text>
-                          <text class="wb-svg-tgt" x="240" y="197" text-anchor="end" data-wb-delta>Δ0.0</text>
+                          <rect class="wb-svg-card" x="14" y="156" width="216" height="92" rx="14" />
+                          <text class="wb-svg-title" x="26" y="179"><tspan fill="#FBBF24">☀ </tspan><tspan data-i18n="cat.dcPv">直流光伏</tspan></text>
+                          <text class="wb-svg-meta" x="218" y="179" text-anchor="end" data-wb-meta>3台</text>
+                          <text class="wb-svg-val" x="26" y="210" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="26" y="234" data-wb-tgt>◎ --</text>
+                          <text class="wb-svg-tgt" x="218" y="234" text-anchor="end" data-wb-delta>Δ0.0</text>
                         </g>
 
                         <g class="wb-svg-node" id="wbNodeDcStorage" data-wb-tab="dc-grid-storage">
-                          <rect class="wb-svg-card" x="20" y="224" width="232" height="74" rx="14" />
-                          <text class="wb-svg-title" x="32" y="243"><tspan fill="#34D399">◈ </tspan><tspan data-i18n="cat.dcStorage">直流储能</tspan></text>
-                          <text class="wb-svg-meta" x="196" y="243" text-anchor="end" data-wb-meta>SOC --%</text>
-                          <text class="wb-svg-val" x="32" y="268" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="32" y="287" data-wb-tgt>◎ --</text>
-                          <text class="wb-svg-tgt" x="196" y="287" text-anchor="end" data-wb-delta>Δ0.0</text>
-                          <circle class="ef-ring-track" cx="224" cy="261" r="17" />
-                          <circle class="ef-ring-prog" data-wb-ring cx="224" cy="261" r="17" stroke="#10B981" transform="rotate(-90 224 261)" />
+                          <rect class="wb-svg-card" x="14" y="264" width="216" height="92" rx="14" />
+                          <text class="wb-svg-title" x="26" y="287"><tspan fill="#34D399">◈ </tspan><tspan data-i18n="cat.dcStorage">直流储能</tspan></text>
+                          <text class="wb-svg-meta" x="178" y="287" text-anchor="end" data-wb-meta>SOC --%</text>
+                          <text class="wb-svg-val" x="26" y="318" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="26" y="342" data-wb-tgt>◎ --</text>
+                          <text class="wb-svg-tgt" x="178" y="342" text-anchor="end" data-wb-delta>Δ0.0</text>
+                          <circle class="ef-ring-track" cx="204" cy="310" r="17" />
+                          <circle class="ef-ring-prog" data-wb-ring cx="204" cy="310" r="17" stroke="#10B981" transform="rotate(-90 204 310)" />
                         </g>
 
                         <g class="wb-svg-node" id="wbNodeDcLoad" data-wb-diag="DCLoad">
-                          <rect class="wb-svg-card" x="20" y="314" width="232" height="74" rx="14" />
-                          <text class="wb-svg-title" x="32" y="333"><tspan fill="#A78BFA">⚡ </tspan><tspan data-i18n="cat.dcLoad">直流负荷</tspan></text>
-                          <text class="wb-svg-meta" x="240" y="333" text-anchor="end">750V</text>
-                          <text class="wb-svg-val" x="32" y="358" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="32" y="377" data-wb-tgt>◔ --%</text>
+                          <rect class="wb-svg-card" x="14" y="372" width="216" height="92" rx="14" />
+                          <text class="wb-svg-title" x="26" y="395"><tspan fill="#A78BFA">⚡ </tspan><tspan data-i18n="cat.dcLoad">直流负荷</tspan></text>
+                          <text class="wb-svg-meta" x="218" y="395" text-anchor="end">750V</text>
+                          <text class="wb-svg-val" x="26" y="426" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="26" y="450" data-wb-tgt>◔ --%</text>
                         </g>
 
-                        <!-- 中枢上桥：DC/AC 双向变流器 -->
+                        <!-- 中枢上桥：DC/AC 双向变流器（加宽加高，与中枢核留足 42px 呼吸间距） -->
                         <g class="wb-svg-node" id="wbNodeAcdc" data-wb-tab="converter">
-                          <rect class="wb-svg-card" x="424" y="50" width="192" height="68" rx="14" />
-                          <text class="wb-svg-title" x="436" y="68"><tspan fill="#38BDF8">⇄ </tspan><tspan data-i18n="cat.converter">ACDC变流</tspan></text>
-                          <text class="ef-hub-dir mono" x="604" y="68" text-anchor="end" data-wb-dir>◀━▶</text>
-                          <text class="wb-svg-val" x="436" y="91" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="436" y="109" data-wb-tgt>◎ --</text>
-                          <text class="wb-svg-tgt" x="604" y="109" text-anchor="end" data-wb-delta>Δ0.0</text>
+                          <rect class="wb-svg-card" x="352" y="52" width="256" height="84" rx="16" />
+                          <text class="wb-svg-title" x="368" y="75"><tspan fill="#38BDF8">⇄ </tspan><tspan data-i18n="cat.converter">ACDC变流</tspan></text>
+                          <text class="ef-hub-dir mono" x="592" y="75" text-anchor="end" data-wb-dir>◀━▶</text>
+                          <text class="wb-svg-val" x="368" y="105" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="368" y="126" data-wb-tgt>◎ --</text>
+                          <text class="wb-svg-tgt" x="592" y="126" text-anchor="end" data-wb-delta>Δ0.0</text>
                         </g>
 
-                        <!-- 中枢核心：AGC 协调优化引擎 -->
+                        <!-- 中枢核心：AGC 协调优化引擎（宽敞核心舱，字大清晰） -->
                         <g class="wb-svg-node" id="wbCoreEngine" data-wb-tab="all">
-                          <rect class="wb-svg-core" x="412" y="148" width="216" height="84" rx="18" />
-                          <text class="wb-svg-title" x="520" y="169" text-anchor="middle">✦ AGC 协调优化中枢</text>
-                          <text id="wbCoreMain" class="wb-svg-val" x="520" y="195" text-anchor="middle">--</text>
-                          <text id="wbCoreSub" class="wb-svg-tgt" x="520" y="217" text-anchor="middle">--</text>
+                          <rect class="wb-svg-core" x="336" y="178" width="288" height="114" rx="20" />
+                          <text class="wb-svg-title wb-core-title" x="480" y="205" text-anchor="middle">✦ AGC 协调优化中枢</text>
+                          <text id="wbCoreMain" class="wb-svg-val wb-core-val" x="480" y="241" text-anchor="middle">--</text>
+                          <text id="wbCoreSub" class="wb-svg-tgt wb-core-sub" x="480" y="272" text-anchor="middle">--</text>
                         </g>
 
-                        <!-- 中枢下环：燃料电池 <- 储氢罐 <- 电制氢 -->
+                        <!-- 中枢下环：燃料电池 <- 储氢罐（大直径环形舱） <- 电制氢 -->
                         <g class="wb-svg-node" id="wbNodeFc" data-wb-tab="hydrogen">
-                          <rect class="wb-svg-card" x="356" y="294" width="108" height="76" rx="14" />
-                          <text class="wb-svg-title" x="410" y="313" text-anchor="middle"><tspan fill="#34D399">◈ </tspan><tspan data-i18n="cat.fuelCell">燃料电池</tspan></text>
-                          <text class="wb-svg-val" x="410" y="338" text-anchor="middle" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="410" y="357" text-anchor="middle" data-wb-tgt>-- Nm³/h</text>
+                          <rect class="wb-svg-card" x="304" y="344" width="112" height="104" rx="15" />
+                          <text class="wb-svg-title" x="360" y="370" text-anchor="middle"><tspan fill="#34D399">◈ </tspan><tspan data-i18n="cat.fuelCell">燃料电池</tspan></text>
+                          <text class="wb-svg-val" x="360" y="403" text-anchor="middle" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="360" y="431" text-anchor="middle" data-wb-tgt>-- Nm³/h</text>
                         </g>
 
                         <g class="wb-svg-node" id="wbNodeH2Tank" data-wb-tab="hydrogen">
-                          <circle class="ef-node-ring" cx="520" cy="332" r="30" />
-                          <circle class="ef-ring-track" cx="520" cy="332" r="26" />
-                          <circle class="ef-ring-prog" data-wb-ring cx="520" cy="332" r="26" stroke="#06B6D4" transform="rotate(-90 520 332)" />
-                          <text class="ef-tank-pct mono" x="520" y="329" text-anchor="middle" data-wb-cur>--%</text>
-                          <text class="ef-tank-sub mono" x="520" y="344" text-anchor="middle" data-wb-tgt>-- MPa</text>
-                          <text class="ef-bus-foot" x="520" y="378" text-anchor="middle" data-i18n="cat.hydroTank">储氢罐</text>
+                          <circle class="ef-node-ring" cx="480" cy="392" r="41" />
+                          <circle class="ef-ring-track" cx="480" cy="392" r="35" />
+                          <circle class="ef-ring-prog" data-wb-ring cx="480" cy="392" r="35" stroke="#06B6D4" transform="rotate(-90 480 392)" />
+                          <text class="ef-tank-pct mono" x="480" y="389" text-anchor="middle" data-wb-cur>--%</text>
+                          <text class="ef-tank-sub mono" x="480" y="408" text-anchor="middle" data-wb-tgt>-- MPa</text>
+                          <text class="ef-bus-foot" x="480" y="452" text-anchor="middle" data-i18n="cat.hydroTank">储氢罐</text>
                         </g>
 
                         <g class="wb-svg-node" id="wbNodeElz" data-wb-tab="hydrogen">
-                          <rect class="wb-svg-card" x="576" y="294" width="108" height="76" rx="14" />
-                          <text class="wb-svg-title" x="630" y="313" text-anchor="middle"><tspan fill="#22D3EE">💧 </tspan><tspan data-i18n="cat.electrolyzer">电制氢</tspan></text>
-                          <text class="wb-svg-val" x="630" y="338" text-anchor="middle" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="630" y="357" text-anchor="middle" data-wb-tgt>-- Nm³/h</text>
+                          <rect class="wb-svg-card" x="544" y="344" width="112" height="104" rx="15" />
+                          <text class="wb-svg-title" x="600" y="370" text-anchor="middle"><tspan fill="#22D3EE">💧 </tspan><tspan data-i18n="cat.electrolyzer">电制氢</tspan></text>
+                          <text class="wb-svg-val" x="600" y="403" text-anchor="middle" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="600" y="431" text-anchor="middle" data-wb-tgt>-- Nm³/h</text>
                         </g>
 
-                        <!-- 右翼 5 个交流节点 -->
+                        <!-- 右翼 5 个交流节点（高度升至 74px，行距舒展） -->
                         <g class="wb-svg-node" id="wbNodeAcWind" data-wb-tab="ac-wind">
-                          <rect class="wb-svg-card" x="788" y="42" width="232" height="64" rx="14" />
-                          <text class="wb-svg-title" x="800" y="60"><tspan fill="#38BDF8">✦ </tspan><tspan data-i18n="cat.acWind">交流风电</tspan></text>
-                          <text class="wb-svg-meta" x="1008" y="60" text-anchor="end" data-wb-meta>1台</text>
-                          <text class="wb-svg-val" x="800" y="82" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="800" y="98" data-wb-tgt>◎ --</text>
-                          <text class="wb-svg-tgt" x="1008" y="98" text-anchor="end" data-wb-delta>Δ0.0</text>
+                          <rect class="wb-svg-card" x="730" y="48" width="216" height="74" rx="14" />
+                          <text class="wb-svg-title" x="742" y="68"><tspan fill="#38BDF8">✦ </tspan><tspan data-i18n="cat.acWind">交流风电</tspan></text>
+                          <text class="wb-svg-meta" x="934" y="68" text-anchor="end" data-wb-meta>1台</text>
+                          <text class="wb-svg-val" x="742" y="94" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="742" y="113" data-wb-tgt>◎ --</text>
+                          <text class="wb-svg-tgt" x="934" y="113" text-anchor="end" data-wb-delta>Δ0.0</text>
                         </g>
 
                         <g class="wb-svg-node" id="wbNodeAcPv" data-wb-tab="ac-pv">
-                          <rect class="wb-svg-card" x="788" y="116" width="232" height="64" rx="14" />
-                          <text class="wb-svg-title" x="800" y="134"><tspan fill="#FBBF24">☀ </tspan><tspan data-i18n="cat.acPv">交流光伏</tspan></text>
-                          <text class="wb-svg-meta" x="1008" y="134" text-anchor="end" data-wb-meta>1台</text>
-                          <text class="wb-svg-val" x="800" y="156" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="800" y="172" data-wb-tgt>◎ --</text>
-                          <text class="wb-svg-tgt" x="1008" y="172" text-anchor="end" data-wb-delta>Δ0.0</text>
+                          <rect class="wb-svg-card" x="730" y="133" width="216" height="74" rx="14" />
+                          <text class="wb-svg-title" x="742" y="153"><tspan fill="#FBBF24">☀ </tspan><tspan data-i18n="cat.acPv">交流光伏</tspan></text>
+                          <text class="wb-svg-meta" x="934" y="153" text-anchor="end" data-wb-meta>1台</text>
+                          <text class="wb-svg-val" x="742" y="179" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="742" y="198" data-wb-tgt>◎ --</text>
+                          <text class="wb-svg-tgt" x="934" y="198" text-anchor="end" data-wb-delta>Δ0.0</text>
                         </g>
 
                         <g class="wb-svg-node" id="wbNodeAcStorage" data-wb-tab="ac-grid-storage">
-                          <rect class="wb-svg-card" x="788" y="190" width="232" height="64" rx="14" />
-                          <text class="wb-svg-title" x="800" y="208"><tspan fill="#34D399">◈ </tspan><tspan data-i18n="cat.acStorage">交流储能</tspan></text>
-                          <text class="wb-svg-meta" x="968" y="208" text-anchor="end" data-wb-meta>SOC --%</text>
-                          <text class="wb-svg-val" x="800" y="230" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="800" y="246" data-wb-tgt>◎ --</text>
-                          <text class="wb-svg-tgt" x="968" y="246" text-anchor="end" data-wb-delta>Δ0.0</text>
-                          <circle class="ef-ring-track" cx="994" cy="222" r="15" />
-                          <circle class="ef-ring-prog" data-wb-ring cx="994" cy="222" r="15" stroke="#10B981" transform="rotate(-90 994 222)" />
+                          <rect class="wb-svg-card" x="730" y="218" width="216" height="74" rx="14" />
+                          <text class="wb-svg-title" x="742" y="238"><tspan fill="#34D399">◈ </tspan><tspan data-i18n="cat.acStorage">交流储能</tspan></text>
+                          <text class="wb-svg-meta" x="896" y="238" text-anchor="end" data-wb-meta>SOC --%</text>
+                          <text class="wb-svg-val" x="742" y="264" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="742" y="283" data-wb-tgt>◎ --</text>
+                          <text class="wb-svg-tgt" x="896" y="283" text-anchor="end" data-wb-delta>Δ0.0</text>
+                          <circle class="ef-ring-track" cx="921" cy="255" r="15" />
+                          <circle class="ef-ring-prog" data-wb-ring cx="921" cy="255" r="15" stroke="#10B981" transform="rotate(-90 921 255)" />
                         </g>
 
                         <g class="wb-svg-node" id="wbNodeDiesel" data-wb-tab="diesel">
-                          <rect class="wb-svg-card" x="788" y="264" width="232" height="64" rx="14" />
-                          <text class="wb-svg-title" x="800" y="282"><tspan fill="#FB7185">🔥 </tspan><tspan data-i18n="cat.diesel">柴发</tspan></text>
-                          <text class="wb-svg-meta" x="1008" y="282" text-anchor="end" data-wb-meta>↧ --</text>
-                          <text class="wb-svg-val" x="800" y="304" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="800" y="320" data-wb-tgt>◎ --</text>
-                          <text class="wb-svg-tgt" x="1008" y="320" text-anchor="end" data-wb-delta>Δ0.0</text>
+                          <rect class="wb-svg-card" x="730" y="303" width="216" height="74" rx="14" />
+                          <text class="wb-svg-title" x="742" y="323"><tspan fill="#FB7185">🔥 </tspan><tspan data-i18n="cat.diesel">柴发</tspan></text>
+                          <text class="wb-svg-meta" x="934" y="323" text-anchor="end" data-wb-meta>↧ --</text>
+                          <text class="wb-svg-val" x="742" y="349" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="742" y="368" data-wb-tgt>◎ --</text>
+                          <text class="wb-svg-tgt" x="934" y="368" text-anchor="end" data-wb-delta>Δ0.0</text>
                         </g>
 
                         <g class="wb-svg-node" id="wbNodeAcLoad" data-wb-diag="ACLoad">
-                          <rect class="wb-svg-card" x="788" y="338" width="232" height="64" rx="14" />
-                          <text class="wb-svg-title" x="800" y="356"><tspan fill="#A78BFA">⚡ </tspan><tspan data-i18n="cat.acLoad">交流负荷</tspan></text>
-                          <text class="wb-svg-meta" x="1008" y="356" text-anchor="end">380V</text>
-                          <text class="wb-svg-val" x="800" y="378" data-wb-cur>-- kW</text>
-                          <text class="wb-svg-tgt" x="800" y="394" data-wb-tgt>◔ --%</text>
+                          <rect class="wb-svg-card" x="730" y="388" width="216" height="76" rx="14" />
+                          <text class="wb-svg-title" x="742" y="408"><tspan fill="#A78BFA">⚡ </tspan><tspan data-i18n="cat.acLoad">交流负荷</tspan></text>
+                          <text class="wb-svg-meta" x="934" y="408" text-anchor="end">380V</text>
+                          <text class="wb-svg-val" x="742" y="435" data-wb-cur>-- kW</text>
+                          <text class="wb-svg-tgt" x="742" y="454" data-wb-tgt>◔ --%</text>
                         </g>
                       </svg>
                     </div>
@@ -1944,13 +1946,13 @@
 
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-    <script defer src="/js/00-i18n.js?v=20261127-fix30"></script>
-    <script defer src="/js/01-core.js?v=20261127-fix30"></script>
-    <script defer src="/js/02-overview-diagram.js?v=20261127-fix30"></script>
-    <script defer src="/js/03-agc-control.js?v=20261127-fix30"></script>
-    <script defer src="/js/04-monitor-pages.js?v=20261127-fix30"></script>
-    <script defer src="/js/06-device-config.js?v=20261127-fix30"></script>
-    <script defer src="/js/07-wallboard.js?v=20261127-fix30"></script>
-    <script defer src="/js/05-bootstrap.js?v=20261127-fix30"></script>
+    <script defer src="/js/00-i18n.js?v=20261127-fix31"></script>
+    <script defer src="/js/01-core.js?v=20261127-fix31"></script>
+    <script defer src="/js/02-overview-diagram.js?v=20261127-fix31"></script>
+    <script defer src="/js/03-agc-control.js?v=20261127-fix31"></script>
+    <script defer src="/js/04-monitor-pages.js?v=20261127-fix31"></script>
+    <script defer src="/js/06-device-config.js?v=20261127-fix31"></script>
+    <script defer src="/js/07-wallboard.js?v=20261127-fix31"></script>
+    <script defer src="/js/05-bootstrap.js?v=20261127-fix31"></script>
   </body>
 </html>
